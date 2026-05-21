@@ -47,6 +47,7 @@ EVENTS = [
     "mt_down",
     "login_failure",
     "login_locked",
+    "whitelist_hit",
     "hourly_digest",
     "daily_digest",
 ]
@@ -160,6 +161,7 @@ DEFAULTS = {
     "mt_down": True,
     "login_failure": False,
     "login_locked": True,
+    "whitelist_hit": False,
     "hourly_digest": False,
     "daily_digest": True,
 }

@@ -242,6 +242,14 @@ class Poller:
             except Exception as e:  # noqa: BLE001
                 log.debug("alerts mirror swallowed: %s", e)
 
+        # Daily digest — internally no-ops until the calendar day changes,
+        # so this is cheap to call every cycle.
+        try:
+            import digest
+            digest.maybe_fire_daily()
+        except Exception as e:  # noqa: BLE001
+            log.debug("digest swallowed: %s", e)
+
     def _envstr(self, name: str) -> str:
         return (os.environ.get(name, "") or "").split("#", 1)[0].strip()
 

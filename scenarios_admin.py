@@ -307,6 +307,33 @@ def record_whitelist_hit(ip: str, whitelist_id: int, scenario: str = "") -> None
         )
     finally:
         conn.close()
+    # Edge-triggered notification: only fire when we haven't seen this exact
+    # (ip, whitelist_id) hit recently (last hour). The reconciler matches
+    # whitelists on every cycle, so without dedup the same hit would fire
+    # 6+ notifications/minute.
+    try:
+        recent = conn = get_conn()
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM whitelist_hits "
+                "WHERE ip = ? AND whitelist_id = ? AND created_at > datetime('now', '-1 hour')",
+                (ip, whitelist_id),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        if n <= 1:  # this is the first hit in the last hour (the one we just inserted)
+            import notifications, siem
+            notifications.send(
+                "whitelist_hit",
+                f"Whitelist rule #{whitelist_id} matched {ip} (scenario: {scenario or 'n/a'}). "
+                f"Decision NOT pushed to bouncers.",
+                subject=f"Whitelist saved {ip}",
+            )
+            siem.ship("whitelist.hit", {
+                "ip": ip, "whitelist_id": whitelist_id, "scenario": scenario,
+            })
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ── Approval queue (semi-auto mode) ────────────────────────────────────────
