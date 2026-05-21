@@ -25,6 +25,10 @@ dnspython>=2.6,<3.0
 # Encrypted bundle (Arc 7 phase 41)
 cryptography>=42.0,<50.0
 
+# ML anomaly layer (Arc 10 phase 62) — Isolation Forest over per-IP features
+scikit-learn>=1.4,<2.0
+numpy>=1.26,<3.0
+
 # Dev
 pytest>=8.0,<9.0
 pytest-mock>=3.12,<4.0

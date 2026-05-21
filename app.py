@@ -1317,6 +1317,33 @@ def api_external_health():
     return jsonify(ok=True, service="protek", api="external"), 200
 
 
+@app.route("/api/external/honeypot/callback", methods=["POST"])
+@csrf.exempt
+def api_external_honeypot_callback():
+    """Operator's honeypot reports a verified attacker (phase 61).
+    Auth: API token with `write` scope. Body: {"ip": "...", "metadata": {...}}.
+    Tags the IP as `honeypot-confirmed` and ships a SIEM event."""
+    import api_tokens as at
+    raw = ""
+    auth_hdr = request.headers.get("Authorization", "")
+    if auth_hdr.startswith("Bearer "):
+        raw = auth_hdr[7:].strip()
+    elif request.headers.get("X-Protek-Token"):
+        raw = request.headers.get("X-Protek-Token", "").strip()
+    tok = at.lookup(raw) if raw else None
+    if not tok:
+        return jsonify(error="unauthorized"), 401
+    if not at.has_scope(tok, "write"):
+        return jsonify(error="insufficient_scope", required="write"), 403
+    data = request.get_json(silent=True) or {}
+    ip = (data.get("ip") or "").strip()
+    if not ip:
+        return jsonify(error="ip required"), 400
+    import honeypot
+    honeypot.record_callback(ip, data.get("metadata") or data)
+    return jsonify(ok=True, ip=ip, tagged="honeypot-confirmed"), 202
+
+
 @app.route("/audit")
 @login_required
 def audit_page():
@@ -1753,6 +1780,38 @@ def api_search():
     finally:
         conn.close()
     return jsonify(items=out, count=len(out), q=q)
+
+
+@app.route("/asn-escalations")
+@login_required
+def asn_escalations_page():
+    import asn_detector
+    pending = asn_detector.list_escalations(status="pending", limit=200)
+    decided = asn_detector.list_escalations(status=None, limit=50)
+    decided = [d for d in decided if d["status"] != "pending"]
+    return render_template(
+        "asn_escalations.html",
+        pending=pending,
+        decided=decided[:50],
+        active="asn_escalations",
+    )
+
+
+@app.route("/asn-escalations/decide/<int:eid>", methods=["POST"])
+@login_required
+@role_required("operator")
+def asn_escalations_decide(eid: int):
+    import asn_detector
+    decision = (request.form.get("decision") or "").strip()
+    note = (request.form.get("note") or "").strip()
+    try:
+        result = asn_detector.decide(eid, decision,
+                                      decided_by=session.get("username", ""),
+                                      note=note)
+        flash(f"ASN {result['asn']} {decision}.", "info")
+    except ValueError as e:
+        flash(str(e), "error")
+    return redirect(url_for("asn_escalations_page"))
 
 
 @app.route("/decisions/bulk", methods=["POST"])
@@ -2266,8 +2325,26 @@ def attacker_page(ip: str):
         abuse_body=abuse_body,
         atom_url=(get_setting("integrations.atom_url") or _envstr("ATOM_URL", "")),
         othoni_url=(get_setting("integrations.othoni_url") or _envstr("OTHONI_URL", "")),
+        rep_score=_reputation_for(ip),
+        ip_tags=_tags_for(ip),
         active="attackers",
     )
+
+
+def _reputation_for(ip: str) -> dict:
+    try:
+        import reputation as _rep
+        return _rep.get_or_compute(ip)
+    except Exception:  # noqa: BLE001
+        return {"score": 0, "tier": "monitor", "breakdown": {}}
+
+
+def _tags_for(ip: str) -> list:
+    try:
+        import intel_providers
+        return intel_providers.ip_tags(ip)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 @app.route("/attackers/<ip>/refresh", methods=["POST"])

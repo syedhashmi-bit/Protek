@@ -344,6 +344,40 @@ OPENAPI_SPEC: dict[str, Any] = {
 }
 
 
+@bp.route("/ml/anomalies")
+@at.require_token("read")
+def v1_ml_anomalies():
+    """Top-N anomalous IPs from isolation-forest scoring (phase 62)."""
+    import ml_anomaly
+    try:
+        n = max(1, min(500, int(request.args.get("n", "50"))))
+    except (TypeError, ValueError):
+        n = 50
+    return jsonify(ml_anomaly.score(top_n=n))
+
+
+@bp.route("/honeypot/targets")
+@at.require_token("read")
+def v1_honeypot_targets():
+    """List of IPs the operator's honeypot should claim (phase 61).
+    Empty when honeypot.enabled=0 or no qualifying IPs."""
+    import honeypot
+    try:
+        limit = max(1, min(10000, int(request.args.get("limit", "1000"))))
+    except (TypeError, ValueError):
+        limit = 1000
+    return jsonify(enabled=honeypot.is_enabled(),
+                    targets=honeypot.list_targets(limit=limit))
+
+
+@bp.route("/reputation/<ip>")
+@at.require_token("read")
+def v1_reputation(ip: str):
+    """Composite reputation score for one IP (phase 58)."""
+    import reputation as _rep
+    return jsonify(_rep.get_or_compute(ip))
+
+
 @bp.route("/search")
 @at.require_token("read")
 def v1_search():

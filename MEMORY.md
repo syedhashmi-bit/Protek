@@ -4,6 +4,199 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-21 — Arc 10 shipped (phases 57–62) · Intelligence v2 · 63 of 80 phases complete
+
+**State at pause:** Six Intelligence v2 phases done in one push. ASN-level
+escalation, composite reputation scoring, three new intel providers (AbuseIPDB
+/ OTX / Spamhaus), Tor exit + proxy/VPN tagging, honeypot routing scaffold,
+and a sklearn isolation-forest anomaly layer. Arc 11 (Resilience) deferred
+to a later session at operator's request.
+
+### Phase 57 — ASN-level auto-ban
+
+- New table `asn_escalations` (asn, as_org, ip_count, window_hours,
+  sample_ips, status, decided_by, decided_at, note).
+- `asn_detector.py` evaluates every 6 poller cycles (~60s): finds ASNs with
+  N+ distinct IPs in last K hours (defaults 10 / 24). Cooldown setting
+  prevents re-suggesting the same ASN within 48h of an operator decision.
+- `/asn-escalations` page (linked under Intel in sidebar): pending list with
+  approve/reject buttons + recent decisions audit.
+- Approve creates a synthetic `decisions` row with scope=AS that flows
+  through reconcile (bouncers either honor scope=AS or not — operator
+  decides whether to convert to a real `cscli` ASN block).
+- Reject suppresses re-suggest during cooldown.
+- All actions audited (`asn.escalation.approved` / `.rejected`) + SIEM
+  events (`asn.escalation`).
+- **Verified live**: detector found 4 real escalations on first run —
+  DigitalOcean (AS14061, 11 IPs), Google Cloud (AS396982, 11 IPs),
+  KOI-AS South Africa (AS209425, 20 IPs), etc.
+
+### Phase 58 — Composite reputation scoring
+
+- New table `reputation_cache` (ip, score, tier, breakdown_json, computed_at).
+- `reputation.py` computes 0–100 score from 5 components:
+  - **CTI score** (0–20): CrowdSec CTI smoke endpoint × 4
+  - **Scenario severity** (0–30): max severity over scenarios that hit this IP,
+    weighted by a curated SCENARIO_SEVERITY map (CVE scenarios 28–30, brute
+    force 18–22, recon 8–14)
+  - **Cross-source agreement** (0–20): distinct origin_sources × 4
+  - **Age decay** (0–15): newer = higher, 0d=15 → 90d+=0
+  - **CTI behaviors** (0–15): weighted by behavior prefix
+- Three tiers: `auto` ≥ 80, `queue` ≥ 50, `monitor` < 50. Thresholds
+  tunable via `reputation.auto_threshold` / `reputation.queue_threshold`
+  settings.
+- Reconciler honors `min_reputation` per-bouncer filter — set it in
+  config_json (e.g. `"min_reputation": 50` on Cloudflare to keep only
+  high-confidence bans within the 10k cap).
+- `reputation.bulk_compute_for_min(min_score)` does cache-first lookup,
+  computes up to 200 uncached per call so a freshly-set filter doesn't
+  stall reconcile. Remaining IPs fill on subsequent cycles.
+- Cache TTL: 6h. Auto-recompute on attacker-page load if stale.
+- `/api/v1/reputation/<ip>` exposes per-IP score with breakdown.
+- New panel on `/attackers/<ip>` showing the score + tier pill + per-
+  component breakdown.
+
+### Phase 59 + 60 — Three intel providers + Tor + VPN tagging
+
+- New `intel_providers.py` module with five providers, all gated on env
+  presence (missing key = silently skipped):
+  - **AbuseIPDB** (`ABUSEIPDB_API_KEY`): Check Endpoint v2 with
+    `maxAgeInDays=90`. Confidence ≥ 75 auto-tags `abuseipdb-confident`.
+    Returns `abuse_confidence` (0–100), report count, country, ISP.
+  - **AlienVault OTX**: free, no key. Pulses by IPv4 indicator. ≥1
+    pulse auto-tags `otx-pulse`.
+  - **Spamhaus DROP/EDROP**: bulk download daily, tags matching active
+    decisions as `spamhaus-drop` or `spamhaus-edrop`. Uses CIDR network
+    matching (not IP equality) since DROP lists are netblocks.
+  - **Tor exit list**: pulls from check.torproject.org/exit-addresses
+    daily, tags matching active decisions as `tor-exit`.
+  - **proxycheck.io** (`PROXYCHECK_API_KEY`): per-IP VPN/proxy detection.
+    Confirmed proxies auto-tag `proxy-<type>`.
+- New table `ip_tags` (ip, tag, source, created_at, expires_at) with
+  composite PK on (ip, tag). Expiries prevent infinite tag accumulation.
+- `intel_providers.maybe_refresh_bulk()` runs every cycle but no-ops
+  until ≥20h since last Tor / Spamhaus refresh — same idempotent pattern
+  as `digest.maybe_fire_daily()`.
+- Tags surface on `/attackers/<ip>` as colored badges (red for
+  tor/spamhaus/abuseipdb-confident, amber for proxies).
+- Per-IP lookups (`abuseipdb_lookup`, `otx_lookup`, `proxycheck_lookup`)
+  are exposed but not wired into the intel worker yet — operator can
+  call them manually from a future "Refresh All Intel" button (already
+  exists from phase 13's `IntelWorker.refresh`).
+
+### Phase 61 — Honeypot routing scaffold
+
+- `honeypot.py` — Protek doesn't run a honeypot itself; operator provides
+  the endpoint. We:
+  1. `refresh_targets()` tags qualifying high-reputation IPs as
+     `honeypot-bound` (composite filter: reputation ≥
+     `honeypot.min_reputation` default 80, cap at
+     `honeypot.max_targets` default 1000).
+  2. Exposes the list via `GET /api/v1/honeypot/targets` (token: read)
+     so a CF Worker / nginx auth_request / etc. can decide what to do.
+  3. Accepts callbacks at `POST /api/external/honeypot/callback`
+     (token: write) — operator's honeypot reports back "this IP
+     interacted with me", we tag `honeypot-confirmed` + ship SIEM
+     event for audit.
+- Gated on `honeypot.enabled=1` setting; full no-op otherwise.
+- Poller hook every 12 cycles (~2 min).
+
+### Phase 62 — ML anomaly layer (Isolation Forest)
+
+- `ml_anomaly.py` — Isolation Forest over per-IP feature vectors. Pure
+  scikit-learn (added to requirements with numpy).
+- Per-IP features (8 dims):
+  - `scenario_count`, `source_count`, `lifetime_hours`, `recent_hits`,
+    `cti_score`, `asn_size` (distinct IPs in this ASN in active set),
+    `is_capi` (binary), `is_local` (binary).
+- Trains on last 30d of decisions (caps at 5,000 IPs to keep memory
+  bounded). 100 trees, `contamination='auto'`.
+- `/api/v1/ml/anomalies?n=50` returns top-N anomalous IPs with their
+  feature vector. Recommend-only — never auto-bans.
+- Lazy import of sklearn — if it's not installed, returns graceful
+  empty result with `error: "sklearn not installed"`.
+- **Verified live**: trained on 5000 samples, surfaced 3 candidate
+  anomalies with scores in the -0.76 range.
+
+### Quirks added this session
+
+- ASN auto-ban "approve" inserts a synthetic decision with scope=AS.
+  None of the current bouncers (MikroTik / iptables / CF) natively
+  understand scope=AS — the diff includes them but they'll either
+  silently no-op or error. Plan: operator uses the audit log entry as
+  a manual prompt to run `cscli decisions add --range <ASN>` or to
+  add a router-side `/ip firewall address-list add ranges=...` rule
+  for the ASN's published prefixes. Future phase: ASN→prefix expansion
+  via WHOIS BGP table, then push as Range decisions.
+- The Spamhaus DROP refresh runs through every active decision's IP
+  for CIDR matching. With 20k decisions and ~500 DROP entries that's
+  ~10M comparisons — completes in ~2s on this box. Acceptable until
+  we add a sorted-interval tree if it ever bites.
+- proxycheck.io free tier is 1000/day; `proxycheck_lookup` returns a
+  rate-limit error gracefully instead of crashing.
+- ML scoring takes ~3s on 5k samples — acceptable for an on-demand
+  `/api/v1/ml/anomalies` call but not for hot-path reconcile use.
+  Future phase could background-train nightly + score on read.
+- Boot-time SyntaxError discovered during smoke: `render_template(...,
+  reputation=..., ..., reputation=...)` — collided with the existing
+  CTI-page `reputation` kwarg. Renamed mine to `rep_score` (in route
+  + template) so the CTI path stays untouched.
+
+### Surface added this session
+
+- **Pages:** /asn-escalations
+- **APIs:** /api/v1/reputation/<ip>, /api/v1/honeypot/targets,
+  /api/v1/ml/anomalies, /api/external/honeypot/callback
+- **DB tables:** asn_escalations, ip_tags, reputation_cache
+- **Modules:** asn_detector.py, reputation.py, intel_providers.py,
+  honeypot.py, ml_anomaly.py
+- **Reqs added:** scikit-learn, numpy
+- **Env vars (optional):** ABUSEIPDB_API_KEY, PROXYCHECK_API_KEY
+
+### Arc 11 deferred (operator decision)
+
+Arc 11 (Resilience, phases 63–68) skipped this session — off-box backup,
+Litestream, HA, self-monitoring, DR runbook, backpressure all remain.
+Next session entry point: Phase 63 (off-box backup automation to
+S3-compatible storage). The synthetic_tests + backup_log tables that
+were prematurely added in this session's first pass have been removed
+from db.py; they'll land properly when their phases ship.
+
+### Acceptance proven this session
+
+- **Phase 57:** detector found 4 real ASN escalations on first eval
+  (DigitalOcean, Google Cloud, KOI-AS-ZA, etc.) — all 11–20 IP threshold
+  crossings from the past 24h of CAPI ingestion.
+- **Phase 58:** reputation.get_or_compute returns valid scores with
+  breakdown. Cache TTL works (re-call returns same `computed_at`).
+- **Phase 59/60:** `intel_providers.maybe_refresh_bulk()` runs cleanly
+  (no API keys configured yet, so no real provider calls fired — code
+  path verified to handle the missing-key case gracefully).
+- **Phase 61:** `is_enabled() = False` by default; gating verified.
+- **Phase 62:** sklearn trained on 5000 samples, returned top-3
+  anomalies with reasonable scores.
+
+### Pending follow-ups for the operator
+
+- Sign up for AbuseIPDB free tier → add `ABUSEIPDB_API_KEY` to `.env`
+- Sign up for proxycheck.io → add `PROXYCHECK_API_KEY` to `.env`
+- Decide on first ASN escalation (4 are pending in /asn-escalations)
+- Optionally enable honeypot mode by setting `honeypot.enabled=1` in
+  the settings table once a honeypot endpoint exists
+
+### Next session — Arc 11 (Resilience)
+
+1. Phase 63 — Off-box backup to S3/B2 (nightly bundle export)
+2. Phase 64 — Litestream WAL replication scaffolding
+3. Phase 65 — Active-passive HA (network lock)
+4. Phase 66 — Synthetic ban end-to-end test
+5. Phase 67 — DR runbook (docs/DR-RUNBOOK.md)
+6. Phase 68 — Upstream backpressure / token buckets
+
+17 phases left to 2.0 (Arcs 11–13).
+
+---
+
 ## 2026-05-21 — Arc 9 shipped (phases 51–56) · v1.1 polish · 57 of 80 phases complete
 
 **State at pause:** Five v1.1 polish phases done. Phase 51 (multi-MikroTik UI)

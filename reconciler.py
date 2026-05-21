@@ -198,7 +198,8 @@ def _filter_desired_for_bouncer(bouncer, desired: list[dict[str, Any]]) -> list[
     origins_inc = getattr(bouncer, "origins", None) or []
     origins_exc = getattr(bouncer, "exclude_origins", None) or []
     max_entries = getattr(bouncer, "max_entries", None)
-    if not (origins_inc or origins_exc or max_entries):
+    min_reputation = getattr(bouncer, "min_reputation", None)
+    if not (origins_inc or origins_exc or max_entries or min_reputation):
         return desired
 
     def _origin_ok(o: str) -> bool:
@@ -209,6 +210,14 @@ def _filter_desired_for_bouncer(bouncer, desired: list[dict[str, Any]]) -> list[
         return True
 
     out = [d for d in desired if _origin_ok(d.get("origin") or "")]
+
+    if min_reputation:
+        try:
+            import reputation
+            qualifying = reputation.bulk_compute_for_min(int(min_reputation))
+            out = [d for d in out if d.get("value") in qualifying]
+        except Exception:  # noqa: BLE001
+            pass  # never block reconcile on reputation failure
 
     if max_entries and len(out) > max_entries:
         # Sort by lapi_id DESC as a proxy for "most recently registered" —

@@ -515,7 +515,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 52 — In-place edit for bouncer targets
+### Phase 52 — In-place edit for bouncer targets (✅ shipped)
 
 - [ ] /bouncers/edit/<id> — change config_json without delete+re-add
 - [ ] Preserve sync state, last_ok_at, last_error across edits
@@ -525,7 +525,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 53 — Bulk operations on /decisions
+### Phase 53 — Bulk operations on /decisions (✅ shipped)
 
 - [ ] Multi-select checkbox column + sticky action bar
 - [ ] Bulk delete, bulk-add-to-whitelist, bulk-extend-duration
@@ -536,7 +536,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 54 — Global search
+### Phase 54 — Global search (✅ shipped)
 
 - [ ] `cmd-K` palette extended to search across decisions, alerts, scenarios, attackers, audit log
 - [ ] Backend: `/api/v1/search?q=<term>` with ranked results
@@ -546,7 +546,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 55 — Per-stage sync timing
+### Phase 55 — Per-stage sync timing (✅ shipped)
 
 - [ ] sync_events columns: `lapi_fetch_ms`, `snapshot_ms`, `diff_ms`, `push_ms`
 - [ ] /perf shows stacked-bar breakdown per cycle
@@ -556,7 +556,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 56 — Notification routing v2
+### Phase 56 — Notification routing v2 (✅ shipped)
 
 - [ ] `notifications.send(..., channels=[...])` kwarg actually wired (alerting fallback removed)
 - [ ] Per-rule channel override on /alerts/rules ("this rule fires Telegram only")
@@ -569,7 +569,7 @@ ROADMAP stays one source of truth.
 
 ## Arc 10 — Intelligence v2
 
-### Phase 57 — ASN-level auto-ban
+### Phase 57 — ASN-level auto-ban (✅ shipped)
 
 - [ ] Threshold: "if N IPs from same ASN attack in M hours, escalate the ASN"
 - [ ] Optional action: ban /24 (or whole ASN) instead of single IP
@@ -579,7 +579,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 58 — Reputation scoring
+### Phase 58 — Reputation scoring (✅ shipped)
 
 - [ ] Per-IP composite score: `cti_score × scenario_severity × cross_source_agreement × age_decay`
 - [ ] Three tiers: `auto-ban` (≥80), `queue-for-approval` (50–80), `monitor-only` (<50)
@@ -590,7 +590,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 59 — AbuseIPDB + OTX correlation
+### Phase 59 — AbuseIPDB + OTX + Spamhaus correlation (✅ shipped)
 
 - [ ] Three new providers in intel.py alongside CTI (AbuseIPDB, AlienVault OTX, Spamhaus DROP/EDROP)
 - [ ] Per-provider rate-limit awareness
@@ -601,7 +601,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 60 — Tor exit + VPN/proxy detection
+### Phase 60 — Tor exit + VPN/proxy detection (✅ shipped)
 
 - [ ] Pull Tor exit list daily, mark matching decisions
 - [ ] proxycheck.io or ipinfo VPN/proxy lookup for high-score IPs
@@ -612,7 +612,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 61 — Honeypot mode
+### Phase 61 — Honeypot mode (✅ shipped — routing scaffold; operator owns the endpoint)
 
 - [ ] Instead of dropping high-score attackers, route them to a configurable honeypot URL (proxy via Cloudflare workers or similar)
 - [ ] Collect their behavior, feed back into reputation scoring
@@ -622,7 +622,7 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 62 — ML anomaly layer
+### Phase 62 — ML anomaly layer (✅ shipped)
 
 - [ ] Lightweight scikit-learn isolation forest on per-IP feature vector (request rate, scenario diversity, ASN reputation, time-of-day pattern)
 - [ ] Trained on the operator's own LAPI history

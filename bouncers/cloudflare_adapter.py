@@ -34,6 +34,7 @@ class CloudflareBouncer:
                  origins: list[str] | None = None,
                  exclude_origins: list[str] | None = None,
                  max_entries: int | None = None,
+                 min_reputation: int | None = None,
                  **_: Any):
         self.name = name
         self.kind = "cloudflare"
@@ -49,6 +50,7 @@ class CloudflareBouncer:
         self.origins = list(origins or [])
         self.exclude_origins = list(exclude_origins or [])
         self.max_entries = int(max_entries) if max_entries else None
+        self.min_reputation = int(min_reputation) if min_reputation else None
 
     def is_configured(self) -> bool:
         return bool(self.account_id and self.api_token)

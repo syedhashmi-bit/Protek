@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}ASN escalations · Protek{% endblock %}
+{% block crumb %}INTELLIGENCE · <b>ASN ESCALATIONS</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Pending ({{ pending|length }})</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    ASNs that exceeded the threshold (default: 10+ IPs in 24h). Approve to add
+    an AS-scope ban that flows through reconcile to bouncers; reject to suppress
+    re-suggestions during the cooldown window.
+  </p>
+  {% if not pending %}
+    <p class="muted">No pending ASN escalations. The detector runs every ~60s.</p>
+  {% else %}
+  <table>
+    <thead><tr>
+      <th>ASN</th><th>Org</th><th class="right">IPs</th><th>Window</th>
+      <th>Sample IPs</th><th>First seen</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+      {% for e in pending %}
+      <tr>
+        <td class="mono cyan">AS{{ e.asn }}</td>
+        <td class="muted">{{ e.as_org }}</td>
+        <td class="mono right red">{{ e.ip_count }}</td>
+        <td class="mono muted">{{ e.window_hours }}h</td>
+        <td class="mono" style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ e.sample_ips|join(', ') }}">
+          {% for ip in e.sample_ips[:3] %}
+            <a href="{{ url_for('attacker_page', ip=ip) }}">{{ ip }}</a>{% if not loop.last %}, {% endif %}
+          {% endfor %}
+          {% if e.sample_ips|length > 3 %} +{{ e.sample_ips|length - 3 }}{% endif %}
+        </td>
+        <td class="mono muted">{{ e.first_seen_at[:19].replace('T',' ') }}</td>
+        <td>
+          {% if has_role('operator') %}
+          <form method="post" action="{{ url_for('asn_escalations_decide', eid=e.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="decision" value="approved">
+            <button class="btn" type="submit" style="padding:2px 8px;font-size:10px"
+                    onclick="return confirm('Approve ASN block for AS{{ e.asn }} ({{ e.as_org }})?')">approve</button>
+          </form>
+          <form method="post" action="{{ url_for('asn_escalations_decide', eid=e.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="decision" value="rejected">
+            <button class="btn ghost" type="submit" style="padding:2px 8px;font-size:10px;color:var(--red)">reject</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recently decided ({{ decided|length }})</h2>
+  {% if not decided %}<p class="muted">None yet.</p>{% else %}
+  <table>
+    <thead><tr><th>ASN</th><th>Org</th><th class="right">IPs</th>
+      <th>Decision</th><th>By</th><th>When</th></tr></thead>
+    <tbody>
+      {% for e in decided %}
+      <tr>
+        <td class="mono">AS{{ e.asn }}</td>
+        <td class="muted">{{ e.as_org }}</td>
+        <td class="mono right">{{ e.ip_count }}</td>
+        <td>{% if e.status == 'approved' %}<span class="badge cs">approved</span>
+            {% else %}<span class="badge" style="color:var(--muted)">rejected</span>{% endif %}</td>
+        <td class="muted">{{ e.decided_by }}</td>
+        <td class="mono muted">{{ (e.decided_at or '')[:19].replace('T',' ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

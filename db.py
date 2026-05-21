@@ -339,6 +339,54 @@ EXTRA_TABLES = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_alert_silences_until ON alert_silences (until_at)",
+    # ASN auto-ban escalations (phase 57). A rule fires when N distinct IPs
+    # from the same ASN have created decisions within `window_hours`.
+    # Operator approves the suggestion (creating a permanent block rule) or
+    # dismisses it. Dismissals re-suggest only after a fresh trigger.
+    """
+    CREATE TABLE IF NOT EXISTS asn_escalations (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        asn             TEXT NOT NULL,
+        as_org          TEXT NOT NULL DEFAULT '',
+        ip_count        INTEGER NOT NULL DEFAULT 0,
+        window_hours    INTEGER NOT NULL DEFAULT 24,
+        sample_ips      TEXT NOT NULL DEFAULT '',
+        first_seen_at   TEXT NOT NULL,
+        last_seen_at    TEXT NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        decided_by      TEXT NOT NULL DEFAULT '',
+        decided_at      TEXT DEFAULT NULL,
+        note            TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_asn_escalations_status ON asn_escalations (status)",
+    "CREATE INDEX IF NOT EXISTS idx_asn_escalations_asn    ON asn_escalations (asn)",
+    # Tag store (phase 60). Lightweight per-IP labels: tor-exit, vpn, proxy,
+    # honeypot-routed, etc. Multiple tags per IP allowed via (ip, tag) PK.
+    """
+    CREATE TABLE IF NOT EXISTS ip_tags (
+        ip              TEXT NOT NULL,
+        tag             TEXT NOT NULL,
+        source          TEXT NOT NULL DEFAULT '',
+        created_at      TEXT NOT NULL,
+        expires_at      TEXT DEFAULT NULL,
+        PRIMARY KEY (ip, tag)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_ip_tags_tag ON ip_tags (tag)",
+    # ASN reputation memoization (phase 58). Caches the composite score per
+    # IP. Recomputed on enrichment events or expiry. Computing on every
+    # decision render would be too slow at 19k decisions.
+    """
+    CREATE TABLE IF NOT EXISTS reputation_cache (
+        ip              TEXT PRIMARY KEY,
+        score           INTEGER NOT NULL,
+        tier            TEXT NOT NULL,
+        breakdown_json  TEXT NOT NULL DEFAULT '{}',
+        computed_at     TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_reputation_tier ON reputation_cache (tier)",
     # Multi-admin (phase 42) — additional admin accounts beyond the env-anchored
     # one. The env user (APP_USERNAME / APP_PASSWORD_HASH / TOTP_SECRET) still
     # exists as the bootstrap identity and lives in row #1 (mirrored at boot).

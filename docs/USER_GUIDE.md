@@ -145,6 +145,48 @@ with an expiry.
 The role pill in the topbar shows the current session's role. The Admin
 section of the sidebar is hidden for non-admins.
 
+## Intelligence v2 (Arc 10 features)
+
+### ASN escalation queue (`/asn-escalations`)
+When 10+ distinct IPs from the same ASN get banned within 24h, the detector
+queues a suggestion. Approve to mirror an AS-scope decision (operator
+typically converts this to a real `cscli decisions add --range <prefix>` rule
+for each of the ASN's BGP prefixes); reject to suppress for 48h.
+Thresholds tunable via settings (`asn_detector.min_ips`,
+`asn_detector.window_hours`, `asn_detector.cooldown_hours`).
+
+### Reputation scoring
+Every active IP gets a 0–100 composite score (CTI × scenario severity ×
+cross-source agreement × age × CTI behaviors). Surfaces on
+`/attackers/<ip>` as a colored tier pill (auto / queue / monitor).
+Per-bouncer filter: add `"min_reputation": 50` to a bouncer's
+`config_json` to push only IPs scoring ≥ 50 — perfect for CF's 10k cap.
+Tunable thresholds: `reputation.auto_threshold` (default 80),
+`reputation.queue_threshold` (default 50).
+
+### Intel providers
+Five providers in `intel_providers.py`, all optional + gated on their env
+key. AbuseIPDB and proxycheck.io need keys (`ABUSEIPDB_API_KEY`,
+`PROXYCHECK_API_KEY`); OTX, Spamhaus DROP/EDROP, and Tor exit list need
+none. Refreshed daily (no-op until 20h since last). Matching IPs get
+tagged in `ip_tags` — surface on `/attackers/<ip>` as colored badges.
+
+### Honeypot routing
+Opt-in: set `honeypot.enabled=1` in the settings table. Then every ~2 min
+the poller tags qualifying high-reputation IPs as `honeypot-bound`.
+A CF Worker / nginx auth_request / etc. polls
+`GET /api/v1/honeypot/targets` (token: read) and decides what to do
+with them (redirect to operator's honeypot, slow-walk, etc.). Operator's
+honeypot reports back via `POST /api/external/honeypot/callback`
+(token: write) → tags the IP `honeypot-confirmed`.
+
+### ML anomaly layer
+`GET /api/v1/ml/anomalies?n=50` returns the top-N anomalous IPs from an
+Isolation Forest trained on per-IP feature vectors (scenario count,
+source count, lifetime, recent hits, CTI score, ASN size, CAPI vs local
+binary). Recommend-only — never auto-bans. Useful for reviewing "what
+weird IPs did CrowdSec miss?" once a week.
+
 ## Troubleshooting
 
 See `docs/INSTALL.md` for the install + first-deploy story, and

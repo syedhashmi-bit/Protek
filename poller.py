@@ -250,6 +250,34 @@ class Poller:
         except Exception as e:  # noqa: BLE001
             log.debug("digest swallowed: %s", e)
 
+        # ASN auto-ban detector (phase 57) — every 6 cycles (~60s in
+        # steady state). Cheap aggregation query; results queue in
+        # asn_escalations for operator review on /intel.
+        if self.cycles % 6 == 0:
+            try:
+                import asn_detector
+                asn_detector.evaluate()
+            except Exception as e:  # noqa: BLE001
+                log.debug("asn_detector swallowed: %s", e)
+
+        # Bulk intel refresh (phases 59 + 60) — Tor exit list + Spamhaus
+        # DROP/EDROP. Internally no-ops until ≥20h since last refresh,
+        # so this is cheap to call every cycle.
+        try:
+            import intel_providers
+            intel_providers.maybe_refresh_bulk()
+        except Exception as e:  # noqa: BLE001
+            log.debug("intel_providers bulk swallowed: %s", e)
+
+        # Honeypot target refresh (phase 61) — every 12 cycles (~2 min).
+        # No-op when honeypot.enabled=0.
+        if self.cycles % 12 == 0:
+            try:
+                import honeypot
+                honeypot.refresh_targets()
+            except Exception as e:  # noqa: BLE001
+                log.debug("honeypot refresh swallowed: %s", e)
+
     def _envstr(self, name: str) -> str:
         return (os.environ.get(name, "") or "").split("#", 1)[0].strip()
 

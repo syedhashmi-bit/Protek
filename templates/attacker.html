@@ -86,6 +86,54 @@
   </div>
 </div>
 
+{% if ip_tags %}
+<div class="panel" style="margin-top:16px">
+  <h2>Tags</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:6px">
+    {% for t in ip_tags %}
+      {% set color = 'var(--red)' if 'tor' in t.tag or 'spamhaus' in t.tag or 'abuseipdb' in t.tag else 'var(--amber)' %}
+      <span class="badge" style="color:{{ color }};border-color:{{ color }}" title="source: {{ t.source }} · added: {{ t.created_at[:19] }}">
+        {{ t.tag }}
+      </span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if rep_score %}
+<div class="panel" style="margin-top:16px">
+  <h2>Reputation score
+    <span style="float:right;font-size:11px;font-family:'Share Tech Mono',monospace;letter-spacing:.18em">
+      {% if rep_score.tier == 'auto' %}<span class="badge" style="color:var(--red);border-color:var(--red)">AUTO-BAN</span>
+      {% elif rep_score.tier == 'queue' %}<span class="badge" style="color:var(--amber);border-color:var(--amber)">QUEUE</span>
+      {% else %}<span class="badge">MONITOR</span>{% endif %}
+    </span>
+  </h2>
+  <div style="font-family:'Share Tech Mono',monospace;font-size:36px;color:{% if rep_score.score >= 80 %}var(--red){% elif rep_score.score >= 50 %}var(--amber){% else %}var(--cyan){% endif %}">
+    {{ rep_score.score }}<span class="muted" style="font-size:14px"> / 100</span>
+  </div>
+  {% if rep_score.breakdown %}
+  <table class="keep-table" style="margin-top:12px">
+    <tbody>
+      {% for k in ['cti_score', 'scenario_severity', 'cross_source_agreement', 'age_decay', 'cti_behaviors'] %}
+      {% if k in rep_score.breakdown %}
+      <tr>
+        <td class="mono muted" style="width:200px">{{ k }}</td>
+        <td class="mono cyan">{{ rep_score.breakdown[k] }}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <p class="muted" style="margin:10px 0 0;font-size:11px">
+    Composite of CTI score × scenario severity × source agreement × age × behavior weights.
+    Tunable per-bouncer via <span class="mono">min_reputation</span> in config_json — set it on
+    Cloudflare to keep only high-confidence bans within the 10k cap.
+  </p>
+</div>
+{% endif %}
+
 {% if cti and cti.reputation %}
 <div class="panel" style="margin-top:16px">
   <h2>CrowdSec CTI</h2>
