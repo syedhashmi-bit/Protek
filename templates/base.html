@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <title>{% block title %}PROTEK{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -26,7 +27,9 @@ a:hover{text-decoration:underline}
 
 .topbar{position:sticky;top:0;z-index:10;height:56px;background:var(--bg-panel);border-bottom:1px solid var(--border);
   display:flex;align-items:center;padding:0 20px;gap:24px}
-.brand{font-weight:700;letter-spacing:.18em;color:var(--cyan);font-size:18px;text-shadow:0 0 14px rgba(0,200,255,.35)}
+.brand{display:inline-flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.18em;color:var(--cyan);font-size:18px;text-shadow:0 0 14px rgba(0,200,255,.35);text-decoration:none}
+.brand:hover{text-decoration:none}
+.brand img{width:26px;height:26px;display:block;filter:drop-shadow(0 0 6px rgba(0,200,255,.45))}
 .crumb{color:var(--muted);font-size:12px;letter-spacing:.2em;text-transform:uppercase}
 .crumb b{color:var(--text);font-weight:600}
 .topbar .spacer{flex:1}
@@ -183,7 +186,10 @@ label{display:block;font-size:10px;letter-spacing:.18em;color:var(--muted);text-
 {% if session.get('logged_in') %}
 <div class="topbar">
   <button class="menu-toggle" id="menu-toggle" aria-label="Toggle menu">≡</button>
-  <div class="brand">PROTEK</div>
+  <a class="brand" href="{{ url_for('dashboard') }}" title="Protek">
+    <img src="{{ url_for('static', filename='icon.svg') }}" alt="">
+    <span>PROTEK</span>
+  </a>
   <div class="crumb">{% block crumb %}DASHBOARD{% endblock %}</div>
   <div class="spacer"></div>
   <div class="pills" id="health-pills">
