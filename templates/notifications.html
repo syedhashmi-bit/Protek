@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · notifications{% endblock %}
+{% block crumb %}<b>NOTIFICATIONS</b>{% endblock %}
+{% block body %}
+
+<div class="grid kpi-strip">
+  {% for ch, info in channels.items() %}
+  <div class="kpi">
+    <div class="k">{{ ch.upper() }}</div>
+    <div class="v" style="font-size:18px;color:{{ 'var(--green)' if info.configured else 'var(--muted-low)' }}">
+      {{ 'CONFIGURED' if info.configured else 'NOT SET' }}
+    </div>
+    <div class="d">
+      {% if info.configured %}
+        <form method="POST" action="{{ url_for('notifications_test') }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="channel" value="{{ ch }}">
+          <button class="btn ghost" type="submit" style="padding:2px 8px;font-size:10px">send test</button>
+        </form>
+      {% else %}
+        edit credentials below
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Credentials (one panel per channel) ─────────────────────────────── -->
+{% for ch, info in channels.items() %}
+<form method="POST" action="{{ url_for('notifications_page') }}" style="margin-top:16px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="section" value="credentials">
+  <input type="hidden" name="channel" value="{{ ch }}">
+  <div class="panel">
+    <h2>{{ ch.upper() }} credentials</h2>
+    <p class="muted" style="margin:0 0 14px;font-size:12px">
+      Stored in the settings table (overrides <span class="mono">.env</span> on next read).
+      {% if ch == 'discord' %}
+        Get a webhook URL from a Discord channel → Edit Channel → Integrations → Webhooks → New.
+      {% elif ch == 'telegram' %}
+        Talk to <span class="mono">@BotFather</span> on Telegram to create a bot and get a token.
+        Find your chat ID by messaging the bot then visiting
+        <span class="mono">https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span>.
+      {% elif ch == 'email' %}
+        Use a transactional sender (Postmark / Mailgun / SES) — your home SMTP is unlikely to reach
+        Gmail/Outlook reliably from this IP. Internal/private SMTP hosts are rejected as an SSRF guard.
+      {% endif %}
+    </p>
+    <table style="width:100%">
+      <tbody>
+        {% for f in info.fields %}
+        <tr>
+          <td style="width:170px;padding:6px 0">
+            <label style="margin:0">{{ f.label }}</label>
+          </td>
+          <td style="padding:6px 0;width:280px">
+            {% if f.secret %}
+              <input type="password" name="cred_{{ ch }}_{{ f.field }}"
+                     placeholder="{{ '(current: ' ~ f.display ~ ')' if f.is_set else (f.placeholder or '(set)') }}"
+                     autocomplete="new-password">
+            {% else %}
+              <input type="text" name="cred_{{ ch }}_{{ f.field }}"
+                     value="{{ f.raw }}" placeholder="{{ f.placeholder }}">
+            {% endif %}
+          </td>
+          <td class="muted mono" style="font-size:11px;padding:6px 0 6px 14px">
+            {% if f.secret %}
+              {{ f.display }}
+              {% if f.is_set %}<span style="color:var(--green)">·  set</span>{% else %}<span>·  unset</span>{% endif %}
+              <div style="font-size:10px;color:var(--muted-low)">leave blank to keep current</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      {% if info.configured %}
+        <form method="POST" action="{{ url_for('notifications_test') }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="channel" value="{{ ch }}">
+          <button class="btn sec" type="submit">Send test</button>
+        </form>
+      {% endif %}
+      <button class="btn" type="submit">Save {{ ch }}</button>
+    </div>
+  </div>
+</form>
+{% endfor %}
+
+<!-- ── Per-event channel toggles ────────────────────────────────────────── -->
+<form method="POST" action="{{ url_for('notifications_page') }}" style="margin-top:16px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="section" value="toggles">
+  <div class="panel">
+    <h2>Per-Event Channel Toggles</h2>
+    <table>
+      <thead>
+        <tr><th>Event</th>{% for ch in channel_names %}<th class="right">{{ ch.upper() }}</th>{% endfor %}<th class="right">Threshold</th></tr>
+      </thead>
+      <tbody>
+        {% for ev in events %}
+        <tr>
+          <td class="mono">{{ ev.name }}</td>
+          {% for ch in channel_names %}
+          <td class="right">
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:0">
+              <input type="checkbox" name="toggle_{{ ch }}_{{ ev.name }}" {% if ev.toggles[ch] %}checked{% endif %}>
+            </label>
+          </td>
+          {% endfor %}
+          <td class="right mono">
+            {% if ev.threshold_default %}
+              <input type="number" name="threshold_{{ ev.name }}" value="{{ ev.threshold }}" style="width:80px;text-align:right">
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div style="display:flex;justify-content:space-between;margin-top:14px">
+      <div class="muted" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+        Changes audited (without secret values) at <a href="{{ url_for('audit_page') }}?q=notify">/audit</a>
+      </div>
+      <button class="btn" type="submit">Save toggles</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

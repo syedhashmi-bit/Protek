@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Performance · Protek{% endblock %}
+{% block crumb %}OBSERVABILITY · <b>PERFORMANCE</b>{% endblock %}
+{% block body %}
+
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Cycles (24h)</div>
+    <div class="v">{{ '{:,}'.format(stats.count) }}</div>
+    <div class="d">{{ stats.errors }} with errors</div></div>
+  <div class="kpi"><div class="k">p50 latency</div>
+    <div class="v cyan">{{ stats.p50_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">half of cycles ≤ this</div></div>
+  <div class="kpi"><div class="k">p95 latency</div>
+    <div class="v {{ 'amber' if stats.p95_ms > 5000 else 'cyan' }}">
+      {{ stats.p95_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">slowest 5% tip-over</div></div>
+  <div class="kpi"><div class="k">p99 latency</div>
+    <div class="v {{ 'red' if stats.p99_ms > 10000 else 'amber' if stats.p99_ms > 5000 else 'cyan' }}">
+      {{ stats.p99_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">worst-case sentinel</div></div>
+  <div class="kpi"><div class="k">Max (24h)</div>
+    <div class="v">{{ stats.max_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">avg {{ stats.avg_ms }} ms</div></div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>SLO compliance (last 24h)</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Burn rate = observed-error-rate ÷ allowed-error-rate. >14.4 = fast-burn (SRE workbook).
+    A duration SLO's burn shows how far p95 sits vs the target (1.0 = at target, &gt;2.0 = double).
+  </p>
+  <table>
+    <thead><tr><th>SLO</th><th>Observed</th><th>Target</th><th>Status</th><th class="right">Burn rate</th><th class="right">Samples</th></tr></thead>
+    <tbody>
+      {% for r in slo.slos %}
+      <tr>
+        <td>
+          <div>{{ r.title }}</div>
+          <div class="muted" style="font-size:11px">{{ r.description }}</div>
+        </td>
+        <td class="mono">{{ r.value_str }}</td>
+        <td class="mono muted">{{ r.target_str }}</td>
+        <td>
+          {% if r.compliant %}
+            <span class="badge cs">compliant</span>
+          {% else %}
+            <span class="badge" style="color:var(--red);border-color:var(--red)">breach</span>
+          {% endif %}
+        </td>
+        <td class="mono right" style="color:{% if r.burn_alert %}var(--red){% elif r.burn_rate > 1 %}var(--amber){% else %}var(--text){% endif %}">
+          {{ '%.2f'|format(r.burn_rate) }}
+          {% if r.burn_alert %}<span class="badge" style="color:var(--red);border-color:var(--red);margin-left:6px">fast-burn</span>{% endif %}
+        </td>
+        <td class="mono right muted">{{ r.samples }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Health-by-outcome (last 24h)</h2>
+  <table>
+    <thead><tr><th>Cycle outcome</th><th class="right">Count</th><th class="right">Avg duration</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge cs">ok</span></td>
+        <td class="right mono">{{ breakdown.ok_count }}</td>
+        <td class="right mono">{{ breakdown.ok_avg_ms }} ms</td></tr>
+      <tr><td><span class="badge http" style="color:var(--red);border-color:var(--red)">errors</span></td>
+        <td class="right mono">{{ breakdown.err_count }}</td>
+        <td class="right mono">{{ breakdown.err_avg_ms }} ms</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin:10px 0 0;font-size:11px">
+    Per-stage breakdown (LAPI fetch · MT snapshot · diff · push) will land once Phase 4
+    live writes flip on and we add stage timing columns to <span class="mono">sync_events</span>.
+  </p>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Slowest cycles ever (top 20)</h2>
+  <table>
+    <thead><tr>
+      <th>When</th><th>Duration</th><th>+adds</th><th>−rem</th><th>errors</th><th>mode</th><th>notes</th>
+    </tr></thead>
+    <tbody>
+      {% for r in slow %}
+      <tr>
+        <td class="mono">{{ r.started_at[:19].replace('T',' ') }}</td>
+        <td class="mono"
+            style="color:{% if r.duration_ms > 10000 %}var(--red){% elif r.duration_ms > 5000 %}var(--amber){% else %}var(--text){% endif %}">
+          {{ r.duration_ms }} ms</td>
+        <td class="mono right">{{ r.added }}</td>
+        <td class="mono right">{{ r.removed }}</td>
+        <td class="mono right" style="color:{{ 'var(--red)' if r.errors else 'var(--muted)' }}">{{ r.errors }}</td>
+        <td>{% if r.dry_run %}<span class="badge">dry</span>{% else %}<span class="badge cs">live</span>{% endif %}</td>
+        <td class="muted" style="font-size:11px">{{ r.notes[:80] }}</td>
+      </tr>
+      {% else %}
+        <tr><td colspan="7" class="muted">No cycles recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recent cycles (60)</h2>
+  <table>
+    <thead><tr><th>When</th><th>ms</th><th>+adds</th><th>−rem</th><th>errors</th><th>notes</th></tr></thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td class="mono">{{ r.started_at[11:19] }}</td>
+        <td class="mono">{{ r.duration_ms }}</td>
+        <td class="mono right">{{ r.added }}</td>
+        <td class="mono right">{{ r.removed }}</td>
+        <td class="mono right" style="color:{{ 'var(--red)' if r.errors else 'var(--muted)' }}">{{ r.errors }}</td>
+        <td class="muted" style="font-size:11px">{{ r.notes[:80] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Alert Rules · Protek{% endblock %}
+{% block crumb %}OBSERVABILITY · <b>ALERT RULES</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Active rules</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Rules evaluate every poller cycle. Each requires N consecutive matches before firing
+    (the "debounce" column). Transitions in/out of firing emit one notification each — no
+    re-firing while the condition persists. Levels: <span class="badge" style="color:var(--red);border-color:var(--red)">crit</span>
+    <span class="badge" style="color:var(--amber);border-color:var(--amber)">warn</span>
+    <span class="badge">info</span>.
+  </p>
+  <table>
+    <thead><tr>
+      <th>Rule</th><th>Level</th><th>State</th><th>Message</th><th>Firing since</th>
+      <th class="right">Consecutive</th><th class="right">Debounce</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rules %}
+      <tr>
+        <td>
+          <div>{{ r.title }}</div>
+          <div class="mono muted" style="font-size:11px">{{ r.rule_key }}</div>
+        </td>
+        <td>
+          {% if r.level <= 2 %}
+            <span class="badge" style="color:var(--red);border-color:var(--red)">crit</span>
+          {% elif r.level <= 4 %}
+            <span class="badge" style="color:var(--amber);border-color:var(--amber)">warn</span>
+          {% else %}
+            <span class="badge">info</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.suppressed %}
+            <span class="badge" style="color:var(--muted)">silenced</span>
+            <div class="muted" style="font-size:10px">until {{ r.silence.until_at[:19].replace('T',' ') }}</div>
+          {% elif r.firing %}
+            <span class="badge" style="color:var(--red);border-color:var(--red)">FIRING</span>
+          {% else %}
+            <span class="badge cs">ok</span>
+          {% endif %}
+        </td>
+        <td class="muted" style="font-size:12px">{{ r.message }}</td>
+        <td class="mono muted">{{ r.firing_since[:19].replace('T',' ') if r.firing_since else '—' }}</td>
+        <td class="mono right {{ 'amber' if r.consecutive > 0 and not r.firing else '' }}">{{ r.consecutive }}</td>
+        <td class="mono right muted">{{ r.debounce }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Silences</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Patterns are glob-matched against <span class="mono">rule_key</span>
+    (e.g. <span class="mono">mt_*</span> silences every MT-related rule).
+    Silenced rules still track state but don't fire notifications until the silence expires.
+  </p>
+  <form method="post" action="{{ url_for('alerts_silence_add') }}"
+        style="display:flex;gap:10px;align-items:end;margin-bottom:14px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="width:240px">
+      <label>Pattern</label>
+      <input type="text" name="pattern" placeholder="mt_* or sync_stale_5m" required>
+    </div>
+    <div style="width:140px">
+      <label>Duration (minutes)</label>
+      <input type="text" name="duration_min" value="60">
+    </div>
+    <div style="flex:1">
+      <label>Reason (optional)</label>
+      <input type="text" name="reason" placeholder="planned maintenance">
+    </div>
+    <button class="btn">Silence</button>
+  </form>
+  <table>
+    <thead><tr><th>Pattern</th><th>Until</th><th>By</th><th>Reason</th><th></th></tr></thead>
+    <tbody>
+      {% for s in silences %}
+      <tr>
+        <td class="mono">{{ s.pattern }}</td>
+        <td class="mono">{{ s.until_at[:19].replace('T',' ') }}</td>
+        <td>{{ s.created_by or '—' }}</td>
+        <td class="muted">{{ s.reason }}</td>
+        <td>
+          <form method="post" action="{{ url_for('alerts_silence_delete', sid=s.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" style="color:var(--red)">remove</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">No active silences.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}API Tokens · Protek{% endblock %}
+{% block crumb %}ADMIN · <b>API TOKENS</b>{% endblock %}
+{% block body %}
+
+{% if new_token %}
+<div class="panel" style="border-color:var(--cyan)">
+  <h2 style="color:var(--cyan)">New token — capture NOW</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    The full token is shown once. We store only its sha256 hash; we cannot recover it.
+    Use as: <span class="mono">Authorization: Bearer &lt;token&gt;</span>
+  </p>
+  <table>
+    <tr><td style="width:120px"><label>Name</label></td>
+        <td class="mono">{{ new_token.name }}</td></tr>
+    <tr><td><label>Scopes</label></td>
+        <td>{% for s in new_token.scopes %}<span class="badge cs">{{ s }}</span> {% endfor %}</td></tr>
+    <tr><td><label>Token</label></td>
+        <td class="mono" style="word-break:break-all;font-size:13px;color:var(--cyan)">{{ new_token.token }}</td></tr>
+  </table>
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:16px">
+  <h2>Create token</h2>
+  <form method="post" action="{{ url_for('admin_tokens_add') }}"
+        style="display:flex;gap:10px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="width:200px">
+      <label>Name</label>
+      <input type="text" name="name" required placeholder="protekctl-laptop">
+    </div>
+    <div style="width:200px">
+      <label>Scopes (comma-separated)</label>
+      <input type="text" name="scopes" required value="read"
+             placeholder="read,write,admin">
+    </div>
+    <div style="width:200px">
+      <label>Expires (ISO, optional)</label>
+      <input type="text" name="expires_at" placeholder="2027-01-01T00:00:00Z">
+    </div>
+    <button class="btn" type="submit">Create</button>
+  </form>
+  <p class="muted" style="margin:12px 0 0;font-size:11px">
+    Scopes: <b>read</b> = GETs on /api/v1/* · <b>write</b> = POST decisions / sync / whitelist ·
+    <b>admin</b> = full (incl. user + token mgmt). Higher scopes imply lower ones.
+  </p>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Tokens · {{ tokens|length }}</h2>
+  <table>
+    <thead><tr>
+      <th>#</th><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created by</th>
+      <th>Created</th><th>Last used</th><th>Expires</th><th>State</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for t in tokens %}
+      <tr>
+        <td class="mono muted">{{ t.id }}</td>
+        <td>{{ t.name }}</td>
+        <td class="mono">{{ t.token_prefix }}…</td>
+        <td>{% for s in (t.scopes or '').split(',') %}{% if s %}<span class="badge cs">{{ s }}</span> {% endif %}{% endfor %}</td>
+        <td class="muted">{{ t.created_by or '—' }}</td>
+        <td class="mono muted">{{ (t.created_at or '')[:19].replace('T',' ') }}</td>
+        <td class="mono muted">
+          {% if t.last_used_at %}{{ t.last_used_at[:19].replace('T',' ') }} <span style="color:var(--muted-low)">({{ t.last_used_ip }})</span>{% else %}never{% endif %}
+        </td>
+        <td class="mono muted">{{ t.expires_at[:19].replace('T',' ') if t.expires_at else '—' }}</td>
+        <td>
+          {% if t.disabled %}<span class="badge" style="color:var(--red);border-color:var(--red)">revoked</span>
+          {% else %}<span class="badge cs">active</span>{% endif %}
+        </td>
+        <td>
+          {% if not t.disabled %}
+            <form method="post" action="{{ url_for('admin_tokens_revoke', tid=t.id) }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn ghost" type="submit" style="color:var(--amber);font-size:10px">revoke</button>
+            </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('admin_tokens_delete', tid=t.id) }}" style="display:inline"
+                onsubmit="return confirm('Delete token {{ t.name }}?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" type="submit" style="color:var(--red);font-size:10px">delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

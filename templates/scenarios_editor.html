@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · scenario editor{% endblock %}
+{% block crumb %}<b>SCENARIOS</b> · Editor · {{ filename or 'new' }}{% endblock %}
+{% block head %}
+<style>
+textarea.code{width:100%;min-height:520px;background:var(--bg-deep);border:1px solid var(--border);
+  color:var(--green);font-family:'Share Tech Mono',monospace;font-size:13px;padding:14px;border-radius:3px;line-height:1.5;
+  white-space:pre;tab-size:2}
+textarea.code:focus{outline:none;border-color:var(--cyan)}
+</style>
+{% endblock %}
+{% block body %}
+<form method="POST" action="{{ url_for('scenarios_editor') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="panel">
+    <div style="display:flex;gap:10px;margin-bottom:14px;align-items:end">
+      <div style="flex:1">
+        <label>Filename (must end with .yaml — stored under <span class="mono">/etc/crowdsec/scenarios/</span>)</label>
+        <input type="text" name="filename" value="{{ filename }}" placeholder="my-scenario.yaml" pattern="[a-zA-Z0-9_./-]+\.yaml" required>
+      </div>
+      <button class="btn" type="submit">Save</button>
+      <button class="btn sec" type="submit" name="reload" value="1">Save &amp; Reload Agent</button>
+    </div>
+    <textarea class="code" name="content" spellcheck="false">{{ content }}</textarea>
+    <div class="muted" style="font-size:11px;margin-top:8px;letter-spacing:.12em;text-transform:uppercase">
+      Scenarios use the CrowdSec YAML format. <a href="https://docs.crowdsec.net/docs/scenarios/intro/" target="_blank">docs</a>.
+      After save, the agent must be reloaded to pick up the change.
+    </div>
+  </div>
+</form>
+
+{% if test_result %}
+<div class="panel" style="margin-top:16px;border-left:3px solid {{ 'var(--green)' if test_result.ok else 'var(--red)' }}">
+  <h2>Reload Result</h2>
+  <pre class="mono" style="color:{{ 'var(--green)' if test_result.ok else 'var(--red)' }}">{{ test_result.output or test_result.error }}</pre>
+</div>
+{% endif %}
+{% endblock %}

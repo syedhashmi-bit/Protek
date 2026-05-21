@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · settings{% endblock %}
+{% block crumb %}<b>SETTINGS</b>{% endblock %}
+{% block body %}
+<form method="POST" action="{{ url_for('settings_page') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="panel">
+    <h2>Reconcile Loop</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+      <div>
+        <label>Sync Interval (sec)</label>
+        <input type="number" name="sync_interval_sec" value="{{ values.sync_interval_sec }}" min="2" max="3600">
+      </div>
+      <div>
+        <label>Batch Cap (ops/cycle)</label>
+        <input type="number" name="batch_cap" value="{{ values.batch_cap }}" min="1" max="10000">
+      </div>
+      <div>
+        <label>Address List Name</label>
+        <input type="text" name="mt_address_list" value="{{ values.mt_address_list }}">
+      </div>
+      <div>
+        <label>Dry Run</label>
+        <select name="dry_run" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+          <option value="true" {% if values.dry_run %}selected{% endif %}>true — never touch MikroTik</option>
+          <option value="false" {% if not values.dry_run %}selected{% endif %}>false — push live changes</option>
+        </select>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+      Settings stored in DB override .env values for the next reconcile cycle. Restart not required.
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>Connection (read-only — set in <code class="mono">.env</code>)</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label>LAPI URL</label>
+        <input type="text" value="{{ values.lapi_url }}" disabled>
+      </div>
+      <div>
+        <label>MikroTik Host</label>
+        <input type="text" value="{{ values.mt_host or '(not set)' }}" disabled>
+      </div>
+      <div>
+        <label>MikroTik Port</label>
+        <input type="text" value="{{ values.mt_port }}{{ ' (SSL)' if values.mt_use_ssl else '' }}" disabled>
+      </div>
+      <div>
+        <label>Bouncer Key</label>
+        <input type="text" value="{{ '••••••••' + values.lapi_key_tail if values.lapi_key_tail else '(not set)' }}" disabled>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>Suite integrations <span class="muted" style="text-transform:none;letter-spacing:0;font-size:11px">(phases 48 + 49)</span></h2>
+    <p class="muted" style="margin:0 0 12px;font-size:12px">
+      Base URLs for sibling apps. When set, attacker pages show "Open in atom" links and
+      othoni's dashboard can render the Protek tile via <span class="mono">/api/v1/tile/summary</span>.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label>Atom base URL</label>
+        <input type="text" name="atom_url" value="{{ values.atom_url }}"
+               placeholder="https://atom.syedhashmi.trade">
+      </div>
+      <div>
+        <label>Othoni base URL</label>
+        <input type="text" name="othoni_url" value="{{ values.othoni_url }}"
+               placeholder="https://othoni.syedhashmi.trade">
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:10px">
+    <button class="btn" type="submit">Save Settings</button>
+  </div>
+</form>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Sources <span class="muted" style="text-transform:none;letter-spacing:0;font-size:11px">(phase 7+ federation — read-only for now)</span></h2>
+  <table>
+    <thead><tr><th>Name</th><th>URL</th><th class="right">Last Pull</th><th class="right">Decisions Contributed</th><th>Enabled</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono">local</td>
+        <td class="mono">{{ values.lapi_url }}</td>
+        <td class="mono right muted">{{ values.last_poll_rel }}</td>
+        <td class="mono right">{{ values.active_total }}</td>
+        <td><span class="badge cs">on</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

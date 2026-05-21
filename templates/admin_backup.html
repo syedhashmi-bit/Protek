@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Backup · Protek{% endblock %}
+{% block crumb %}ADMIN · <b>BACKUP</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Export config bundle</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Exports users, federation sources, whitelist, bouncer targets, webhook subscribers,
+    API tokens (hashes only), all settings (incl. notification creds), and alert silences.
+    <b>Excludes</b> decisions / alerts / sync history / audit log (operational data —
+    rebuilt on next poll).
+    <br><br>
+    Encrypted with AES-256-GCM, key derived via scrypt(n=2^15) from your passphrase.
+    Lose the passphrase = lose the bundle. <span class="mono">.bin</span> output is binary
+    and not human-readable.
+  </p>
+  <form method="post" action="{{ url_for('admin_backup_export') }}"
+        style="display:flex;gap:10px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="flex:1"><label>Passphrase (≥ 12 chars)</label>
+      <input type="password" name="passphrase" required minlength="12"
+             autocomplete="new-password" placeholder="long random passphrase you'll remember">
+    </div>
+    <button class="btn" type="submit">Download bundle</button>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Import config bundle</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    <b>Additive mode (default):</b> rows that already exist are left alone.
+    <b>Overwrite mode:</b> each exported table is wiped and replaced from the bundle.
+    Use overwrite when migrating to a fresh VPS; use additive when merging configs.
+  </p>
+  <form method="post" action="{{ url_for('admin_backup_import') }}"
+        enctype="multipart/form-data"
+        style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="flex:1;min-width:280px">
+      <label>Bundle file (.bin)</label>
+      <input type="file" name="file" required accept=".bin,application/octet-stream"
+             style="background:var(--bg-deep);border:1px solid var(--border);color:var(--text);
+                    padding:6px;width:100%;border-radius:3px">
+    </div>
+    <div style="width:260px">
+      <label>Passphrase</label>
+      <input type="password" name="passphrase" required autocomplete="off">
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal;font-size:12px">
+      <input type="checkbox" name="overwrite" value="1"> overwrite mode
+    </label>
+    <button class="btn" type="submit"
+            onclick="return confirm('Confirm: import bundle now? Overwrite mode destroys existing rows.')">
+      Restore
+    </button>
+  </form>
+</div>
+
+{% if last_import %}
+<div class="panel" style="margin-top:16px;border-color:var(--cyan)">
+  <h2 style="color:var(--cyan)">Last import — {{ last_import.applied_at[:19].replace('T',' ') }}
+    ({{ 'overwrite' if last_import.overwrite else 'additive' }})</h2>
+  <table>
+    <thead><tr><th>Table</th><th class="right">Source rows</th><th class="right">Inserted</th>
+                <th class="right">Replaced</th><th class="right">Skipped</th></tr></thead>
+    <tbody>
+      {% for table, s in last_import.summary.items() %}
+      <tr>
+        <td class="mono">{{ table }}</td>
+        <td class="mono right">{{ s.source_rows }}</td>
+        <td class="mono right" style="color:var(--green)">{{ s.inserted }}</td>
+        <td class="mono right" style="color:var(--cyan)">{{ s.replaced }}</td>
+        <td class="mono right muted">{{ s.skipped }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

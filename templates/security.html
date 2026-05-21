@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · security{% endblock %}
+{% block crumb %}<b>SECURITY</b>{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi">
+    <div class="k">Successful Logins (24h)</div>
+    <div class="v">{{ stats.success_24h }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Failed Attempts (24h)</div>
+    <div class="v red">{{ stats.fail_24h }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Locked Now</div>
+    <div class="v amber">{{ stats.locked_now }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Whitelist Active</div>
+    <div class="v cyan" style="font-size:18px">{{ 'YES' if stats.whitelist_on else 'NO' }}</div>
+    <div class="d">{{ stats.whitelist }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Session Timeout</div>
+    <div class="v" style="font-size:18px">{{ stats.session_timeout }}m</div>
+    <div class="d">max attempts: {{ stats.max_attempts }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Lockout Duration</div>
+    <div class="v" style="font-size:18px">{{ stats.lockout_minutes }}m</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px">
+  <div class="panel">
+    <h2>Login Audit (recent 50)</h2>
+    <table>
+      <thead><tr><th>When</th><th>IP</th><th>Username</th><th>Result</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for r in audit %}
+        <tr>
+          <td class="mono muted">{{ r.rel }}</td>
+          <td class="mono">{{ r.ip }}</td>
+          <td>{{ r.username }}</td>
+          <td>{% if r.success %}<span class="badge cs">OK</span>{% else %}<span class="badge" style="color:var(--red)">FAIL</span>{% endif %}</td>
+          <td class="muted mono" style="font-size:11px">{{ r.reason }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted" style="text-align:center;padding:24px">no login activity yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Locked IPs</h2>
+    <table>
+      <thead><tr><th>IP</th><th class="right">Attempts</th><th class="right">Unlocks</th></tr></thead>
+      <tbody>
+        {% for r in locked %}
+        <tr>
+          <td class="mono">{{ r.ip }}</td>
+          <td class="mono right">{{ r.attempts }}</td>
+          <td class="mono right muted">{{ r.until_rel }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted" style="text-align:center;padding:24px">no locked IPs.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if locked %}
+    <form method="POST" action="{{ url_for('security_unlock') }}" style="margin-top:14px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn sec" type="submit">Unlock All</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

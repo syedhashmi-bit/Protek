@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · scenarios{% endblock %}
+{% block crumb %}<b>SCENARIOS</b>{% endblock %}
+{% block head %}
+<style>
+.heatmap{display:grid;grid-template-columns:200px repeat(24,minmax(18px,1fr));gap:1px;font-family:'Share Tech Mono',monospace;font-size:11px}
+.heatmap .h-cell{aspect-ratio:1;background:var(--bg-deep);border:1px solid transparent}
+.heatmap .h-cell.lvl-1{background:rgba(0,200,255,.18)}
+.heatmap .h-cell.lvl-2{background:rgba(0,200,255,.36)}
+.heatmap .h-cell.lvl-3{background:rgba(0,200,255,.56)}
+.heatmap .h-cell.lvl-4{background:rgba(0,255,157,.62)}
+.heatmap .h-cell.lvl-5{background:rgba(255,181,71,.7)}
+.heatmap .h-cell.lvl-6{background:rgba(255,56,96,.78)}
+.heatmap .h-scen{color:var(--muted);padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;align-self:center;font-size:12px}
+.heatmap .h-hr{color:var(--muted-low);text-align:center;font-size:10px;padding:2px 0}
+.bar{height:6px;background:var(--bg-deep);border-radius:3px;overflow:hidden;width:100%;border:1px solid var(--border)}
+.bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--green))}
+</style>
+{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Window</div><div class="v cyan" style="font-size:22px">24h</div><div class="d">scenarios firing</div></div>
+  <div class="kpi"><div class="k">Unique Scenarios</div><div class="v" id="kpi-unique">{{ unique_count }}</div></div>
+  <div class="kpi"><div class="k">Total Fires</div><div class="v" id="kpi-total">{{ total_count }}</div></div>
+  <div class="kpi"><div class="k">Top Family</div><div class="v cyan" style="font-size:18px">{{ top_family or '—' }}</div></div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Top Scenarios (24h)</h2>
+  <table>
+    <thead><tr><th>Scenario</th><th class="right">Fires</th><th class="right">Unique IPs</th><th style="width:35%">Volume</th></tr></thead>
+    <tbody>
+      {% for s in top %}
+      <tr>
+        <td><span class="badge {{ s.fam }}">{{ s.scenario }}</span></td>
+        <td class="mono right">{{ s.n }}</td>
+        <td class="mono right muted">{{ s.unique_ips }}</td>
+        <td><div class="bar"><i style="width:{{ s.pct }}%"></i></div></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted" style="text-align:center;padding:24px">no scenarios firing in window.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Heatmap — Scenario × Hour-of-Day (last 7d, UTC)</h2>
+  <div class="heatmap">
+    <div></div>
+    {% for h in range(24) %}<div class="h-hr">{{ '%02d'|format(h) }}</div>{% endfor %}
+    {% for row in heat_rows %}
+      <div class="h-scen" title="{{ row.scenario }}">{{ row.scenario }}</div>
+      {% for h in range(24) %}
+        {% set v = row.cells[h] %}
+        <div class="h-cell {% if v %}lvl-{{ row.levels[h] }}{% endif %}" title="{{ row.scenario }} · {{ '%02d'|format(h) }}:00 · {{ v }} fires"></div>
+      {% endfor %}
+    {% else %}
+      <div class="h-scen muted">no data yet</div>
+      {% for h in range(24) %}<div class="h-cell"></div>{% endfor %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · login{% endblock %}
+{% block anon %}
+<style>
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;position:relative;z-index:1;padding:24px}
+.login-card{width:380px;background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;padding:28px}
+.login-brand{font-size:30px;font-weight:700;letter-spacing:.22em;color:var(--cyan);text-align:center;
+  text-shadow:0 0 22px rgba(0,200,255,.35)}
+.login-sub{text-align:center;font-size:11px;letter-spacing:.3em;color:var(--muted);text-transform:uppercase;margin:6px 0 22px}
+.login-card form > div{margin-bottom:14px}
+.row-btn{margin-top:20px}
+.row-btn .btn{width:100%}
+.err{background:rgba(255,56,96,.12);border-left:3px solid var(--red);color:var(--red);
+  padding:8px 12px;border-radius:3px;font-size:12px;margin-bottom:14px;font-family:'Share Tech Mono',monospace}
+.lock{background:rgba(255,181,71,.1);border-left:3px solid var(--amber);color:var(--amber);
+  padding:8px 12px;border-radius:3px;font-size:12px;margin-bottom:14px;font-family:'Share Tech Mono',monospace}
+.hint{font-size:10px;color:var(--muted-low);letter-spacing:.15em;text-transform:uppercase;text-align:center;margin-top:14px}
+</style>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-brand">PROTEK</div>
+    <div class="login-sub">crowdsec · mikrotik · noc</div>
+
+    {% if locked %}
+      <div class="lock">IP locked. Retry in {{ lockout_mins }} min.</div>
+    {% elif error %}
+      <div class="err">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div>
+        <label>Username</label>
+        <input type="text" name="username" value="{{ username or '' }}" autofocus required>
+      </div>
+      <div>
+        <label>Password</label>
+        <input type="password" name="password" required>
+      </div>
+      <div>
+        <label>TOTP Code</label>
+        <input type="text" name="totp" pattern="[0-9]{6}" inputmode="numeric" maxlength="6" required>
+      </div>
+      <div class="row-btn">
+        <button class="btn" type="submit">Authenticate</button>
+      </div>
+    </form>
+    <div class="hint">2FA required · attempts logged</div>
+  </div>
+</div>
+{% endblock %}

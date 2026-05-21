@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""
+protekctl — Phase 40 CLI client.
+
+Configuration (in order of precedence):
+  CLI flags (--url, --token)
+  Env vars (PROTEK_URL, PROTEK_TOKEN)
+  Config file (~/.config/protek/protekctl.toml — single section [protekctl])
+
+Output modes:
+  --output / -o {table,json,tsv}    default: table
+
+Commands:
+  protekctl ping
+  protekctl decisions ls [--scope Ip] [--origin crowdsec] [--q substr] [--limit 200]
+  protekctl decisions add <ip> [--scope Ip] [--scenario s] [--duration 4h] [--reason r]
+  protekctl decisions rm <ip>
+  protekctl sources ls
+  protekctl sync run
+  protekctl sync status
+  protekctl whitelist ls
+  protekctl whitelist add <kind> <value> [--note "..."] [--expires "..."]
+  protekctl whitelist rm <id>
+  protekctl tile
+
+Examples:
+  protekctl decisions ls --output json | jq '.items[].value'
+  protekctl decisions add 1.2.3.4 --reason "manual block"
+  PROTEK_URL=https://protek.syedhashmi.trade PROTEK_TOKEN=pk_xxx protekctl ping
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from typing import Any
+
+try:
+    import requests
+except ImportError:
+    sys.stderr.write("protekctl: missing dependency `requests`. Run: pip install requests\n")
+    sys.exit(2)
+
+
+# ── config ─────────────────────────────────────────────────────────────────
+
+DEFAULT_URL = "http://127.0.0.1:8090"
+
+
+def load_config() -> dict[str, str]:
+    path = os.path.expanduser("~/.config/protek/protekctl.toml")
+    if not os.path.exists(path):
+        return {}
+    try:
+        try:
+            import tomllib  # py 3.11+
+            with open(path, "rb") as f:
+                return tomllib.load(f).get("protekctl", {})
+        except ImportError:
+            # Fall back to a tiny single-section parser to avoid an external dep.
+            cfg: dict[str, str] = {}
+            with open(path) as f:
+                in_section = False
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line == "[protekctl]":
+                        in_section = True
+                        continue
+                    if line.startswith("["):
+                        in_section = False
+                        continue
+                    if not in_section or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    cfg[k.strip()] = v.strip().strip('"').strip("'")
+            return cfg
+    except OSError:
+        return {}
+
+
+# ── client ─────────────────────────────────────────────────────────────────
+
+class Client:
+    def __init__(self, url: str, token: str) -> None:
+        self.url = url.rstrip("/")
+        self.token = token
+
+    def _hdr(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
+
+    def get(self, path: str, **params) -> Any:
+        r = requests.get(f"{self.url}/api/v1{path}", headers=self._hdr(),
+                         params=params, timeout=15)
+        return self._handle(r)
+
+    def post(self, path: str, body: Any = None) -> Any:
+        r = requests.post(f"{self.url}/api/v1{path}", headers=self._hdr(),
+                          json=body or {}, timeout=15)
+        return self._handle(r)
+
+    def delete(self, path: str) -> Any:
+        r = requests.delete(f"{self.url}/api/v1{path}", headers=self._hdr(),
+                            timeout=15)
+        return self._handle(r)
+
+    def _handle(self, r):
+        try:
+            body = r.json()
+        except ValueError:
+            body = {"_raw": r.text}
+        if r.status_code >= 400:
+            sys.stderr.write(f"protekctl: HTTP {r.status_code}: {json.dumps(body)}\n")
+            sys.exit(1)
+        return body
+
+
+# ── formatters ─────────────────────────────────────────────────────────────
+
+def emit(data: Any, mode: str, columns: list[str] | None = None) -> None:
+    if mode == "json":
+        print(json.dumps(data, indent=2, default=str))
+        return
+    items = data.get("items") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        # Single object — render as key:value
+        if mode == "tsv":
+            for k, v in (data.items() if isinstance(data, dict) else []):
+                print(f"{k}\t{v}")
+        else:
+            for k, v in (data.items() if isinstance(data, dict) else []):
+                print(f"{k:24}  {v}")
+        return
+    if not items:
+        sys.stderr.write("(empty)\n")
+        return
+    cols = columns or list(items[0].keys())
+    if mode == "tsv":
+        print("\t".join(cols))
+        for row in items:
+            print("\t".join(str(row.get(c, "")) for c in cols))
+        return
+    # Table mode (default)
+    widths = {c: max(len(c), max((len(str(r.get(c, ""))) for r in items), default=0)) for c in cols}
+    widths = {c: min(w, 60) for c, w in widths.items()}
+    print("  ".join(c.upper().ljust(widths[c]) for c in cols))
+    print("  ".join("-" * widths[c] for c in cols))
+    for row in items:
+        print("  ".join(str(row.get(c, ""))[:widths[c]].ljust(widths[c]) for c in cols))
+
+
+# ── commands ───────────────────────────────────────────────────────────────
+
+def cmd_ping(c: Client, args) -> None:
+    emit(c.get("/ping"), args.output)
+
+
+def cmd_decisions_ls(c: Client, args) -> None:
+    params = {"limit": args.limit}
+    if args.scope: params["scope"] = args.scope
+    if args.origin: params["origin"] = args.origin
+    if args.q: params["q"] = args.q
+    emit(c.get("/decisions", **params), args.output,
+         columns=["value", "scope", "origin", "scenario", "until"])
+
+
+def cmd_decisions_add(c: Client, args) -> None:
+    body = {"ip": args.ip, "scope": args.scope, "scenario": args.scenario,
+            "duration": args.duration, "reason": args.reason or ""}
+    emit(c.post("/decisions", body), args.output)
+
+
+def cmd_decisions_rm(c: Client, args) -> None:
+    emit(c.delete(f"/decisions/by-ip/{args.ip}"), args.output)
+
+
+def cmd_sources_ls(c: Client, args) -> None:
+    emit(c.get("/sources"), args.output,
+         columns=["id", "name", "url", "enabled", "paused", "last_pull_n", "last_pull_at"])
+
+
+def cmd_sync_status(c: Client, args) -> None:
+    emit(c.get("/sync/status"), args.output)
+
+
+def cmd_sync_run(c: Client, args) -> None:
+    emit(c.post("/sync/run"), args.output)
+
+
+def cmd_whitelist_ls(c: Client, args) -> None:
+    emit(c.get("/whitelist"), args.output,
+         columns=["id", "kind", "value", "note", "expires_at"])
+
+
+def cmd_whitelist_add(c: Client, args) -> None:
+    body = {"kind": args.kind, "value": args.value, "note": args.note,
+            "expires_at": args.expires}
+    emit(c.post("/whitelist", body), args.output)
+
+
+def cmd_whitelist_rm(c: Client, args) -> None:
+    emit(c.delete(f"/whitelist/{args.id}"), args.output)
+
+
+def cmd_tile(c: Client, args) -> None:
+    emit(c.get("/tile/summary"), args.output)
+
+
+# ── argparse ───────────────────────────────────────────────────────────────
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="protekctl",
+                                description="CLI client for the Protek API (v1).")
+    p.add_argument("--url", help="Protek base URL (default: $PROTEK_URL or http://127.0.0.1:8090)")
+    p.add_argument("--token", help="API bearer token (default: $PROTEK_TOKEN)")
+    p.add_argument("-o", "--output", choices=("table", "json", "tsv"), default="table",
+                   help="output format (default: table)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("ping", help="liveness probe").set_defaults(func=cmd_ping)
+
+    pd = sub.add_parser("decisions", help="decision ops")
+    pds = pd.add_subparsers(dest="op", required=True)
+    pds_ls = pds.add_parser("ls", help="list active decisions")
+    pds_ls.add_argument("--scope")
+    pds_ls.add_argument("--origin")
+    pds_ls.add_argument("-q", "--q", help="substring match on value or scenario")
+    pds_ls.add_argument("--limit", type=int, default=200)
+    pds_ls.set_defaults(func=cmd_decisions_ls)
+    pds_add = pds.add_parser("add", help="add a decision")
+    pds_add.add_argument("ip")
+    pds_add.add_argument("--scope", default="Ip")
+    pds_add.add_argument("--scenario", default="external/manual")
+    pds_add.add_argument("--duration", default="4h")
+    pds_add.add_argument("--reason", default="")
+    pds_add.set_defaults(func=cmd_decisions_add)
+    pds_rm = pds.add_parser("rm", help="soft-delete decisions for an IP")
+    pds_rm.add_argument("ip")
+    pds_rm.set_defaults(func=cmd_decisions_rm)
+
+    psrc = sub.add_parser("sources", help="federation sources")
+    psrc_sub = psrc.add_subparsers(dest="op", required=True)
+    psrc_sub.add_parser("ls", help="list sources").set_defaults(func=cmd_sources_ls)
+
+    psync = sub.add_parser("sync", help="reconcile control")
+    psync_sub = psync.add_subparsers(dest="op", required=True)
+    psync_sub.add_parser("status", help="last reconcile status").set_defaults(func=cmd_sync_status)
+    psync_sub.add_parser("run", help="force a reconcile cycle").set_defaults(func=cmd_sync_run)
+
+    pwl = sub.add_parser("whitelist", help="whitelist rules")
+    pwl_sub = pwl.add_subparsers(dest="op", required=True)
+    pwl_sub.add_parser("ls", help="list whitelist rules").set_defaults(func=cmd_whitelist_ls)
+    pwl_add = pwl_sub.add_parser("add", help="add a whitelist rule")
+    pwl_add.add_argument("kind", choices=("ip", "cidr", "asn", "country"))
+    pwl_add.add_argument("value")
+    pwl_add.add_argument("--note", default="")
+    pwl_add.add_argument("--expires", default=None)
+    pwl_add.set_defaults(func=cmd_whitelist_add)
+    pwl_rm = pwl_sub.add_parser("rm", help="delete a whitelist rule")
+    pwl_rm.add_argument("id", type=int)
+    pwl_rm.set_defaults(func=cmd_whitelist_rm)
+
+    sub.add_parser("tile", help="compact dashboard tile JSON").set_defaults(func=cmd_tile)
+
+    return p
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    cfg = load_config()
+    url = args.url or os.environ.get("PROTEK_URL") or cfg.get("url") or DEFAULT_URL
+    token = args.token or os.environ.get("PROTEK_TOKEN") or cfg.get("token") or ""
+    if not token:
+        sys.stderr.write(
+            "protekctl: no token. Set PROTEK_TOKEN, --token, or put one in\n"
+            "  ~/.config/protek/protekctl.toml as:\n"
+            "    [protekctl]\n"
+            "    url = \"https://protek.syedhashmi.trade\"\n"
+            "    token = \"pk_xxx\"\n"
+            "Generate a token at /admin/tokens.\n"
+        )
+        sys.exit(2)
+    c = Client(url=url, token=token)
+    args.func(c, args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · blocked{% endblock %}
+{% block anon %}
+<style>
+.b{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;z-index:1}
+.b .x{font-size:96px;color:var(--red);text-shadow:0 0 28px rgba(255,56,96,.4)}
+.b .t{margin-top:12px;font-size:24px;letter-spacing:.18em;color:var(--text);text-transform:uppercase}
+.b .ip{margin-top:8px;font-family:'Share Tech Mono',monospace;color:var(--muted)}
+</style>
+<div class="b">
+  <div class="x">⏻</div>
+  <div class="t">Not Whitelisted</div>
+  <div class="ip">{{ ip }}</div>
+</div>
+{% endblock %}

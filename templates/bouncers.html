@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · bouncers{% endblock %}
+{% block crumb %}<b>BOUNCERS</b> · Multi-Target{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Targets</div><div class="v cyan" style="font-size:30px">{{ kpis.total }}</div></div>
+  <div class="kpi"><div class="k">Online</div><div class="v">{{ kpis.online }}</div></div>
+  <div class="kpi"><div class="k">Errors</div><div class="v red">{{ kpis.errors }}</div></div>
+  <div class="kpi"><div class="k">Total Entries (across all targets)</div><div class="v">{{ kpis.total_entries }}</div></div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Active Targets</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th class="right">Size</th><th>Mode</th><th>Last Sync</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for t in targets %}
+      <tr>
+        <td class="mono cyan">{{ t.name }}</td>
+        <td><span class="badge">{{ t.kind }}</span></td>
+        <td>
+          {% if t.ok %}<span class="badge cs">online</span>
+          {% else %}<span class="badge" style="color:var(--red)">{{ t.error or 'offline' }}</span>{% endif %}
+        </td>
+        <td class="mono right">{{ t.size if t.size is not none else '—' }}</td>
+        <td>{% if t.dry_run %}<span class="badge" style="color:var(--amber)">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>
+        <td class="mono muted">{{ t.last_sync_rel }}</td>
+        <td>
+          {% if t.removable %}
+          <form method="POST" action="{{ url_for('bouncers_delete', tid=t.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove target?')">remove</button>
+          </form>
+          {% else %}<span class="muted" style="font-size:10px">env-managed</span>{% endif %}
+        </td>
+      </tr>
+      {% if t.error and not t.ok %}
+      <tr><td colspan="7" class="mono" style="color:var(--red);font-size:11px;padding:4px 16px">↳ {{ t.error }}</td></tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Add Target</h2>
+  <div class="muted" style="margin-bottom:12px;font-size:12px;text-transform:none;letter-spacing:0">
+    Pick an adapter, fill its config, and Protek will start applying the same merged decision set to it on the next reconcile cycle. Operator owns the consuming firewall rule (block/drop); Protek owns only the list contents.
+  </div>
+
+  <form method="POST" action="{{ url_for('bouncers_add') }}" style="display:grid;grid-template-columns:160px 200px 1fr 80px;gap:10px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label>Kind</label>
+      <select name="kind" id="kind" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px" onchange="showFields(this.value)">
+        <option value="iptables_ipset">iptables + ipset (local)</option>
+        <option value="cloudflare">Cloudflare WAF list</option>
+        <option value="pfsense">pfSense (pfsense-pkg-RESTAPI)</option>
+        <option value="opnsense">OPNsense (built-in API)</option>
+      </select>
+    </div>
+    <div><label>Name</label><input type="text" name="name" placeholder="cf-main" required pattern="[a-zA-Z0-9_-]+"></div>
+    <div>
+      <label>Config (JSON, adapter-specific)</label>
+      <input type="text" name="config_json" placeholder='{"account_id":"...","api_token":"...","list_name":"protek_bans"}' required>
+    </div>
+    <div>
+      <label>Dry Run</label>
+      <select name="dry_run" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+        <option value="1">yes</option><option value="0">no</option>
+      </select>
+    </div>
+    <div></div><div></div>
+    <div></div>
+    <button class="btn" type="submit">Add</button>
+  </form>
+
+  <div class="panel" style="margin-top:14px;background:var(--bg-deep)">
+    <h2 style="font-size:11px">Config shapes</h2>
+    <pre class="mono" style="color:var(--green);font-size:11px;white-space:pre-wrap">
+iptables_ipset  →  {} (no config — uses default set names protek-bans / protek-bans6)
+                   optional: {"set_v4":"my-set","set_v6":"my-set6","max_v4":200000}
+
+cloudflare      →  {"account_id":"&lt;cf-acct-id&gt;", "api_token":"&lt;scoped-token&gt;",
+                    "list_name":"protek_bans"}    # auto-creates list
+
+pfsense         →  {"base_url":"https://pf.example.com",
+                    "api_key":"&lt;X-API-Key&gt;",
+                    "alias_name":"protek_bans",
+                    "verify_tls": false}
+
+opnsense        →  {"base_url":"https://opn.example.com",
+                    "api_key":"&lt;key&gt;", "api_secret":"&lt;secret&gt;",
+                    "alias_name":"protek_bans",
+                    "verify_tls": false}
+</pre>
+  </div>
+</div>
+{% endblock %}

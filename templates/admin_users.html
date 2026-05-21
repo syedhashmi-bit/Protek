@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Users · Protek{% endblock %}
+{% block crumb %}ADMIN · <b>USERS</b>{% endblock %}
+{% block body %}
+
+{% set new = session.pop('_pending_user_secret', None) %}
+{% if new %}
+<div class="panel" style="border-color:var(--cyan)">
+  <h2 style="color:var(--cyan)">New user created — capture TOTP NOW</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    This is shown <b>once</b>. Save the URI to a password manager or scan the QR with your
+    authenticator app immediately. We can't recover the secret if you lose it.
+  </p>
+  <table>
+    <tr><td style="width:140px"><label>Username</label></td>
+        <td class="mono">{{ new.username }}</td></tr>
+    <tr><td><label>Role</label></td>
+        <td><span class="badge cs">{{ new.role }}</span></td></tr>
+    <tr><td><label>TOTP secret</label></td>
+        <td class="mono">{{ new.totp_secret }}</td></tr>
+    <tr><td><label>Provisioning URI</label></td>
+        <td class="mono" style="word-break:break-all;font-size:11px">{{ new.totp_uri }}</td></tr>
+  </table>
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:16px">
+  <h2>Add user</h2>
+  <form method="post" action="{{ url_for('admin_users_add') }}"
+        style="display:flex;gap:10px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="width:200px">
+      <label>Username</label>
+      <input type="text" name="username" required>
+    </div>
+    <div style="width:200px">
+      <label>Password (≥ 8 chars)</label>
+      <input type="password" name="password" required minlength="8" autocomplete="new-password">
+    </div>
+    <div style="width:140px">
+      <label>Role</label>
+      <select name="role" style="width:100%;background:var(--bg-deep);color:var(--text);
+              border:1px solid var(--border);padding:8px;font-family:'Share Tech Mono',monospace;
+              font-size:13px;border-radius:3px">
+        <option value="viewer">viewer</option>
+        <option value="operator">operator</option>
+        <option value="admin">admin</option>
+      </select>
+    </div>
+    <button class="btn" type="submit">Create</button>
+  </form>
+  <p class="muted" style="margin:12px 0 0;font-size:11px">
+    TOTP secret is auto-generated and shown ONCE after creation.
+    Roles: <b>viewer</b> = read-only · <b>operator</b> = everything except user/token mgmt · <b>admin</b> = full.
+  </p>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Users · {{ users|length }}</h2>
+  <table>
+    <thead><tr>
+      <th>#</th><th>Username</th><th>Role</th><th>Created</th><th>Last login</th><th>State</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td class="mono muted">{{ u.id }}{% if u.id == 1 %} <span class="badge" style="color:var(--amber);border-color:var(--amber);font-size:9px">env</span>{% endif %}</td>
+        <td>{{ u.username }}</td>
+        <td>
+          {% if u.id == 1 %}
+            <span class="badge cs">{{ u.role }}</span>
+          {% else %}
+            <form method="post" action="{{ url_for('admin_users_role', uid=u.id) }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <select name="role" onchange="this.form.submit()"
+                      style="background:var(--bg-deep);color:var(--text);border:1px solid var(--border);
+                             padding:3px 6px;font-family:'Share Tech Mono',monospace;font-size:11px">
+                <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>viewer</option>
+                <option value="operator" {% if u.role == 'operator' %}selected{% endif %}>operator</option>
+                <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
+              </select>
+            </form>
+          {% endif %}
+        </td>
+        <td class="mono muted">{{ (u.created_at or '')[:19].replace('T',' ') }}</td>
+        <td class="mono muted">{{ (u.last_login_at or '—')[:19].replace('T',' ') if u.last_login_at else '—' }}</td>
+        <td>
+          {% if u.disabled %}
+            <span class="badge" style="color:var(--red);border-color:var(--red)">disabled</span>
+          {% else %}
+            <span class="badge cs">active</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.id != 1 %}
+            <form method="post" action="{{ url_for('admin_users_toggle', uid=u.id) }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="disable" value="{{ '0' if u.disabled else '1' }}">
+              <button class="btn ghost" type="submit" style="font-size:10px">
+                {{ 'enable' if u.disabled else 'disable' }}
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('admin_users_delete', uid=u.id) }}" style="display:inline"
+                  onsubmit="return confirm('Delete user {{ u.username }}?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn ghost" type="submit" style="color:var(--red);font-size:10px">delete</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
