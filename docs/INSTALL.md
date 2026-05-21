@@ -5,7 +5,7 @@ Tested on Ubuntu 22.04 + 24.04. Other Debian-derived distros likely fine. RHEL n
 ## One-command install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/protek/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/syedhashmi-bit/Protek/main/install.sh | sudo bash
 ```
 
 This handles: system deps, CrowdSec (via APT), Python venv, requirements,
@@ -28,7 +28,7 @@ sudo apt-get install -y crowdsec
 sudo systemctl enable --now crowdsec
 
 # 3. Clone + venv
-sudo git clone https://github.com/your-org/protek.git /var/www/Protek
+sudo git clone https://github.com/syedhashmi-bit/Protek.git /var/www/Protek
 cd /var/www/Protek
 sudo python3.12 -m venv venv
 sudo ./venv/bin/pip install -r requirements.txt
