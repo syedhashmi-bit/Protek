@@ -109,6 +109,34 @@ app.register_blueprint(_api_v1_bp)
 def _inject_role_helpers():
     return {"has_role": has_role, "current_role": lambda: session.get("role", "viewer")}
 
+
+@app.before_request
+def _upgrade_legacy_session():
+    """Sessions created before multi-admin landed have `logged_in=True` and
+    `username` but no `role` or `user_id`. Re-attach those from the users
+    table so the RBAC gates don't silently treat them as viewers.
+
+    Runs cheaply — only does a DB lookup when role is missing AND we're
+    logged in, then never again until the next login."""
+    if not session.get("logged_in"):
+        return
+    if "role" in session and "user_id" in session:
+        return
+    uname = session.get("username", "")
+    if not uname:
+        return
+    try:
+        from auth import get_user
+        u = get_user(uname)
+    except Exception:  # noqa: BLE001
+        u = None
+    if u:
+        session["user_id"] = u["id"]
+        session["role"] = u["role"]
+    else:
+        # Username doesn't resolve any more — force re-login.
+        session.clear()
+
 def _envstr(name: str, default: str = "") -> str:
     """Read env var, tolerating inline-comment trailing whitespace."""
     raw = os.environ.get(name, default)
