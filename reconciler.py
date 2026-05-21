@@ -41,13 +41,25 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
     note_bits: list[str] = []
     error_count = 0
 
+    # Per-stage timing (phase 55) — accumulated across bouncers where
+    # applicable. lapi_fetch_ms covers _desired_from_db (the SQL pull +
+    # whitelist match). snapshot_ms + apply_ms are summed across bouncers
+    # so the bar-chart breakdown shows the dominant downstream.
+    t_lapi = time.monotonic()
     desired = _desired_from_db()
+    lapi_fetch_ms = int((time.monotonic() - t_lapi) * 1000)
+    snapshot_ms = 0
+    diff_ms = 0
+    apply_ms = 0
+
     all_bouncers = bouncers_mod.load_all_targets()
 
     if not all_bouncers:
         note_bits.append("no_bouncers_configured")
         # Still compute a virtual diff vs empty so the dashboard shows queue size.
+        t_diff = time.monotonic()
         diff = reconcile(desired, [])
+        diff_ms += int((time.monotonic() - t_diff) * 1000)
         total_add = len(diff.to_add)
         total_remove = 0
         unchanged = 0
@@ -58,12 +70,14 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         per_bouncer_push: list[dict[str, Any]] = []
 
         for b in all_bouncers:
+            t_snap = time.monotonic()
             try:
                 current = b.snapshot() if b.is_configured() else []
             except Exception as e:  # noqa: BLE001
                 current = []
                 error_count += 1
                 note_bits.append(f"{b.name}_snapshot_failed: {e}")
+            snapshot_ms += int((time.monotonic() - t_snap) * 1000)
 
             # Per-bouncer subset filtering. Configured via the bouncer_targets
             # row's config_json — `origins` (glob whitelist), `exclude_origins`
@@ -76,7 +90,9 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
                     f"{b.name}_filtered: {len(desired_for_b)}/{len(desired)}"
                 )
 
+            t_diff = time.monotonic()
             diff = reconcile(desired_for_b, current)
+            diff_ms += int((time.monotonic() - t_diff) * 1000)
             total_add += len(diff.to_add)
             total_remove += len(diff.to_remove)
             unchanged += diff.unchanged
@@ -85,14 +101,15 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
                 to_add = diff.to_add[:batch_cap]
                 remaining = max(0, batch_cap - len(to_add))
                 to_remove = diff.to_remove[:remaining]
+                t_apply = time.monotonic()
                 try:
                     res = b.apply(to_add, to_remove)
                     error_count += res.get("errors", 0)
                     per_bouncer_push.append({"name": b.name, **res})
-                    # Per-op rows persisted below
                 except Exception as e:  # noqa: BLE001
                     error_count += 1
                     note_bits.append(f"{b.name}_apply_failed: {e}")
+                apply_ms += int((time.monotonic() - t_apply) * 1000)
 
             if (len(diff.to_add) + len(diff.to_remove)) > batch_cap:
                 note_bits.append(f"{b.name}_batch_capped: {batch_cap}")
@@ -104,12 +121,14 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         cur = conn.execute(
             """
             INSERT INTO sync_events
-                (started_at, duration_ms, added, removed, unchanged, errors, source, dry_run, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (started_at, duration_ms, added, removed, unchanged, errors, source, dry_run, notes,
+                 lapi_fetch_ms, snapshot_ms, diff_ms, apply_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (started.isoformat(), duration_ms, total_add, total_remove,
              unchanged, error_count, source, 1 if dry_run else 0,
-             "; ".join(note_bits)),
+             "; ".join(note_bits),
+             lapi_fetch_ms, snapshot_ms, diff_ms, apply_ms),
         )
         sync_id = cur.lastrowid
 
@@ -137,6 +156,10 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         "sync_event_id": sync_id,
         "started_at": started.isoformat(),
         "duration_ms": duration_ms,
+        "lapi_fetch_ms": lapi_fetch_ms,
+        "snapshot_ms": snapshot_ms,
+        "diff_ms": diff_ms,
+        "apply_ms": apply_ms,
         "to_add": total_add,
         "to_remove": total_remove,
         "unchanged": unchanged,

@@ -173,6 +173,13 @@ SCHEMA = [
 # Each tuple: (table, column, definition). Skipped if column already exists.
 
 MIGRATIONS: list[tuple[str, str, str]] = [
+    # Phase 55 — per-stage sync timing breakdown. snapshot_ms + apply_ms are
+    # per-bouncer sums; diff_ms is compute-only; lapi_fetch_ms covers the
+    # earlier poller cycle. All start as zero on old rows (no migration data).
+    ("sync_events", "lapi_fetch_ms", "INTEGER NOT NULL DEFAULT 0"),
+    ("sync_events", "snapshot_ms",   "INTEGER NOT NULL DEFAULT 0"),
+    ("sync_events", "diff_ms",       "INTEGER NOT NULL DEFAULT 0"),
+    ("sync_events", "apply_ms",      "INTEGER NOT NULL DEFAULT 0"),
     # Arc 2 — Federation
     ("sources", "backoff_until", "TEXT DEFAULT NULL"),
     ("sources", "paused", "INTEGER NOT NULL DEFAULT 0"),

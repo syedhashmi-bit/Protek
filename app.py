@@ -876,12 +876,38 @@ def alerts_rules_page():
     import alerting
     states = alerting.tick()  # always show the freshest evaluation
     silences = alerting.list_silences(include_expired=False)
+    # Per-rule channel overrides (phase 56)
+    for r in states:
+        r["channels_override"] = get_setting(f"alerting.rule.{r['rule_key']}.channels") or ""
     return render_template(
         "alerts_rules.html",
         rules=states,
         silences=silences,
         active="alerts_rules",
     )
+
+
+@app.route("/alerts/rules/channels", methods=["POST"])
+@login_required
+@role_required("operator")
+def alerts_rules_channels():
+    rule_key = (request.form.get("rule_key") or "").strip()
+    channels = (request.form.get("channels") or "").strip()  # "" clears the override
+    if not rule_key:
+        flash("rule_key required", "error")
+        return redirect(url_for("alerts_rules_page"))
+    if channels:
+        # Validate against known channels (and 'all' shortcut)
+        valid = {"discord", "telegram", "email"}
+        chs = [c.strip() for c in channels.split(",") if c.strip()]
+        bad = [c for c in chs if c not in valid]
+        if bad:
+            flash(f"unknown channel(s): {', '.join(bad)}. Valid: {', '.join(sorted(valid))}", "error")
+            return redirect(url_for("alerts_rules_page"))
+    set_setting(f"alerting.rule.{rule_key}.channels", channels)
+    _audit("alert.channels", target=rule_key, after={"channels": channels or "(default)"})
+    flash(f"channels for '{rule_key}' set to: {channels or 'default'}", "info")
+    return redirect(url_for("alerts_rules_page"))
 
 
 @app.route("/alerts/silence/add", methods=["POST"])
@@ -1311,6 +1337,7 @@ def perf_page():
         slow=perf.slow_cycles(limit=20),
         recent=perf.recent_cycles(limit=60),
         breakdown=perf.stage_breakdown(),
+        stages=perf.stage_timings(hours=24),
         slo=_slo.summary(window_hours=24),
         active="perf",
     )
@@ -1660,6 +1687,238 @@ def bouncers_add():
     _audit("bouncer.add", target=name,
            after={"name": name, "kind": kind, "dry_run": dry_run, "config_keys": list(cfg.keys())})
     return redirect(url_for("bouncers_page"))
+
+
+@app.route("/api/search")
+@login_required
+def api_search():
+    """Session-auth global search for the in-browser cmd-K palette.
+
+    Same response shape as /api/v1/search (which requires a bearer token).
+    Splitting the surfaces keeps in-browser cmd-K from needing a token while
+    the bearer API stays clean for external integrators.
+    """
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify(items=[], count=0)
+    try:
+        limit_per_kind = max(1, min(50, int(request.args.get("limit", "8"))))
+    except (TypeError, ValueError):
+        limit_per_kind = 8
+    pat = f"%{q}%"
+    out: list = []
+    conn = get_conn()
+    try:
+        for r in conn.execute(
+            "SELECT DISTINCT value, scenario, origin FROM decisions "
+            "WHERE deleted_at IS NULL AND (value LIKE ? OR scenario LIKE ?) "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, limit_per_kind),
+        ).fetchall():
+            out.append({"kind": "decision", "label": r["value"],
+                        "hint": f"{r['scenario']} · {r['origin']}",
+                        "href": f"/attackers/{r['value']}"})
+        for r in conn.execute(
+            "SELECT source_ip, scenario, source_country FROM alerts "
+            "WHERE source_ip LIKE ? OR scenario LIKE ? "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, limit_per_kind),
+        ).fetchall():
+            if not r["source_ip"]:
+                continue
+            out.append({"kind": "alert", "label": r["source_ip"],
+                        "hint": f"{r['scenario']} · {r['source_country'] or '?'}",
+                        "href": f"/attackers/{r['source_ip']}"})
+        for r in conn.execute(
+            "SELECT id, kind, value, note FROM whitelist "
+            "WHERE (value LIKE ? OR note LIKE ?) "
+            "AND (expires_at IS NULL OR expires_at > datetime('now')) "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, limit_per_kind),
+        ).fetchall():
+            out.append({"kind": "whitelist", "label": f"{r['kind']}={r['value']}",
+                        "hint": r["note"] or "whitelist rule",
+                        "href": "/whitelist"})
+        for r in conn.execute(
+            "SELECT id, name, kind FROM bouncer_targets WHERE name LIKE ? "
+            "ORDER BY id LIMIT ?", (pat, limit_per_kind),
+        ).fetchall():
+            out.append({"kind": "bouncer", "label": r["name"], "hint": r["kind"],
+                        "href": f"/bouncers/edit/{r['id']}"})
+        for r in conn.execute(
+            "SELECT action, target, actor, created_at FROM audit_log "
+            "WHERE action LIKE ? OR target LIKE ? OR actor LIKE ? "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, pat, limit_per_kind),
+        ).fetchall():
+            out.append({"kind": "audit", "label": r["action"],
+                        "hint": f"{r['target'] or '—'} · {r['actor'] or '?'} · {r['created_at'][:19]}",
+                        "href": f"/audit?q={r['action']}"})
+    finally:
+        conn.close()
+    return jsonify(items=out, count=len(out), q=q)
+
+
+@app.route("/decisions/bulk", methods=["POST"])
+@login_required
+@role_required("operator")
+def decisions_bulk():
+    """Bulk operations on /decisions. Accepts a form with `ips` (comma-separated)
+    and an `action` (delete / whitelist / extend)."""
+    raw_ips = (request.form.get("ips") or "").strip()
+    action = (request.form.get("action") or "").strip()
+    ips = [ip.strip() for ip in raw_ips.split(",") if ip.strip()]
+    if not ips:
+        flash("no IPs selected", "error")
+        return redirect(url_for("decisions_page"))
+    if action not in ("delete", "whitelist", "extend"):
+        flash(f"unknown action: {action}", "error")
+        return redirect(url_for("decisions_page"))
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_conn()
+    affected = 0
+    try:
+        if action == "delete":
+            placeholders = ",".join("?" * len(ips))
+            cur = conn.execute(
+                f"UPDATE decisions SET deleted_at = ? "
+                f"WHERE value IN ({placeholders}) AND deleted_at IS NULL",
+                [now] + ips,
+            )
+            affected = cur.rowcount
+        elif action == "whitelist":
+            import scenarios_admin as sa
+            for ip in ips:
+                res = sa.add_whitelist("ip", ip, note=f"bulk whitelist via /decisions", expires_at=None)
+                if res.get("ok"):
+                    affected += 1
+            # Also soft-delete the active decisions for those IPs so they
+            # leave the bouncers on the next cycle.
+            placeholders = ",".join("?" * len(ips))
+            conn.execute(
+                f"UPDATE decisions SET deleted_at = ? "
+                f"WHERE value IN ({placeholders}) AND deleted_at IS NULL",
+                [now] + ips,
+            )
+        elif action == "extend":
+            try:
+                extend_h = max(1, min(720, int(request.form.get("extend_hours", "24"))))
+            except (TypeError, ValueError):
+                extend_h = 24
+            new_until = (datetime.now(timezone.utc) + timedelta(hours=extend_h)).isoformat()
+            placeholders = ",".join("?" * len(ips))
+            cur = conn.execute(
+                f"UPDATE decisions SET until = ? "
+                f"WHERE value IN ({placeholders}) AND deleted_at IS NULL",
+                [new_until] + ips,
+            )
+            affected = cur.rowcount
+    finally:
+        conn.close()
+
+    _audit(f"decisions.bulk.{action}", target=f"{len(ips)} IPs",
+           note=f"affected={affected}, sample={ips[:5]}")
+    try:
+        import siem as _siem
+        _siem.ship(f"decisions.bulk.{action}", {"count": len(ips), "affected": affected,
+                                                  "sample": ips[:10]})
+    except Exception:  # noqa: BLE001
+        pass
+    flash(f"bulk {action}: {affected} rows affected ({len(ips)} IPs)", "info")
+    return redirect(url_for("decisions_page"))
+
+
+@app.route("/bouncers/edit/<int:tid>", methods=["GET", "POST"])
+@login_required
+@role_required("operator")
+def bouncers_edit(tid: int):
+    """In-place edit — change name/config/dry_run without losing sync state.
+
+    Secret fields (api_token, api_secret, password) are write-only: shown
+    masked, replaced ONLY when the operator submits a non-empty new value
+    (matches the /notifications credentials pattern).
+    """
+    import bouncers as bmod
+    import json as _json
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM bouncer_targets WHERE id = ?", (tid,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        flash("target not found", "error")
+        return redirect(url_for("bouncers_page"))
+
+    current_cfg = {}
+    try:
+        current_cfg = _json.loads(row["config_json"] or "{}")
+    except _json.JSONDecodeError:
+        current_cfg = {}
+
+    SECRET_KEYS = ("api_token", "api_secret", "password", "hmac_secret")
+
+    if request.method == "POST":
+        new_name = (request.form.get("name") or row["name"]).strip()
+        new_dry = (request.form.get("dry_run") or "1") == "1"
+        raw_cfg = (request.form.get("config_json") or "").strip()
+        try:
+            new_cfg = _json.loads(raw_cfg) if raw_cfg else dict(current_cfg)
+        except _json.JSONDecodeError as e:
+            flash(f"invalid JSON: {e}", "error")
+            return redirect(url_for("bouncers_edit", tid=tid))
+
+        # For each secret key, blank submission = keep current.
+        for k in SECRET_KEYS:
+            if k in current_cfg and not new_cfg.get(k):
+                new_cfg[k] = current_cfg[k]
+
+        # Probe the new config before persisting so the operator catches
+        # bad creds immediately.
+        probe = bmod.make_bouncer(new_name, row["kind"], new_cfg)
+        if not probe:
+            flash("could not instantiate bouncer with given config", "error")
+            return redirect(url_for("bouncers_edit", tid=tid))
+        if probe.is_configured():
+            h = probe.health()
+            if not h.get("ok"):
+                flash(f"health check failed: {h.get('error', '?')}", "error")
+                return redirect(url_for("bouncers_edit", tid=tid))
+
+        conn = get_conn()
+        try:
+            conn.execute(
+                "UPDATE bouncer_targets SET name = ?, config_json = ?, dry_run = ? WHERE id = ?",
+                (new_name, _json.dumps(new_cfg), 1 if new_dry else 0, tid),
+            )
+        finally:
+            conn.close()
+        # Build a redacted diff for the audit log — never log raw secrets.
+        before_san = {k: ("••••" if k in SECRET_KEYS else v) for k, v in current_cfg.items()}
+        after_san  = {k: ("••••" if k in SECRET_KEYS else v) for k, v in new_cfg.items()}
+        changed = [k for k in set(list(before_san) + list(after_san))
+                   if before_san.get(k) != after_san.get(k)]
+        _audit("bouncer.edit", target=new_name,
+               before={"name": row["name"], "dry_run": bool(row["dry_run"]), "cfg": before_san},
+               after={"name": new_name, "dry_run": new_dry, "cfg": after_san},
+               note=f"changed fields: {', '.join(changed) if changed else '(none)'}")
+        flash(f"target '{new_name}' updated. Effective on next reconcile cycle.", "info")
+        return redirect(url_for("bouncers_page"))
+
+    # GET — render the edit form. Mask secrets in the JSON display + provide
+    # a separate hint for what's currently set.
+    display_cfg = dict(current_cfg)
+    masked_summary = {}
+    for k in SECRET_KEYS:
+        if k in display_cfg and display_cfg[k]:
+            v = display_cfg[k]
+            masked_summary[k] = "•••• " + (v[-4:] if len(v) >= 4 else "••")
+            display_cfg[k] = ""  # blank in the JSON shown to the operator
+    return render_template(
+        "bouncers_edit.html",
+        target=dict(row),
+        display_cfg=_json.dumps(display_cfg, indent=2),
+        masked_summary=masked_summary,
+        active="bouncers",
+    )
 
 
 @app.route("/bouncers/delete/<int:tid>", methods=["POST"])

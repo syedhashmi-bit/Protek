@@ -27,6 +27,8 @@
         <td class="mono muted">{{ t.last_sync_rel }}</td>
         <td>
           {% if t.removable %}
+          <a class="btn ghost" href="{{ url_for('bouncers_edit', tid=t.id) }}"
+             style="padding:2px 8px;font-size:10px;color:var(--cyan)">edit</a>
           <form method="POST" action="{{ url_for('bouncers_delete', tid=t.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove target?')">remove</button>

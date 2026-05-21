@@ -9,9 +9,41 @@
     <button class="btn sec" type="submit">Filter</button>
     {% if q %}<a class="btn ghost" href="{{ url_for('decisions_page') }}">clear</a>{% endif %}
   </form>
+
+  {% if has_role('operator') %}
+  <!-- Sticky bulk-action bar (hidden until rows are selected). -->
+  <div id="bulkbar" style="display:none;background:var(--bg-deep);border:1px solid var(--cyan);
+              border-radius:4px;padding:10px 14px;margin-bottom:12px;
+              display:none;align-items:center;gap:14px;font-size:13px">
+    <span style="color:var(--cyan);font-family:'Share Tech Mono',monospace">
+      <span id="bulkcount">0</span> selected
+    </span>
+    <form id="bulkform" method="POST" action="{{ url_for('decisions_bulk') }}"
+          style="display:flex;gap:10px;align-items:center">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="ips" id="bulkips">
+      <select name="action" style="background:var(--bg-deep);border:1px solid var(--border);
+              color:var(--text);padding:5px 8px;font-family:'Share Tech Mono',monospace;font-size:12px">
+        <option value="delete">delete (soft-remove from active)</option>
+        <option value="whitelist">whitelist + delete</option>
+        <option value="extend">extend until +N hours</option>
+      </select>
+      <input type="number" name="extend_hours" value="24" min="1" max="720"
+             style="width:64px;padding:5px 6px;font-size:12px"
+             title="Only used for the 'extend' action">
+      <button class="btn" type="submit"
+              onclick="return confirm('Apply to ' + document.getElementById('bulkcount').textContent + ' IPs?')">Apply</button>
+      <button class="btn ghost" type="button" onclick="bulkClear()">clear</button>
+    </form>
+  </div>
+  {% endif %}
+
   <table>
     <thead>
       <tr>
+        {% if has_role('operator') %}
+        <th style="width:24px"><input type="checkbox" id="bulkselectall" title="select all on this page"></th>
+        {% endif %}
         <th>First Seen</th>
         <th>Value</th>
         <th>Scope</th>
@@ -24,6 +56,9 @@
     <tbody>
       {% for d in rows %}
       <tr>
+        {% if has_role('operator') %}
+        <td><input type="checkbox" class="bulkitem" value="{{ d.value }}" onchange="bulkRecalc()"></td>
+        {% endif %}
         <td class="mono muted">{{ d.first_seen_rel }}</td>
         <td class="mono"><a href="{{ url_for('attacker_page', ip=d.value) }}">{{ d.value }}</a></td>
         <td><span class="badge">{{ d.scope }}</span></td>
@@ -33,7 +68,7 @@
         <td class="mono right muted">{{ d.until_rel or '—' }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="muted" style="text-align:center;padding:30px">no decisions match.</td></tr>
+      <tr><td colspan="{{ '8' if has_role('operator') else '7' }}" class="muted" style="text-align:center;padding:30px">no decisions match.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -47,4 +82,25 @@
   </div>
   {% endif %}
 </div>
+
+{% if has_role('operator') %}
+<script>
+function bulkRecalc(){
+  const ips = Array.from(document.querySelectorAll('.bulkitem:checked')).map(el => el.value);
+  document.getElementById('bulkcount').textContent = ips.length;
+  document.getElementById('bulkips').value = ips.join(',');
+  const bar = document.getElementById('bulkbar');
+  bar.style.display = ips.length ? 'flex' : 'none';
+}
+function bulkClear(){
+  document.querySelectorAll('.bulkitem').forEach(el => { el.checked = false; });
+  document.getElementById('bulkselectall').checked = false;
+  bulkRecalc();
+}
+document.getElementById('bulkselectall').addEventListener('change', function(){
+  document.querySelectorAll('.bulkitem').forEach(el => { el.checked = this.checked; });
+  bulkRecalc();
+});
+</script>
+{% endif %}
 {% endblock %}

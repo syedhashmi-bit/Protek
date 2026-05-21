@@ -59,6 +59,46 @@
 </div>
 
 <div class="panel" style="margin-top:16px">
+  <h2>Stage breakdown (last 24h · {{ stages.samples }} instrumented cycles)</h2>
+  {% if stages.samples == 0 %}
+    <p class="muted" style="margin:0;font-size:12px">
+      No instrumented cycles yet — stage timing was added in phase 55 and only fills as new cycles run.
+      Check back in a few minutes.
+    </p>
+  {% else %}
+    <p class="muted" style="margin:0 0 12px;font-size:12px">
+      Where each cycle spends its time, on average. <span class="mono">lapi_fetch</span> = DB pull + whitelist match ·
+      <span class="mono">snapshot</span> = reading the current address-list from each bouncer ·
+      <span class="mono">diff</span> = pure-Python reconcile compute ·
+      <span class="mono">apply</span> = pushing add/remove ops to each bouncer.
+    </p>
+    <div style="display:flex;height:24px;border:1px solid var(--border);border-radius:3px;overflow:hidden;margin-bottom:14px">
+      {% set colors = {'lapi_fetch_ms':'#00c8ff','snapshot_ms':'#ffb547','diff_ms':'#00ff9d','apply_ms':'#d97aff'} %}
+      {% for s in stages.stages %}
+        {% if s.share_pct > 0 %}
+        <div style="flex-grow:{{ s.share_pct }};background:{{ colors[s.stage] }};opacity:0.85"
+             title="{{ s.stage }}: {{ s.avg_ms }}ms avg ({{ s.share_pct }}%)"></div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <table>
+      <thead><tr><th>Stage</th><th class="right">Share</th><th class="right">avg ms</th><th class="right">p95 ms</th><th class="right">max ms</th></tr></thead>
+      <tbody>
+        {% for s in stages.stages %}
+        <tr>
+          <td><span class="badge" style="color:{{ colors[s.stage] }};border-color:{{ colors[s.stage] }}">{{ s.stage.replace('_ms','') }}</span></td>
+          <td class="mono right">{{ s.share_pct }}%</td>
+          <td class="mono right">{{ s.avg_ms }}</td>
+          <td class="mono right">{{ s.p95_ms }}</td>
+          <td class="mono right muted">{{ s.max_ms }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
   <h2>Health-by-outcome (last 24h)</h2>
   <table>
     <thead><tr><th>Cycle outcome</th><th class="right">Count</th><th class="right">Avg duration</th></tr></thead>
@@ -72,8 +112,8 @@
     </tbody>
   </table>
   <p class="muted" style="margin:10px 0 0;font-size:11px">
-    Per-stage breakdown (LAPI fetch · MT snapshot · diff · push) will land once Phase 4
-    live writes flip on and we add stage timing columns to <span class="mono">sync_events</span>.
+    For per-stage breakdown (LAPI fetch · snapshot · diff · push) see the panel above —
+    shipped in phase 55.
   </p>
 </div>
 

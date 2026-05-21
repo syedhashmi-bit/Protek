@@ -344,6 +344,92 @@ OPENAPI_SPEC: dict[str, Any] = {
 }
 
 
+@bp.route("/search")
+@at.require_token("read")
+def v1_search():
+    """Search across decisions, alerts, scenarios, audit log, and bouncer targets.
+
+    Single query param `q` (substring). Returns a flat list of {kind, label,
+    hint, href} suitable for rendering in the cmd-K palette.
+    """
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify(items=[], count=0)
+    try:
+        limit_per_kind = max(1, min(50, int(request.args.get("limit", "8"))))
+    except (TypeError, ValueError):
+        limit_per_kind = 8
+    pat = f"%{q}%"
+    out: list[dict[str, Any]] = []
+    conn = get_conn()
+    try:
+        # Decisions — match IP or scenario
+        for r in conn.execute(
+            "SELECT DISTINCT value, scenario, origin FROM decisions "
+            "WHERE deleted_at IS NULL AND (value LIKE ? OR scenario LIKE ?) "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, limit_per_kind),
+        ).fetchall():
+            out.append({
+                "kind": "decision",
+                "label": r["value"],
+                "hint": f"{r['scenario']} · {r['origin']}",
+                "href": f"/attackers/{r['value']}",
+            })
+        # Alerts — by source IP or scenario
+        for r in conn.execute(
+            "SELECT source_ip, scenario, source_country FROM alerts "
+            "WHERE source_ip LIKE ? OR scenario LIKE ? "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, limit_per_kind),
+        ).fetchall():
+            if not r["source_ip"]:
+                continue
+            out.append({
+                "kind": "alert",
+                "label": r["source_ip"],
+                "hint": f"{r['scenario']} · {r['source_country'] or '?'}",
+                "href": f"/attackers/{r['source_ip']}",
+            })
+        # Whitelist rules
+        for r in conn.execute(
+            "SELECT id, kind, value, note FROM whitelist "
+            "WHERE (value LIKE ? OR note LIKE ?) "
+            "AND (expires_at IS NULL OR expires_at > datetime('now')) "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, limit_per_kind),
+        ).fetchall():
+            out.append({
+                "kind": "whitelist",
+                "label": f"{r['kind']}={r['value']}",
+                "hint": r["note"] or "whitelist rule",
+                "href": "/whitelist",
+            })
+        # Bouncer targets
+        for r in conn.execute(
+            "SELECT id, name, kind FROM bouncer_targets WHERE name LIKE ? "
+            "ORDER BY id LIMIT ?", (pat, limit_per_kind),
+        ).fetchall():
+            out.append({
+                "kind": "bouncer",
+                "label": r["name"],
+                "hint": r["kind"],
+                "href": f"/bouncers/edit/{r['id']}",
+            })
+        # Audit log
+        for r in conn.execute(
+            "SELECT action, target, actor, created_at FROM audit_log "
+            "WHERE action LIKE ? OR target LIKE ? OR actor LIKE ? "
+            "ORDER BY id DESC LIMIT ?", (pat, pat, pat, limit_per_kind),
+        ).fetchall():
+            out.append({
+                "kind": "audit",
+                "label": f"{r['action']}",
+                "hint": f"{r['target'] or '—'} · {r['actor'] or '?'} · {r['created_at'][:19]}",
+                "href": f"/audit?q={r['action']}",
+            })
+    finally:
+        conn.close()
+    return jsonify(items=out, count=len(out), q=q)
+
+
 @bp.route("/openapi.json")
 def v1_openapi():
     return jsonify(OPENAPI_SPEC)

@@ -15,7 +15,7 @@
   <table>
     <thead><tr>
       <th>Rule</th><th>Level</th><th>State</th><th>Message</th><th>Firing since</th>
-      <th class="right">Consecutive</th><th class="right">Debounce</th>
+      <th class="right">Consecutive</th><th class="right">Debounce</th><th>Channels</th>
     </tr></thead>
     <tbody>
       {% for r in rules %}
@@ -47,6 +47,22 @@
         <td class="mono muted">{{ r.firing_since[:19].replace('T',' ') if r.firing_since else '—' }}</td>
         <td class="mono right {{ 'amber' if r.consecutive > 0 and not r.firing else '' }}">{{ r.consecutive }}</td>
         <td class="mono right muted">{{ r.debounce }}</td>
+        <td>
+          {% if has_role('operator') %}
+          <form method="post" action="{{ url_for('alerts_rules_channels') }}"
+                style="display:flex;gap:4px;margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="rule_key" value="{{ r.rule_key }}">
+            <input type="text" name="channels" value="{{ r.channels_override }}"
+                   placeholder="default"
+                   title="comma-sep: discord,telegram,email · blank = default by severity"
+                   style="width:130px;padding:3px 6px;font-size:11px">
+            <button class="btn ghost" type="submit" style="padding:2px 6px;font-size:10px">set</button>
+          </form>
+          {% else %}
+            <span class="muted mono" style="font-size:11px">{{ r.channels_override or '(default)' }}</span>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

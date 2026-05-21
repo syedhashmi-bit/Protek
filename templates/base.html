@@ -372,13 +372,41 @@ setInterval(refreshPills, 5000);
     });
   }
 
+  // Live-search debounce timer + the most recent server-side result set.
+  var liveResults = [];
+  var liveTimer = null;
   function filter(){
-    var q = input.value.trim().toLowerCase();
-    if(!q){ filtered = ITEMS.slice(); sel = 0; render(); return; }
-    filtered = ITEMS.filter(function(it){
-      return it.label.toLowerCase().includes(q) || it.hint.toLowerCase().includes(q) || it.kind.includes(q);
-    });
+    var q = input.value.trim();
+    var qlow = q.toLowerCase();
+    var staticMatches = !qlow
+      ? ITEMS.slice()
+      : ITEMS.filter(function(it){
+          return it.label.toLowerCase().includes(qlow)
+              || it.hint.toLowerCase().includes(qlow)
+              || it.kind.includes(qlow);
+        });
+    filtered = staticMatches.concat(liveResults);
     sel = 0; render();
+    // Debounced live search — only fire if there's >=2 chars.
+    if(liveTimer) clearTimeout(liveTimer);
+    if(qlow.length >= 2){
+      liveTimer = setTimeout(function(){
+        fetch('/api/search?q=' + encodeURIComponent(q), {cache:'no-store'})
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(j){
+            if(!j) return;
+            // Only apply if the input hasn't changed since we fired.
+            if(input.value.trim() !== q) return;
+            liveResults = (j.items || []).map(function(it){
+              return {kind: it.kind, label: it.label, hint: it.hint, href: it.href};
+            });
+            filtered = staticMatches.concat(liveResults);
+            render();
+          }).catch(function(){});
+      }, 180);
+    } else {
+      liveResults = [];
+    }
   }
 
   async function choose(it){

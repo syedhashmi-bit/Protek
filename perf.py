@@ -80,13 +80,45 @@ def recent_cycles(limit: int = 60) -> list[dict[str, Any]]:
     conn = get_conn()
     try:
         rows = conn.execute(
-            "SELECT id, started_at, duration_ms, added, removed, errors, notes, dry_run "
+            "SELECT id, started_at, duration_ms, added, removed, errors, notes, dry_run, "
+            "lapi_fetch_ms, snapshot_ms, diff_ms, apply_ms "
             "FROM sync_events ORDER BY id DESC LIMIT ?",
             (int(limit),),
         ).fetchall()
     finally:
         conn.close()
     return [dict(r) for r in rows]
+
+
+def stage_timings(hours: int = 24) -> dict[str, Any]:
+    """Average + p95 per stage over the last `hours` hours. Stages were only
+    instrumented in phase 55, so old rows have zeros — exclude them (any row
+    where all four stages are zero) so the average isn't dragged down."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT lapi_fetch_ms, snapshot_ms, diff_ms, apply_ms, duration_ms "
+            "FROM sync_events WHERE started_at >= ? "
+            "AND (lapi_fetch_ms + snapshot_ms + diff_ms + apply_ms) > 0",
+            (since,),
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return {"hours": hours, "samples": 0, "stages": []}
+    stages = ["lapi_fetch_ms", "snapshot_ms", "diff_ms", "apply_ms"]
+    out = []
+    for s in stages:
+        vals = sorted(int(r[s] or 0) for r in rows)
+        avg = sum(vals) // len(vals) if vals else 0
+        p95 = _percentile(vals, 95)
+        out.append({"stage": s, "avg_ms": avg, "p95_ms": p95, "max_ms": vals[-1] if vals else 0})
+    # Compute share-of-total for the visual bar
+    total_avg = sum(s["avg_ms"] for s in out) or 1
+    for s in out:
+        s["share_pct"] = round(s["avg_ms"] * 100 / total_avg, 1)
+    return {"hours": hours, "samples": len(rows), "stages": out, "total_avg_ms": total_avg}
 
 
 def stage_breakdown() -> dict[str, Any]:

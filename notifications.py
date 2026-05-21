@@ -307,18 +307,31 @@ def channel_configured(channel: str) -> bool:
 
 # ── dispatch ────────────────────────────────────────────────────────────────
 
-def send(event: str, message: str, subject: str | None = None) -> list[dict[str, Any]]:
+def send(event: str, message: str, subject: str | None = None,
+         channels: list[str] | None = None) -> list[dict[str, Any]]:
     """Fan out to every configured + enabled channel for this event.
+
+    When `channels` is provided (phase 56), it acts as an explicit override —
+    only those channels are considered, and the per-event toggle is bypassed
+    (callers like alerting use this for severity-based routing). When
+    `channels` is None, the historical per-event-toggle behaviour applies.
 
     Returns a list of {channel, ok, error} dicts for each attempt.
     """
     results: list[dict[str, Any]] = []
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     suffix = f"\n— {timestamp}"
-    for ch, fn in CHANNELS.items():
+    target_channels = channels if channels is not None else list(CHANNELS.keys())
+    explicit = channels is not None
+    for ch in target_channels:
+        fn = CHANNELS.get(ch)
+        if fn is None:
+            continue
         if not channel_configured(ch):
             continue
-        if not is_event_enabled(ch, event):
+        # Explicit-channel callers bypass the per-event toggle — the caller
+        # has already decided. Implicit callers still respect the toggle.
+        if not explicit and not is_event_enabled(ch, event):
             continue
         ok, err = fn(message + suffix, subject=subject or event)
         results.append({"channel": ch, "ok": ok, "error": err})

@@ -235,29 +235,29 @@ def _route_for(level: int) -> list[str]:
 
 def _notify(rule_key: str, title: str, level: int, message: str,
             resolved: bool = False) -> None:
-    """Best-effort: fire to allowed channels + ship a SIEM event."""
+    """Best-effort: fire to allowed channels + ship a SIEM event.
+
+    Channel routing precedence:
+      1. Per-rule override from settings (`alerting.rule.<key>.channels` —
+         comma-separated like "discord,telegram"). Operator-set at /alerts/rules.
+      2. Default severity → channels map (crit → all, warn/info → discord only).
+    """
     import notifications as notif
     import siem
+    from db import get_setting as _gs
     subject = f"[{'RESOLVED' if resolved else 'FIRING'}] {title}"
     body = message if not resolved else f"RESOLVED — {message}"
-    # The notifications module gates by per-event toggles; we map every alert
-    # to a single internal event type so the operator can mute the whole
-    # alerting channel from /notifications if needed.
-    notif_event = "sync_error" if level <= LVL_ERR else "lapi_down" if rule_key.startswith("lapi") else "sync_threshold"
-    for ch in _route_for(level):
-        try:
-            notif.send(notif_event, body, subject=subject, channels=[ch])
-        except TypeError:
-            # Backwards-compat: older notifications.send may not accept channels=
-            try:
-                notif.send(notif_event, body, subject=subject)
-            except Exception:  # noqa: BLE001
-                pass
-        except Exception:  # noqa: BLE001
-            pass
+    override = _gs(f"alerting.rule.{rule_key}.channels") or ""
+    if override:
+        channels = [c.strip() for c in override.split(",") if c.strip()]
+    else:
+        channels = _route_for(level)
+    notif.send("alert.firing" if not resolved else "alert.resolved",
+               body, subject=subject, channels=channels)
     try:
         siem.ship("alert.resolved" if resolved else "alert.firing", {
             "rule": rule_key, "title": title, "level": level, "message": message,
+            "channels": channels,
         })
     except Exception:  # noqa: BLE001
         pass
