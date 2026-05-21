@@ -1,0 +1,8 @@
+#!/usr/bin/make -f
+# debian/rules — minimal dh sequencer.
+
+export DH_VERBOSE = 1
+export PYBUILD_NAME = protek
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild

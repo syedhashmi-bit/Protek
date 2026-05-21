@@ -1,0 +1,28 @@
+[Unit]
+Description=Protek - CrowdSec to MikroTik bouncer + NOC dashboard
+Documentation=https://github.com/syedhashmi/Protek
+After=network-online.target crowdsec.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=protek
+Group=protek
+WorkingDirectory=/var/lib/protek
+EnvironmentFile=/etc/protek/.env
+ExecStart=/usr/lib/protek/venv/bin/gunicorn -w 3 -b 127.0.0.1:8090 \
+    --access-logfile - --error-logfile - app:app
+Restart=on-failure
+RestartSec=3s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/protek /var/log/protek /etc/protek
+
+[Install]
+WantedBy=multi-user.target

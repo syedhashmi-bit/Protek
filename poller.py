@@ -278,6 +278,35 @@ class Poller:
             except Exception as e:  # noqa: BLE001
                 log.debug("honeypot refresh swallowed: %s", e)
 
+        # Off-box backup automation (phase 63) — checks once an hour whether a
+        # daily/monthly/restore-test run is due. Cheap to call every cycle
+        # because it short-circuits inside on the last-run timestamps.
+        # 360 cycles ≈ 1 h at the default 10s interval.
+        if self.cycles % 360 == 0:
+            try:
+                import backup
+                backup.maybe_run_scheduled()
+            except Exception as e:  # noqa: BLE001
+                log.debug("backup scheduler swallowed: %s", e)
+
+        # Synthetic ban self-test (phase 66) — verifies the full pipeline
+        # (LAPI → reconcile → bouncer snapshot) every 6 hours.
+        if self.cycles % 2160 == 0:
+            try:
+                import synthetic
+                synthetic.maybe_run_scheduled()
+            except Exception as e:  # noqa: BLE001
+                log.debug("synthetic scheduler swallowed: %s", e)
+
+        # Protek peer aggregation (phase 76) — pull each enabled peer's
+        # tile summary every 6 cycles (~60s). No-op when no peers configured.
+        if self.cycles % 6 == 0:
+            try:
+                import peers
+                peers.maybe_run_scheduled()
+            except Exception as e:  # noqa: BLE001
+                log.debug("peers scheduler swallowed: %s", e)
+
     def _envstr(self, name: str) -> str:
         return (os.environ.get(name, "") or "").split("#", 1)[0].strip()
 

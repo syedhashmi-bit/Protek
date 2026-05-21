@@ -15,6 +15,8 @@ Phase 3+ adds reconcile.py + mikrotik writes; phase 6 hardens settings/audit.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import os
 import re
@@ -58,10 +60,13 @@ app.secret_key = os.environ.get("SECRET_KEY") or "dev-secret-CHANGE-ME"
 if app.secret_key == "dev-secret-CHANGE-ME":
     log.warning("SECRET_KEY missing — running with insecure dev key.")
 
+_session_cookie_domain = (os.environ.get("SESSION_COOKIE_DOMAIN") or "").strip() or None
+
 app.config.update(
     SESSION_COOKIE_SECURE=os.environ.get("COOKIE_INSECURE", "0") != "1",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_DOMAIN=_session_cookie_domain,  # phase 74 — set to e.g. ".syedhashmi.trade" to share session with othoni
     WTF_CSRF_TIME_LIMIT=7200,
     WTF_CSRF_SSL_STRICT=False,
 )
@@ -92,7 +97,7 @@ def _inject_csrf():
 
 # ── Boot: DB + Poller ───────────────────────────────────────────────────────
 
-PROTEK_VERSION = "1.0.0"
+PROTEK_VERSION = "2.0.0"
 
 init_db()
 seed_env_user()  # idempotent: mirror APP_USERNAME/APP_PASSWORD_HASH/TOTP_SECRET into users row #1
@@ -102,6 +107,26 @@ seed_env_user()  # idempotent: mirror APP_USERNAME/APP_PASSWORD_HASH/TOTP_SECRET
 from api_v1 import bp as _api_v1_bp  # noqa: E402
 csrf.exempt(_api_v1_bp)
 app.register_blueprint(_api_v1_bp)
+
+# /api/v2/* (phase 79) — versioned surface for breaking-change isolation.
+# In 2.0 v2 transparently aliases every v1 route; future v2-only changes
+# fork from here without disturbing v1 clients.
+import api_v2  # noqa: E402
+api_v2.register(app, csrf)
+
+
+@app.route("/api/version")
+def api_version():
+    """Tells clients which API versions this Protek speaks + any deprecations."""
+    sunset = get_setting("api.v1.sunset_date") or ""
+    return jsonify(
+        protek_version=PROTEK_VERSION,
+        supported_versions=["v1", "v2"],
+        default_version="v1",
+        v1_sunset=sunset or None,
+        notes=("v2 currently aliases v1 transparently. Use v2 for new "
+               "clients; v1 stays available through the deprecation window."),
+    )
 
 
 # Expose has_role() to all templates so they can hide affordances by role.
@@ -373,7 +398,288 @@ def login():
             locked, lockout_mins = is_locked(ip)
 
     return render_template("login.html", error=error, locked=locked, lockout_mins=lockout_mins,
+                            sso_configured=_oidc.is_configured(),
                             username=request.form.get("username", ""))
+
+
+# ── OIDC / SSO (phase 70) ─────────────────────────────────────────────────
+
+import oidc as _oidc  # noqa: E402
+_oauth = _oidc.init_oauth(app)
+
+# ── Threat intel publishing (phase 78) ────────────────────────────────────
+
+@app.route("/feed/banned-ips.signed.json")
+@csrf.exempt
+def intel_feed_signed():
+    """Public signed feed. Anonymous, but rate-limited per `subscriber` query."""
+    import intel_publish, ratelimit
+    if not intel_publish.is_enabled():
+        return jsonify(error="intel publishing not enabled on this instance"), 404
+    sub = (request.args.get("subscriber") or "anonymous")[:80]
+    bucket_name = f"feed.{sub}"
+    if not ratelimit.acquire(bucket_name):
+        return jsonify(error="rate limited", retry_after=60), 429
+    feed = intel_publish.signed_feed()
+    try:
+        import siem as _siem
+        _siem.ship("intel.feed.served",
+                   {"subscriber": sub, "count": feed.get("body", {}).get("count", 0)},
+                   severity=6)
+    except Exception:  # noqa: BLE001
+        pass
+    return jsonify(feed)
+
+
+@app.route("/feed/pubkey")
+@csrf.exempt
+def intel_feed_pubkey():
+    """Public — anyone subscribing to the feed needs the pub key to verify
+    signatures. Distribute it out-of-band ideally; this endpoint is the
+    convenience path."""
+    import intel_publish
+    s = intel_publish.status()
+    if not s["pub_key_b64"]:
+        return jsonify(error="not initialized"), 404
+    return jsonify(
+        algorithm="ed25519",
+        public_key_b64=s["pub_key_b64"],
+        fingerprint=s["fingerprint"],
+        issuer=s["issuer"],
+    )
+
+
+@app.route("/intel-publish")
+@login_required
+@role_required("admin")
+def intel_publish_page():
+    import intel_publish
+    return render_template("intel_publish.html",
+                           active="intel_publish",
+                           status=intel_publish.status())
+
+
+@app.route("/intel-publish/toggle", methods=["POST"])
+@login_required
+@role_required("admin")
+def intel_publish_toggle():
+    enabled = "1" if request.form.get("enabled") == "1" else "0"
+    set_setting("intel.publish.enabled", enabled)
+    if enabled == "1":
+        import intel_publish
+        intel_publish._ensure_keypair()
+    _audit("intel.publish.toggle", after={"enabled": enabled})
+    flash(f"Intel publishing {'enabled' if enabled == '1' else 'disabled'}.", "info")
+    return redirect(url_for("intel_publish_page"))
+
+
+@app.route("/intel-publish/rotate", methods=["POST"])
+@login_required
+@role_required("admin")
+def intel_publish_rotate():
+    import intel_publish
+    new_pub = intel_publish.rotate_keypair()
+    _audit("intel.publish.rotate",
+           note=f"new fingerprint: {hashlib.sha256(base64.b64decode(new_pub)).hexdigest()[:16]}"
+                if new_pub else "rotated")
+    flash("Signing key rotated. Subscribers must fetch the new public key.", "info")
+    return redirect(url_for("intel_publish_page"))
+
+
+@app.route("/intel-publish/save", methods=["POST"])
+@login_required
+@role_required("admin")
+def intel_publish_save():
+    issuer = (request.form.get("issuer") or "protek").strip()[:80]
+    scenarios = (request.form.get("scenarios") or "").strip()
+    excludes = (request.form.get("exclude_origins") or "lists:").strip()
+    set_setting("intel.publish.issuer", issuer)
+    set_setting("intel.publish.scenarios", scenarios)
+    set_setting("intel.publish.exclude_origins", excludes)
+    _audit("intel.publish.config", after={"issuer": issuer,
+                                          "scenarios": scenarios,
+                                          "excludes": excludes})
+    flash("Intel publishing config saved.", "info")
+    return redirect(url_for("intel_publish_page"))
+
+
+# ── Protek peer aggregation (phase 76) ────────────────────────────────────
+
+@app.route("/peers")
+@login_required
+def peers_page():
+    import peers as _peers
+    return render_template("peers.html",
+                           active="peers",
+                           kpis=_peers.aggregated_kpis())
+
+
+@app.route("/peers/add", methods=["POST"])
+@login_required
+@role_required("admin")
+def peers_add():
+    import peers as _peers
+    name = (request.form.get("name") or "").strip()
+    url = (request.form.get("url") or "").strip()
+    token = (request.form.get("token") or "").strip()
+    if not (name and url and token):
+        flash("name, url, and token are all required.", "error")
+        return redirect(url_for("peers_page"))
+    try:
+        pid = _peers.add_peer(name, url, token)
+        _audit("peer.add", target=name, after={"url": url})
+        flash(f"Peer {name} added (id={pid}). Refresh will pick it up within 60s.", "info")
+    except Exception as e:  # noqa: BLE001
+        flash(f"Add failed: {e}", "error")
+    return redirect(url_for("peers_page"))
+
+
+@app.route("/peers/toggle/<int:pid>", methods=["POST"])
+@login_required
+@role_required("admin")
+def peers_toggle(pid: int):
+    import peers as _peers
+    enabled = request.form.get("enabled") == "1"
+    _peers.toggle_peer(pid, enabled)
+    _audit("peer.toggle", target=str(pid), after={"enabled": enabled})
+    return redirect(url_for("peers_page"))
+
+
+@app.route("/peers/delete/<int:pid>", methods=["POST"])
+@login_required
+@role_required("admin")
+def peers_delete(pid: int):
+    import peers as _peers
+    _peers.delete_peer(pid)
+    _audit("peer.delete", target=str(pid))
+    flash("Peer removed.", "info")
+    return redirect(url_for("peers_page"))
+
+
+@app.route("/peers/refresh", methods=["POST"])
+@login_required
+@role_required("operator")
+def peers_refresh():
+    import peers as _peers
+    out = _peers.refresh_all()
+    flash(f"Refreshed {out['refreshed']} peer(s), {out['failed']} failed.", "info")
+    return redirect(url_for("peers_page"))
+
+
+# ── Othoni cross-app drilldown (phase 74) ─────────────────────────────────
+
+@app.route("/from-othoni")
+def from_othoni():
+    """Othoni's tile click lands here with `?ctx=<one of: dashboard, ip, scenario>`
+    and (optionally) a value. We route to the right Protek view, preserving
+    the shared session set via SESSION_COOKIE_DOMAIN.
+
+    Examples:
+      /from-othoni                          → /
+      /from-othoni?ctx=ip&v=1.2.3.4         → /attackers/1.2.3.4
+      /from-othoni?ctx=scenario&v=ssh-bf    → /scenarios?q=ssh-bf
+      /from-othoni?ctx=alerts               → /alerts
+      /from-othoni?ctx=bouncers             → /bouncers
+    """
+    if not session.get("logged_in"):
+        # Shared SESSION_COOKIE_DOMAIN means if user is signed into othoni
+        # on a sibling subdomain they're already logged in here. If not, fall
+        # through to local login which preserves the next= param.
+        return redirect(url_for("login", next=request.full_path))
+    ctx = (request.args.get("ctx") or "").strip().lower()
+    v = (request.args.get("v") or "").strip()
+    if ctx == "ip" and v and re.match(r"^[0-9a-fA-F.:/]+$", v):
+        return redirect(url_for("attacker_page", ip=v))
+    if ctx == "scenario" and v:
+        return redirect(url_for("scenarios_page", q=v))
+    if ctx == "alerts":
+        return redirect(url_for("alerts_page"))
+    if ctx == "bouncers":
+        return redirect(url_for("bouncers_page"))
+    if ctx == "perf":
+        return redirect(url_for("perf_page"))
+    return redirect(url_for("dashboard"))
+
+
+# ── GraphQL surface (phase 73) ────────────────────────────────────────────
+try:
+    import graphql_api  # noqa: E402
+    graphql_api.register(app, csrf)
+    log.info("graphql: /api/graphql + /api/graphql/explorer registered")
+except Exception as e:  # noqa: BLE001
+    log.warning("graphql registration skipped: %s", e)
+
+
+@app.route("/sso/login")
+def sso_login():
+    if not _oidc.is_configured() or _oauth is None:
+        return jsonify(error="SSO not configured"), 503
+    redirect_uri = url_for("sso_callback", _external=True)
+    return _oauth.oidc.authorize_redirect(redirect_uri)
+
+
+@app.route("/sso/callback")
+def sso_callback():
+    if not _oidc.is_configured() or _oauth is None:
+        return jsonify(error="SSO not configured"), 503
+    ip = client_ip()
+    try:
+        token = _oauth.oidc.authorize_access_token()
+    except Exception as e:  # noqa: BLE001
+        log.warning("OIDC token exchange failed: %s", e)
+        record_audit(ip, "(sso)", False, "OIDC token exchange failed")
+        flash("SSO login failed: " + str(e)[:200], "error")
+        return redirect(url_for("login"))
+
+    # userinfo claims come either embedded or via userinfo endpoint
+    claims = token.get("userinfo") or {}
+    if not claims:
+        try:
+            claims = _oauth.oidc.userinfo(token=token) or {}
+        except Exception as e:  # noqa: BLE001
+            log.warning("OIDC userinfo fetch failed: %s", e)
+
+    email = (claims.get("email") or "").lower().strip()
+    if not email:
+        record_audit(ip, "(sso)", False, "OIDC missing email claim")
+        flash("SSO failed: provider returned no email.", "error")
+        return redirect(url_for("login"))
+
+    role = _oidc.role_for_claims(claims)
+    if role is None:
+        record_audit(ip, email, False, "OIDC role mapping denied")
+        try:
+            import siem as _siem
+            _siem.ship("auth.sso_denied",
+                       {"ip": ip, "email": email, "reason": "role-deny"},
+                       severity=4)
+        except Exception:  # noqa: BLE001
+            pass
+        flash("SSO denied — your account isn't authorized for this Protek instance.", "error")
+        return redirect(url_for("login"))
+
+    try:
+        user = _oidc.upsert_sso_user(email, role, claims.get("sub", ""))
+    except PermissionError:
+        record_audit(ip, email, False, "OIDC user disabled")
+        flash("Your Protek account is disabled.", "error")
+        return redirect(url_for("login"))
+
+    record_audit(ip, email, True, "sso")
+    try:
+        import siem as _siem
+        _siem.ship("auth.sso_success",
+                   {"ip": ip, "actor": email, "role": role}, severity=6)
+    except Exception:  # noqa: BLE001
+        pass
+    session.clear()
+    session["logged_in"] = True
+    session["username"]  = email
+    session["user_id"]   = user["id"]
+    session["role"]      = role
+    session["auth_source"] = "sso"
+    touch_session()
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/logout")
@@ -1070,6 +1376,163 @@ def admin_backup_import():
     return redirect(url_for("admin_backup_page"))
 
 
+@app.route("/admin/backup-automation")
+@login_required
+@role_required("admin")
+def admin_backup_automation_page():
+    import backup as _bk
+    import litestream as _ls
+    return render_template(
+        "admin_backup_automation.html",
+        active="admin_backup_auto",
+        status=_bk.status(),
+        runs=_bk.list_runs(30),
+        litestream=_ls.status(),
+    )
+
+
+@app.route("/admin/backup-automation/settings", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_backup_automation_settings():
+    enabled = "1" if request.form.get("enabled") == "1" else "0"
+    backend = (request.form.get("backend") or "local").strip().lower()
+    if backend not in ("local", "s3"):
+        backend = "local"
+    local_path = (request.form.get("local_path") or "").strip()
+    daily_keep = (request.form.get("daily_keep") or "30").strip()
+    monthly_keep = (request.form.get("monthly_keep") or "12").strip()
+    before = {
+        "enabled": get_setting("backup.enabled") or "0",
+        "backend": get_setting("backup.backend") or "local",
+        "local_path": get_setting("backup.local_path") or "",
+        "daily_keep": get_setting("backup.daily_keep") or "30",
+        "monthly_keep": get_setting("backup.monthly_keep") or "12",
+    }
+    set_setting("backup.enabled", enabled)
+    set_setting("backup.backend", backend)
+    if local_path:
+        set_setting("backup.local_path", local_path)
+    try:
+        set_setting("backup.daily_keep", str(max(1, min(365, int(daily_keep)))))
+        set_setting("backup.monthly_keep", str(max(1, min(120, int(monthly_keep)))))
+    except ValueError:
+        pass
+    _audit("backup.config", before=before, after={
+        "enabled": enabled, "backend": backend, "local_path": local_path,
+        "daily_keep": daily_keep, "monthly_keep": monthly_keep,
+    })
+    flash("Backup automation settings saved.", "info")
+    return redirect(url_for("admin_backup_automation_page"))
+
+
+@app.route("/admin/backup-automation/run", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_backup_automation_run():
+    import backup as _bk
+    kind = (request.form.get("kind") or "manual").strip().lower()
+    if kind not in ("manual", "daily", "monthly"):
+        kind = "manual"
+    row = _bk.run_backup(kind)
+    if row.get("status") == "ok":
+        flash(f"Backup ok — {row.get('size_bytes', 0):,} bytes → {row.get('dest', '')}", "info")
+    else:
+        flash(f"Backup failed: {row.get('error', 'unknown')}", "error")
+    _audit("backup.run_manual", note=f"kind={kind} status={row.get('status')}")
+    return redirect(url_for("admin_backup_automation_page"))
+
+
+@app.route("/admin/backup-automation/test", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_backup_automation_test():
+    import backup as _bk
+    row = _bk.restore_test()
+    if row.get("status") == "ok":
+        flash(f"Restore-test ok — verified {row.get('dest', '')}", "info")
+    else:
+        flash(f"Restore-test failed: {row.get('error', 'unknown')}", "error")
+    _audit("backup.restore_test_manual", note=f"status={row.get('status')}")
+    return redirect(url_for("admin_backup_automation_page"))
+
+
+@app.route("/admin/dr-drill")
+@login_required
+@role_required("admin")
+def admin_dr_drill_page():
+    # Recent drill rows = audit entries with action='dr.drill.completed'
+    conn = get_conn()
+    try:
+        drills = [dict(r) for r in conn.execute(
+            "SELECT * FROM audit_log WHERE action = 'dr.drill.completed' "
+            "ORDER BY id DESC LIMIT 12"
+        ).fetchall()]
+    finally:
+        conn.close()
+    return render_template("admin_dr_drill.html",
+                           active="dr_drill",
+                           drills=drills)
+
+
+@app.route("/admin/dr-drill/complete", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_dr_drill_complete():
+    import json as _json
+    checks = {
+        "restore_to_scratch": request.form.get("restore_to_scratch") == "1",
+        "restore_test_ok":    request.form.get("restore_test_ok") == "1",
+        "synthetic_passed":   request.form.get("synthetic_passed") == "1",
+        "litestream_restore": request.form.get("litestream_restore") == "1",
+        "notifications_tested": request.form.get("notifications_tested") == "1",
+        "mt_replacement":     request.form.get("mt_replacement") == "1",
+    }
+    note = (request.form.get("note") or "").strip()[:500]
+    pass_rate = sum(1 for v in checks.values() if v)
+    _audit("dr.drill.completed",
+           note=f"{pass_rate}/6 passed",
+           after={"checks": checks, "note": note})
+    flash(f"Drill recorded — {pass_rate}/6 checks passed.", "info")
+    return redirect(url_for("admin_dr_drill_page"))
+
+
+@app.route("/synthetic")
+@login_required
+def synthetic_page():
+    import synthetic
+    return render_template(
+        "synthetic.html",
+        active="synthetic",
+        status=synthetic.status(),
+        runs=synthetic.list_runs(30),
+    )
+
+
+@app.route("/synthetic/run", methods=["POST"])
+@login_required
+@role_required("operator")
+def synthetic_run():
+    import synthetic
+    row = synthetic.run_test()
+    flash(f"Synthetic test {row['status']} — {row.get('ok_n', 0)}/{row.get('targets_n', 0)} bouncers ok.",
+          "info" if row["status"] == "ok" else "error")
+    _audit("synthetic.run_manual",
+           note=f"status={row['status']} ok={row.get('ok_n')} of {row.get('targets_n')}")
+    return redirect(url_for("synthetic_page"))
+
+
+@app.route("/synthetic/toggle", methods=["POST"])
+@login_required
+@role_required("admin")
+def synthetic_toggle():
+    enabled = "1" if request.form.get("enabled") == "1" else "0"
+    set_setting("synthetic.enabled", enabled)
+    _audit("synthetic.toggle", after={"enabled": enabled})
+    flash(f"Synthetic self-test {'enabled' if enabled == '1' else 'disabled'}.", "info")
+    return redirect(url_for("synthetic_page"))
+
+
 @app.route("/admin/tokens")
 @login_required
 @role_required("admin")
@@ -1317,6 +1780,52 @@ def api_external_health():
     return jsonify(ok=True, service="protek", api="external"), 200
 
 
+@app.route("/api/external/introspect", methods=["POST"])
+@csrf.exempt
+def api_external_introspect():
+    """Phase 72 — payload-shape inspector for integrators.
+
+    Echoes back what Protek saw (headers, parsed body, the field it would
+    use as `ip`) without persisting anything. Lets the operator validate
+    their n8n/Zapier/Make template before sending real bans.
+
+    Auth: any valid bearer token (read scope is enough).
+    """
+    import api_tokens as at
+    raw = ""
+    auth_hdr = request.headers.get("Authorization", "")
+    if auth_hdr.startswith("Bearer "):
+        raw = auth_hdr[7:].strip()
+    elif request.headers.get("X-Protek-Token"):
+        raw = request.headers.get("X-Protek-Token", "").strip()
+    tok = at.lookup(raw) if raw else None
+    if not tok:
+        return jsonify(error="unauthorized",
+                       hint="set Authorization: Bearer <token> header"), 401
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error="body must be JSON object",
+                       received_content_type=request.content_type), 400
+    # Detect which field Protek would treat as the IP — covers common shapes
+    ip = (body.get("ip") or body.get("source_ip") or body.get("client_ip")
+          or body.get("remote_addr") or "")
+    return jsonify(
+        ok=True,
+        token_name=tok.get("name"),
+        token_scopes=tok.get("scopes"),
+        detected_ip=ip,
+        detected_scope=body.get("scope") or "Ip",
+        detected_duration=body.get("duration") or "4h",
+        detected_scenario=body.get("scenario") or "external",
+        parsed_keys=sorted(body.keys()),
+        headers_seen={k: v for k, v in request.headers.items()
+                      if k.lower() in ("content-type", "user-agent",
+                                       "x-protek-event", "x-protek-token",
+                                       "x-protek-signature", "x-protek-timestamp")},
+        note="this is a dry-run — no decision was created. Hit /api/external/decisions to ban for real.",
+    )
+
+
 @app.route("/api/external/honeypot/callback", methods=["POST"])
 @csrf.exempt
 def api_external_honeypot_callback():
@@ -1358,6 +1867,7 @@ def audit_page():
 def perf_page():
     import perf
     import slo as _slo
+    import ratelimit
     return render_template(
         "perf.html",
         stats=perf.cycle_stats(hours=24),
@@ -1366,8 +1876,16 @@ def perf_page():
         breakdown=perf.stage_breakdown(),
         stages=perf.stage_timings(hours=24),
         slo=_slo.summary(window_hours=24),
+        buckets=ratelimit.all_status(),
         active="perf",
     )
+
+
+@app.route("/api/perf/buckets")
+@login_required
+def api_perf_buckets():
+    import ratelimit
+    return jsonify(buckets=ratelimit.all_status())
 
 
 @app.route("/api/perf/sample")
@@ -1663,7 +2181,11 @@ def bouncers_page():
             "removable": db_row is not None,
         })
     kpis = {"total": len(view), "online": online, "errors": errors_n, "total_entries": total_entries}
-    return render_template("bouncers.html", targets=view, kpis=kpis, active="bouncers")
+    from bouncers.plugin_loader import list_loaded, plugin_dir
+    plugins = list_loaded()
+    return render_template("bouncers.html", targets=view, kpis=kpis,
+                           plugins=plugins, plugin_dir=str(plugin_dir()),
+                           active="bouncers")
 
 
 @app.route("/bouncers/add", methods=["POST"])

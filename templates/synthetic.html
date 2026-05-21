@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Synthetic self-test · Protek{% endblock %}
+{% block crumb %}OBSERVABILITY · <b>SYNTHETIC</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Synthetic ban end-to-end test</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Every 6 hours (when enabled), Protek injects a synthetic decision for
+    <span class="mono">{{ status.ip }}</span> (RFC 5737 TEST-NET-1 — never reaches real traffic),
+    drives a reconcile cycle, then verifies the IP is actually present in
+    every live bouncer's snapshot. It then removes the decision and verifies
+    it disappears. Catches "phantom-progress" failures where a push reports
+    success but nothing landed.
+  </p>
+
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">Schedule</div>
+      <div class="kpi-value" style="color:{% if status.enabled %}var(--green){% else %}var(--muted){% endif %}">
+        {% if status.enabled %}ENABLED · every 6h{% else %}OFF{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Last run</div>
+      <div class="kpi-value mono" style="font-size:14px">
+        {% if status.last_at %}{{ status.last_at[:19].replace('T',' ') }}{% else %}—{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Last status</div>
+      <div class="kpi-value" style="color:{% if status.last_status == 'ok' %}var(--green){% elif status.last_status in ('failed','partial') %}var(--red){% elif status.last_status == 'skipped' %}var(--amber){% else %}var(--muted){% endif %}">
+        {{ status.last_status or '—' }}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Test IP</div>
+      <div class="kpi-value mono" style="font-size:14px">{{ status.ip }}</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+    {% if session.get('role') == 'admin' %}
+    <form method="post" action="{{ url_for('synthetic_toggle') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="enabled" value="{% if status.enabled %}0{% else %}1{% endif %}">
+      <button class="btn" type="submit">
+        {% if status.enabled %}Disable schedule{% else %}Enable schedule{% endif %}
+      </button>
+    </form>
+    {% endif %}
+    {% if session.get('role') in ('admin','operator') %}
+    <form method="post" action="{{ url_for('synthetic_run') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn" type="submit"
+              onclick="return confirm('Run synthetic test now? Injects + removes a decision for {{ status.ip }}.')">
+        Run test now
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recent runs</h2>
+  {% if runs %}
+  <table>
+    <thead>
+      <tr>
+        <th>Started</th>
+        <th>Status</th>
+        <th class="right">Targets</th>
+        <th class="right">OK</th>
+        <th class="right">Duration</th>
+        <th>Per-target results</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="mono" style="font-size:12px">{{ r.started_at[:19].replace('T',' ') }}</td>
+        <td>
+          {% if r.status == 'ok' %}<span style="color:var(--green)">OK</span>
+          {% elif r.status == 'partial' %}<span style="color:var(--amber)">PARTIAL</span>
+          {% elif r.status == 'failed' %}<span style="color:var(--red)" title="{{ r.error }}">FAILED</span>
+          {% elif r.status == 'skipped' %}<span class="muted">SKIPPED</span>
+          {% else %}<span class="muted">{{ r.status }}</span>{% endif %}
+        </td>
+        <td class="mono right">{{ r.targets_n }}</td>
+        <td class="mono right">{{ r.ok_n }}</td>
+        <td class="mono right">{{ r.duration_ms }}ms</td>
+        <td>
+          {% if r.results %}
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            {% for name, res in r.results.items() %}
+            <span class="badge" title="kind={{ res.kind }} add={{ res.add_ok }} remove={{ res.remove_ok }}"
+                  style="background:{% if res.add_ok and res.remove_ok %}var(--green){% elif res.add_ok or res.remove_ok %}var(--amber){% else %}var(--red){% endif %};color:var(--bg-deep)">
+              {{ name }}{% if not (res.add_ok and res.remove_ok) %} · {{ '+' if res.add_ok else '✗' }}/{{ '−' if res.remove_ok else '✗' }}{% endif %}
+            </span>
+            {% endfor %}
+          </div>
+          {% elif r.error %}
+          <span class="mono muted" style="font-size:11px">{{ r.error }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px">No synthetic test runs yet. Click "Run test now" to fire one.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

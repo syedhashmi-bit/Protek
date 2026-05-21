@@ -49,6 +49,12 @@
         <button class="btn" type="submit">Authenticate</button>
       </div>
     </form>
+    {% if sso_configured %}
+    <div style="text-align:center;margin:18px 0 6px;color:var(--muted);font-size:11px;letter-spacing:.2em">— or —</div>
+    <div class="row-btn" style="margin-top:6px">
+      <a class="btn" href="{{ url_for('sso_login') }}" style="display:block;text-align:center;background:transparent;border:1px solid var(--cyan);color:var(--cyan)">Sign in with SSO</a>
+    </div>
+    {% endif %}
     <div class="hint">2FA required · attempts logged</div>
   </div>
 </div>

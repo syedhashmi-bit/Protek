@@ -1,0 +1,27 @@
+Source: protek
+Section: net
+Priority: optional
+Maintainer: Syed Hashmi <syed@syedhashmi.trade>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all, python3-setuptools
+Standards-Version: 4.6.2
+Homepage: https://github.com/syedhashmi/Protek
+Rules-Requires-Root: no
+
+Package: protek
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3 (>= 3.12),
+         python3-venv,
+         nginx | nginx-light,
+         adduser
+Recommends: crowdsec, certbot, python3-certbot-nginx
+Description: CrowdSec → MikroTik bouncer with a NOC-style dashboard
+ Protek is a self-hosted CrowdSec bouncer that mirrors decisions from
+ one or more LAPI sources into a MikroTik RouterOS address-list, plus
+ a tactical-dark NOC dashboard for visibility (decisions, alerts,
+ scenarios, geo map, federation, multi-bouncer, intel layer).
+ .
+ Supports additional bouncer kinds (iptables/ipset, Cloudflare Rules
+ Lists, pfSense, OPNsense) and federation across multiple CrowdSec
+ instances. Off-box backups to S3-compatible storage. OIDC SSO.

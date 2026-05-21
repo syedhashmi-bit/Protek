@@ -226,6 +226,9 @@ label{display:block;font-size:10px;letter-spacing:.18em;color:var(--muted);text-
     <a href="{{ url_for('scenarios_catalog') }}" class="{% if active=='catalog' %}active{% endif %}" style="padding-left:34px;font-size:11px">↳ Catalog</a>
     <a href="{{ url_for('intel_page') }}" class="{% if active=='intel' %}active{% endif %}">Intel</a>
     <a href="{{ url_for('asn_escalations_page') }}" class="{% if active=='asn_escalations' %}active{% endif %}" style="padding-left:34px;font-size:11px">↳ ASN escalations</a>
+    {% if session.get('role','viewer') == 'admin' %}
+    <a href="{{ url_for('intel_publish_page') }}" class="{% if active=='intel_publish' %}active{% endif %}" style="padding-left:34px;font-size:11px">↳ Publish feed</a>
+    {% endif %}
     <a href="{{ url_for('crowdsec_page') }}" target="_blank" class="{% if active=='crowdsec' %}active{% endif %}">CrowdSec ↗</a>
 
     <div class="group">Rules</div>
@@ -235,12 +238,14 @@ label{display:block;font-size:10px;letter-spacing:.18em;color:var(--muted);text-
     <a href="{{ url_for('mikrotik_page') }}" class="{% if active=='mikrotik' %}active{% endif %}">MikroTik</a>
     <a href="{{ url_for('bouncers_page') }}" class="{% if active=='bouncers' %}active{% endif %}">Bouncers</a>
     <a href="{{ url_for('federation_page') }}" class="{% if active=='federation' %}active{% endif %}">Federation</a>
+    <a href="{{ url_for('peers_page') }}" class="{% if active=='peers' %}active{% endif %}">Peers</a>
     <div class="group">Observability</div>
     <a href="{{ url_for('perf_page') }}" class="{% if active=='perf' %}active{% endif %}">Performance</a>
     <a href="{{ url_for('alerts_rules_page') }}" class="{% if active=='alerts_rules' %}active{% endif %}">Alert Rules</a>
     <a href="{{ url_for('siem_page') }}" class="{% if active=='siem' %}active{% endif %}">SIEM</a>
     <a href="{{ url_for('webhooks_page') }}" class="{% if active=='webhooks' %}active{% endif %}">Webhooks</a>
     <a href="{{ url_for('audit_page') }}" class="{% if active=='audit' %}active{% endif %}">Audit</a>
+    <a href="{{ url_for('synthetic_page') }}" class="{% if active=='synthetic' %}active{% endif %}">Synthetic</a>
     <div class="group">Ops</div>
     <a href="{{ url_for('notifications_page') }}" class="{% if active=='notifications' %}active{% endif %}">Notifications</a>
     <a href="{{ url_for('security_page') }}" class="{% if active=='security' %}active{% endif %}">Security</a>
@@ -249,7 +254,9 @@ label{display:block;font-size:10px;letter-spacing:.18em;color:var(--muted);text-
     <div class="group">Admin</div>
     <a href="{{ url_for('admin_users_page') }}" class="{% if active=='admin_users' %}active{% endif %}">Users</a>
     <a href="{{ url_for('admin_tokens_page') }}" class="{% if active=='admin_tokens' %}active{% endif %}">API Tokens</a>
-    <a href="{{ url_for('admin_backup_page') }}" class="{% if active=='admin_backup' %}active{% endif %}">Backup</a>
+    <a href="{{ url_for('admin_backup_page') }}" class="{% if active=='admin_backup' %}active{% endif %}">Backup (config)</a>
+    <a href="{{ url_for('admin_backup_automation_page') }}" class="{% if active=='admin_backup_auto' %}active{% endif %}">Backup (off-box)</a>
+    <a href="{{ url_for('admin_dr_drill_page') }}" class="{% if active=='dr_drill' %}active{% endif %}">DR Drill</a>
     {% endif %}
   </nav>
   <main class="main">

@@ -89,3 +89,12 @@ from . import iptables_adapter     # noqa: E402,F401
 from . import cloudflare_adapter   # noqa: E402,F401
 from . import pfsense_adapter      # noqa: E402,F401
 from . import opnsense_adapter     # noqa: E402,F401
+
+# Phase 69 — hot-load third-party adapters from ~/.config/protek/adapters/
+# (or $PROTEK_PLUGIN_DIR). Failures here are non-fatal — a bad plugin must
+# not stop a healthy boot.
+try:
+    from . import plugin_loader  # noqa: E402
+    plugin_loader.load_all()
+except Exception as _plugin_e:  # noqa: BLE001
+    log.warning("plugin loader skipped: %s", _plugin_e)

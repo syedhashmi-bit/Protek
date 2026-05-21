@@ -161,6 +161,14 @@ def _sign(secret: str, timestamp: str, body: bytes) -> str:
 
 def _send_once(url: str, secret: str, event_type: str,
                payload: dict[str, Any]) -> tuple[bool, str]:
+    # Phase-68 backpressure: per-host token bucket. If exhausted, treat as a
+    # transient failure so the existing retry/DLQ machinery kicks in.
+    try:
+        import ratelimit
+        if not ratelimit.webhook_bucket_for(url).acquire():
+            return False, "backpressure — webhook bucket exhausted"
+    except ImportError:
+        pass
     body = json.dumps({"event": event_type, "data": payload}, default=str).encode()
     ts = str(int(time.time()))
     headers = {
@@ -172,6 +180,13 @@ def _send_once(url: str, secret: str, event_type: str,
     }
     try:
         r = requests.post(url, data=body, headers=headers, timeout=DEFAULT_TIMEOUT)
+        if r.status_code == 429:
+            try:
+                import ratelimit
+                ratelimit.webhook_bucket_for(url).record_429()
+            except ImportError:
+                pass
+            return False, "HTTP 429: rate limited"
         if 200 <= r.status_code < 300:
             return True, ""
         return False, f"HTTP {r.status_code}: {r.text[:200]}"

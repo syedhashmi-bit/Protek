@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}DR drill · Protek{% endblock %}
+{% block crumb %}ADMIN · <b>DR DRILL</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Quarterly disaster-recovery drill</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Run through the checklist from
+    <a href="https://github.com/syedhashmi/Protek/blob/main/docs/DR-RUNBOOK.md" target="_blank">docs/DR-RUNBOOK.md</a>
+    (also at <span class="mono">/var/www/Protek/docs/DR-RUNBOOK.md</span>) and tick what passed.
+    The result lands in <span class="mono">audit_log</span> (append-only) so the drill
+    history is tamper-evident.
+  </p>
+
+  <form method="post" action="{{ url_for('admin_dr_drill_complete') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px">
+      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
+        <input type="checkbox" name="restore_to_scratch" value="1">
+        <span><b>Restore latest bundle to a scratch VPS</b><br>
+        <span class="muted" style="font-size:11px">Target &lt;30 min — runbook §1 + §6</span></span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
+        <input type="checkbox" name="restore_test_ok" value="1">
+        <span><b>Automated restore-test passed</b><br>
+        <span class="muted" style="font-size:11px">/admin/backup-automation → "Run restore-test"</span></span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
+        <input type="checkbox" name="synthetic_passed" value="1">
+        <span><b>Synthetic ban test passes</b><br>
+        <span class="muted" style="font-size:11px">/synthetic → "Run test now"</span></span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
+        <input type="checkbox" name="litestream_restore" value="1">
+        <span><b>Litestream restore to fresh DB succeeds</b><br>
+        <span class="muted" style="font-size:11px">Target &lt;5 min — runbook §2</span></span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
+        <input type="checkbox" name="notifications_tested" value="1">
+        <span><b>All notification channels reach you</b><br>
+        <span class="muted" style="font-size:11px">/notifications → "Test" per channel</span></span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
+        <input type="checkbox" name="mt_replacement" value="1">
+        <span><b>MikroTik replacement re-push from cold</b><br>
+        <span class="muted" style="font-size:11px">Target &lt;10 min — redirect MT_HOST to a test instance, don't actually swap</span></span>
+      </label>
+    </div>
+    <div style="margin-bottom:12px">
+      <label>Notes (optional, captured to audit log)</label>
+      <textarea name="note" rows="3" placeholder="What went well, what surprised you, what to update in the runbook"
+                style="width:100%"></textarea>
+    </div>
+    <button class="btn" type="submit">Record drill</button>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Drill history (tamper-evident audit log)</h2>
+  {% if drills %}
+  <table>
+    <thead><tr><th>Date</th><th>Actor</th><th>Result</th><th>Notes</th></tr></thead>
+    <tbody>
+      {% for d in drills %}
+      <tr>
+        <td class="mono" style="font-size:12px">{{ d.created_at[:19].replace('T',' ') }}</td>
+        <td class="mono">{{ d.actor or '—' }}</td>
+        <td><span class="badge">{{ d.note }}</span></td>
+        <td class="mono" style="font-size:11px">{{ d.after_json[:200] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px">No drills recorded yet. Run one this quarter.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

@@ -184,16 +184,30 @@ class CloudflareBouncer:
         errors = 0
         push_log: list[dict[str, Any]] = []
         try:
+            # Phase-68 backpressure: each chunk costs 1 token from the
+            # `bouncer.cloudflare` bucket. When exhausted we stop early —
+            # the unfinished items roll over to the next reconcile cycle.
+            import ratelimit
             # Append items (bulk, async)
             if to_add:
                 payload = [{"ip": addr, "comment": cmt[:500]} for addr, cmt in to_add]
                 # Cloudflare allows up to 1000 items per request.
                 for i in range(0, len(payload), 1000):
+                    if not ratelimit.acquire("bouncer.cloudflare"):
+                        push_log.append({"ip": "(deferred)", "action": "add", "success": False,
+                                         "error": "backpressure — bucket exhausted"})
+                        break
                     chunk = payload[i:i + 1000]
                     r = requests.post(
                         f"{API}/accounts/{self.account_id}/rules/lists/{lid}/items",
                         json=chunk, headers=self._hdrs(), timeout=30,
                     )
+                    if r.status_code == 429:
+                        ratelimit.record_429("bouncer.cloudflare")
+                        errors += 1
+                        push_log.append({"ip": "(bulk)", "action": "add", "success": False,
+                                         "error": "CF 429 rate limited"})
+                        break
                     if r.status_code in (200, 201, 202):
                         applied_add += len(chunk)
                         for addr, _c in [(p["ip"], p["comment"]) for p in chunk]:
@@ -205,11 +219,21 @@ class CloudflareBouncer:
             if to_remove_ids:
                 items = [{"id": rid} for rid in to_remove_ids]
                 for i in range(0, len(items), 1000):
+                    if not ratelimit.acquire("bouncer.cloudflare"):
+                        push_log.append({"ip": "(deferred)", "action": "remove", "success": False,
+                                         "error": "backpressure — bucket exhausted"})
+                        break
                     chunk = items[i:i + 1000]
                     r = requests.delete(
                         f"{API}/accounts/{self.account_id}/rules/lists/{lid}/items",
                         json={"items": chunk}, headers=self._hdrs(), timeout=30,
                     )
+                    if r.status_code == 429:
+                        ratelimit.record_429("bouncer.cloudflare")
+                        errors += 1
+                        push_log.append({"ip": "(bulk)", "action": "remove", "success": False,
+                                         "error": "CF 429 rate limited"})
+                        break
                     if r.status_code in (200, 202):
                         applied_remove += len(chunk)
                         for rid in [c["id"] for c in chunk]:

@@ -1,0 +1,26 @@
+[Unit]
+Description=Litestream WAL replication for Protek's SQLite DB
+After=network-online.target protek.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
+Restart=on-failure
+RestartSec=5s
+
+# Hardening (these match what /etc/systemd/system/protek.service uses)
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+
+# litestream only needs read access to protek.db + write to its temp dir
+# and the network; it does NOT need /etc/crowdsec.
+ReadWritePaths=/var/www/Protek
+
+[Install]
+WantedBy=multi-user.target

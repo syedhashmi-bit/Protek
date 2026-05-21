@@ -144,6 +144,56 @@
 </div>
 
 <div class="panel" style="margin-top:16px">
+  <h2>Token buckets — upstream backpressure (phase 68)</h2>
+  <p class="muted" style="margin:0 0 10px;font-size:12px">
+    Each upstream gets its own bucket. When empty, the caller defers (doesn't retry-loop)
+    — reconcile picks it up next cycle. 429 responses trigger a 5-min 2× slowdown.
+    Tune via <span class="mono">ratelimit.&lt;bucket&gt;.tokens_per_min</span> and
+    <span class="mono">ratelimit.&lt;bucket&gt;.capacity</span> in /settings.
+  </p>
+  {% if buckets %}
+  <table>
+    <thead>
+      <tr>
+        <th>Bucket</th>
+        <th class="right">Tokens</th>
+        <th>Fill</th>
+        <th class="right">Rate / min</th>
+        <th class="right">Used / min</th>
+        <th class="right">Denied / min</th>
+        <th>Penalty</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in buckets %}
+      <tr>
+        <td class="mono">{{ b.name }}</td>
+        <td class="mono right">{{ b.tokens }} / {{ b.capacity }}</td>
+        <td>
+          <div style="background:var(--bg-deep);width:100px;height:8px;border:1px solid var(--border);position:relative">
+            <div style="background:{% if b.tokens_pct < 20 %}var(--red){% elif b.tokens_pct < 50 %}var(--amber){% else %}var(--cyan){% endif %};width:{{ b.tokens_pct }}%;height:100%"></div>
+          </div>
+        </td>
+        <td class="mono right">{{ b.tokens_per_min }}</td>
+        <td class="mono right">{{ b.consumed_last_min }}</td>
+        <td class="mono right" style="color:{% if b.denied_last_min %}var(--red){% else %}var(--muted){% endif %}">{{ b.denied_last_min }}</td>
+        <td>
+          {% if b.penalty_active %}
+            <span class="badge" style="background:var(--red);color:var(--bg-deep)">429 cooling {{ b.penalty_remaining_s }}s</span>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px">No buckets registered yet — they materialize on first upstream call.</div>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
   <h2>Recent cycles (60)</h2>
   <table>
     <thead><tr><th>When</th><th>ms</th><th>+adds</th><th>−rem</th><th>errors</th><th>notes</th></tr></thead>

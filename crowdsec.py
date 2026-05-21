@@ -44,10 +44,26 @@ class LAPIClient:
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         url = f"{self.url.rstrip('/')}{path}"
+        # Phase-68 backpressure: skip the call if our LAPI bucket is empty.
+        # Caller treats LAPIError as "try next cycle", which matches the
+        # poller's existing skip-cycle behavior on transient failures.
+        try:
+            import ratelimit
+            if not ratelimit.acquire("lapi"):
+                raise LAPIError(f"{self.name}: backpressure — lapi bucket exhausted")
+        except ImportError:
+            pass
         try:
             r = requests.get(url, headers=self._headers(), params=params, timeout=self.timeout)
         except requests.RequestException as e:
             raise LAPIError(f"{self.name}: GET {path} network error: {e}") from e
+        if r.status_code == 429:
+            try:
+                import ratelimit
+                ratelimit.record_429("lapi")
+            except ImportError:
+                pass
+            raise LAPIError(f"{self.name}: 429 rate limited")
         if r.status_code == 401:
             raise LAPIError(f"{self.name}: 401 Unauthorized — bad bouncer key")
         if r.status_code == 403:

@@ -112,4 +112,34 @@ ALL ADAPTERS support optional per-bouncer filter knobs:
 </pre>
   </div>
 </div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Third-party plugin adapters (phase 69)</h2>
+  <p class="muted" style="margin:0 0 10px;font-size:12px">
+    Drop Python files into <span class="mono">{{ plugin_dir }}</span> to add new
+    bouncer kinds without forking Protek. See
+    <a href="https://github.com/syedhashmi/Protek/blob/main/docs/plugins/README.md" target="_blank">docs/plugins/README.md</a>
+    for the contract.
+  </p>
+  {% if plugins %}
+  <table>
+    <thead>
+      <tr><th>Kind</th><th>Author</th><th>Version</th><th>Required config keys</th><th>Path</th></tr>
+    </thead>
+    <tbody>
+      {% for p in plugins %}
+      <tr>
+        <td class="mono">{{ p.kind }}</td>
+        <td class="mono" style="font-size:11px">{{ p.author or '—' }}</td>
+        <td class="mono">{{ p.version or '—' }}</td>
+        <td class="mono" style="font-size:11px">{{ p.required | join(', ') or '—' }}</td>
+        <td class="mono" style="font-size:11px">{{ p.path }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px">No third-party plugins loaded. Built-in adapters above remain available.</div>
+  {% endif %}
+</div>
 {% endblock %}

@@ -1,0 +1,81 @@
+#cloud-config
+# Bootstraps a Protek node + WireGuard mesh + (peer-only) auto-registration.
+
+package_update: true
+package_upgrade: false
+packages:
+  - python3.12
+  - python3.12-venv
+  - python3-pip
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - sqlite3
+  - wireguard
+  - curl
+  - jq
+  - git
+
+write_files:
+  - path: /etc/wireguard/wg0.conf
+    permissions: "0600"
+    content: |
+      [Interface]
+      Address = 10.77.0.${region_index + 1}/24
+      # Server private key generated in runcmd; placeholder until then
+      PrivateKey = REPLACE_ME_IN_RUNCMD
+      ListenPort = 51820
+
+      %{ for p in mesh_peers ~}
+      [Peer]
+      PublicKey = REPLACE_ME_PUBKEY_FOR_${p}
+      AllowedIPs = 10.66.0.0/16, 10.77.0.0/24
+      Endpoint = ${p}:51820
+      PersistentKeepalive = 25
+      %{ endfor ~}
+
+  - path: /usr/local/bin/protek-bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -e
+      cd /var/www && git clone https://github.com/syedhashmi/Protek.git
+      cd Protek && python3.12 -m venv venv
+      venv/bin/pip install -r requirements.txt
+
+      # Generate admin creds — passphrase will be printed to /var/log/protek-init.log
+      mkdir -p /var/log/protek
+      venv/bin/python scripts/setup_admin.py --username admin \
+          > /var/log/protek/init.log 2>&1
+      chmod 0600 /var/log/protek/init.log
+
+      # Bootstrap CrowdSec local agent
+      curl -s https://install.crowdsec.net | bash
+      apt install -y crowdsec
+      cscli bouncers add protek-${region} -o raw > /tmp/protek-bouncer-key
+      echo "CROWDSEC_BOUNCER_KEY=$(cat /tmp/protek-bouncer-key)" >> /var/www/Protek/.env
+      rm -f /tmp/protek-bouncer-key
+
+      # nginx + TLS
+      cp deploy/nginx.conf.example /etc/nginx/sites-available/protek
+      ln -sf /etc/nginx/sites-available/protek /etc/nginx/sites-enabled/
+      nginx -t && systemctl reload nginx
+
+      # systemd
+      cp packaging/debian/protek.service /etc/systemd/system/
+      systemctl daemon-reload
+      systemctl enable --now protek
+
+      # If we're a peer, register ourselves at the hub
+      if [ "${is_hub}" = "false" ]; then
+          echo "(peer) hub registration: see /peers on ${hub_url}"
+          # Manual step — operator pastes the peer's API token into hub's /peers UI
+      fi
+
+runcmd:
+  - [bash, -c, "wg genkey | tee /etc/wireguard/server.privkey | wg pubkey > /etc/wireguard/server.pubkey"]
+  - [bash, -c, "sed -i \"s|REPLACE_ME_IN_RUNCMD|$(cat /etc/wireguard/server.privkey)|\" /etc/wireguard/wg0.conf"]
+  - [systemctl, enable, --now, wg-quick@wg0]
+  - [bash, /usr/local/bin/protek-bootstrap.sh]
+
+final_message: "Protek node ${region} ready in $UPTIME seconds. Logs: /var/log/protek/init.log"

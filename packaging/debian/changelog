@@ -1,0 +1,9 @@
+protek (2.0.0-1) unstable; urgency=medium
+
+  * Protek 2.0 — full Arc 1 through Arc 13 feature set:
+    federation, multi-bouncer, intelligence layer, observability,
+    operator QoL, suite integration, resilience (off-box backup,
+    synthetic self-test, DR runbook, token-bucket backpressure),
+    ecosystem (plugin SDK, OIDC SSO, GraphQL, threat-intel publishing).
+
+ -- Syed Hashmi <syed@syedhashmi.trade>  Thu, 21 May 2026 11:30:00 +0000

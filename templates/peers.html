@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Protek peers · Aggregation{% endblock %}
+{% block crumb %}BOUNCER · <b>PEERS</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Multi-instance aggregation (phase 76)</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Read-only roll-up across peer Protek instances. Each peer must have a
+    <span class="mono">read</span>-scoped bearer token issued from its own
+    <span class="mono">/admin/tokens</span> page. Click a peer name to open its dashboard
+    in a new tab (SSO cookie shared if both are on the same parent domain).
+  </p>
+
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">Aggregated bans</div>
+      <div class="kpi-value cyan">{{ '{:,}'.format(kpis.total_active_bans) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Healthy peers</div>
+      <div class="kpi-value" style="color:{% if kpis.peers_healthy == kpis.peers_total %}var(--green){% else %}var(--amber){% endif %}">
+        {{ kpis.peers_healthy }} / {{ kpis.peers_total }}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Max sync lag</div>
+      <div class="kpi-value mono">{{ '%.1f'|format(kpis.max_sync_lag_seconds) }}<span class="muted">s</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Cycles (sum)</div>
+      <div class="kpi-value mono">{{ '{:,}'.format(kpis.cycle_total) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Last refresh</div>
+      <div class="kpi-value mono" style="font-size:13px">
+        {% if kpis.last_refresh %}{{ kpis.last_refresh[11:19] }}{% else %}—{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px">
+    <form method="post" action="{{ url_for('peers_refresh') }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn" type="submit">Refresh now</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Instances</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>URL</th><th>Status</th>
+        <th class="right">Active bans</th>
+        <th class="right">Sync lag</th>
+        <th>Dry-run</th>
+        <th>Last pull</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for i in kpis.instances %}
+      <tr>
+        <td class="mono">
+          {% if i.url %}
+            <a href="{{ i.url }}/" target="_blank" rel="noopener">{{ i.name }}</a>
+          {% else %}{{ i.name }}{% endif %}
+        </td>
+        <td class="mono" style="font-size:11px">{{ i.url or '(self)' }}</td>
+        <td>
+          {% if not i.enabled %}<span class="muted">disabled</span>
+          {% elif i.ok %}<span style="color:var(--green)">●</span> ok
+          {% else %}<span style="color:var(--red)" title="{{ i.last_error }}">●</span> {{ i.last_error[:80] }}{% endif %}
+        </td>
+        <td class="mono right">{{ '{:,}'.format(i.active_bans) }}</td>
+        <td class="mono right">{{ '%.1f'|format(i.sync_lag_seconds) }}s</td>
+        <td>{% if i.dry_run %}<span class="badge">dry</span>{% else %}<span class="badge cs">live</span>{% endif %}</td>
+        <td class="mono" style="font-size:11px">{% if i.last_pull_at %}{{ i.last_pull_at[11:19] }}{% else %}—{% endif %}</td>
+        <td>
+          {% if i.id and session.get('role') == 'admin' %}
+          <form method="post" action="{{ url_for('peers_toggle', pid=i.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="enabled" value="{% if i.enabled %}0{% else %}1{% endif %}">
+            <button class="btn sec" type="submit">{% if i.enabled %}disable{% else %}enable{% endif %}</button>
+          </form>
+          <form method="post" action="{{ url_for('peers_delete', pid=i.id) }}" style="display:inline"
+                onsubmit="return confirm('Remove peer {{ i.name }}?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn sec" type="submit" style="color:var(--red)">remove</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if session.get('role') == 'admin' %}
+<div class="panel" style="margin-top:16px">
+  <h2>Add peer</h2>
+  <form method="post" action="{{ url_for('peers_add') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="display:grid;grid-template-columns:1fr 2fr 2fr;gap:10px">
+      <div><label>Name</label>
+        <input type="text" name="name" placeholder="protek-eu" required style="width:100%">
+      </div>
+      <div><label>URL</label>
+        <input type="url" name="url" placeholder="https://protek-eu.example.com" required style="width:100%">
+      </div>
+      <div><label>Bearer token (read scope)</label>
+        <input type="text" name="token" placeholder="protek_xxxxxxxxxxxx" required style="width:100%">
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn" type="submit">Add peer</button>
+    </div>
+  </form>
+  <p class="muted" style="font-size:11px;margin-top:10px">
+    Generate the token on the peer's <span class="mono">/admin/tokens</span> page with scope=<span class="mono">read</span>.
+  </p>
+</div>
+{% endif %}
+
+{% endblock %}
