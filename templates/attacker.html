@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · attacker · {{ ip }}{% endblock %}
+{% block crumb %}<b>ATTACKER</b> · <span class="mono">{{ ip }}</span>{% endblock %}
+{% block head %}
+<style>
+.pcols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.row{display:grid;grid-template-columns:160px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.row .k{color:var(--muted);text-transform:uppercase;letter-spacing:.12em;font-size:10px;align-self:center}
+.row .v{font-family:'Share Tech Mono',monospace;word-break:break-all}
+.row:last-child{border-bottom:none}
+.tl{position:relative;border-left:2px solid var(--border);margin-left:6px;padding-left:14px}
+.tl .ev{padding:8px 0;border-bottom:1px solid var(--border)}
+.tl .ev::before{content:'';position:absolute;left:-7px;width:10px;height:10px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);margin-top:8px}
+.score{display:inline-block;padding:1px 6px;border-radius:3px;font-family:'Share Tech Mono',monospace;font-size:11px}
+.score.s0,.score.s1{background:rgba(0,255,157,.18);color:var(--green)}
+.score.s2,.score.s3{background:rgba(255,181,71,.16);color:var(--amber)}
+.score.s4,.score.s5{background:rgba(255,56,96,.18);color:var(--red)}
+</style>
+{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi">
+    <div class="k">Reputation</div>
+    <div class="v" style="font-size:20px;color:{{ reputation_color }}">{{ reputation or '—' }}</div>
+    <div class="d">{% if cti_score %}<span class="score s{{ (cti_score/2)|int }}">score {{ cti_score }}/10</span>{% else %}no CTI lookup yet{% endif %}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Country</div>
+    <div class="v cyan" style="font-size:22px">{{ geo.country_code or '—' }}</div>
+    <div class="d">{{ geo.city or '' }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">ASN</div>
+    <div class="v cyan" style="font-size:14px">{{ geo.asn or whois.netname or '—' }}</div>
+    <div class="d" style="word-break:break-word">{{ geo.as_org or whois.org or '' }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Hits</div>
+    <div class="v">{{ stats.hits }}</div>
+    <div class="d">first seen {{ stats.first_seen_rel }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Sources Seen By</div>
+    <div class="v">{{ stats.sources_seen }}</div>
+    <div class="d">{{ stats.sources_seen_list }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Status</div>
+    <div class="v" style="font-size:18px;color:{{ 'var(--red)' if stats.active else 'var(--muted)' }}">{{ 'ACTIVE BAN' if stats.active else 'EXPIRED' }}</div>
+    <div class="d">last seen {{ stats.last_seen_rel }}</div>
+  </div>
+</div>
+
+<div class="pcols" style="margin-top:16px">
+  <div class="panel">
+    <h2>Geo / Network</h2>
+    <div class="row"><div class="k">IP</div><div class="v">{{ ip }}</div></div>
+    <div class="row"><div class="k">rDNS</div><div class="v">{{ geo.rdns or '—' }}</div></div>
+    <div class="row"><div class="k">Country</div><div class="v">{{ geo.country or '—' }} ({{ geo.country_code or '' }})</div></div>
+    <div class="row"><div class="k">City</div><div class="v">{{ geo.city or '—' }}</div></div>
+    <div class="row"><div class="k">Lat / Lon</div><div class="v">{{ geo.lat or '—' }} , {{ geo.lon or '—' }}</div></div>
+    <div class="row"><div class="k">ASN</div><div class="v">{{ geo.asn or '—' }}</div></div>
+    <div class="row"><div class="k">AS-Org</div><div class="v">{{ geo.as_org or whois.org or '—' }}</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>WHOIS / Abuse</h2>
+    <div class="row"><div class="k">Net Name</div><div class="v">{{ whois.netname or '—' }}</div></div>
+    <div class="row"><div class="k">Org</div><div class="v">{{ whois.org or '—' }}</div></div>
+    <div class="row"><div class="k">Country</div><div class="v">{{ whois.country or '—' }}</div></div>
+    <div class="row"><div class="k">Abuse Email</div><div class="v">
+      {% if whois.abuse_email %}
+        <a href="mailto:{{ whois.abuse_email }}?subject={{ abuse_subject }}&body={{ abuse_body|urlencode }}">{{ whois.abuse_email }}</a>
+      {% else %}—{% endif %}
+    </div></div>
+    <div class="row"><div class="k">Report Abuse</div><div class="v">
+      <a class="btn sec" href="https://www.abuseipdb.com/check/{{ ip }}" target="_blank" rel="noopener">AbuseIPDB ↗</a>
+      <a class="btn sec" href="https://www.virustotal.com/gui/ip-address/{{ ip }}" target="_blank" rel="noopener">VirusTotal ↗</a>
+      {% if atom_url %}
+        <a class="btn sec" href="{{ atom_url.rstrip('/') }}/investigate?ip={{ ip }}" target="_blank" rel="noopener">Investigate in atom ↗</a>
+      {% endif %}
+      {% if othoni_url %}
+        <a class="btn sec" href="{{ othoni_url.rstrip('/') }}/search?q={{ ip }}" target="_blank" rel="noopener">Search in othoni ↗</a>
+      {% endif %}
+    </div></div>
+  </div>
+</div>
+
+{% if cti and cti.reputation %}
+<div class="panel" style="margin-top:16px">
+  <h2>CrowdSec CTI</h2>
+  <div class="pcols">
+    <div>
+      <div class="row"><div class="k">Reputation</div><div class="v">{{ cti.reputation }}</div></div>
+      <div class="row"><div class="k">Score</div><div class="v">{{ cti.score }} / 10</div></div>
+      <div class="row"><div class="k">Classifications</div><div class="v">{{ cti.classifications or '—' }}</div></div>
+      <div class="row"><div class="k">Behaviors</div><div class="v">{{ cti.behaviors or '—' }}</div></div>
+      <div class="row"><div class="k">Cached At</div><div class="v">{{ cti.cached_at }}</div></div>
+    </div>
+    <div>
+      <h2 style="font-size:11px;margin-bottom:8px">Raw response</h2>
+      <pre class="mono" style="background:var(--bg-deep);border:1px solid var(--border);padding:10px;border-radius:3px;font-size:11px;max-height:280px;overflow:auto;color:var(--green)">{{ cti_raw_pretty }}</pre>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="pcols" style="margin-top:16px">
+  <div class="panel">
+    <h2>Scenario History</h2>
+    <div class="tl">
+      {% for s in scenarios %}
+      <div class="ev">
+        <div><span class="badge {{ s.fam }}">{{ s.scenario or '—' }}</span> <span class="muted mono" style="margin-left:8px">{{ s.last_seen_rel }}</span></div>
+        <div class="muted" style="font-size:11px;margin-top:2px">origin {{ s.origin }} · source {{ s.origin_source }} · duration {{ s.duration }}{% if s.deleted_at %} · <span style="color:var(--muted-low)">expired</span>{% endif %}</div>
+      </div>
+      {% else %}
+      <div class="muted">no scenarios recorded for this IP.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Sources That Have Seen This IP</h2>
+    <table>
+      <thead><tr><th>Source</th><th class="right">Last Seen</th></tr></thead>
+      <tbody>
+        {% for src in sources_seen %}
+        <tr>
+          <td class="mono">{{ src.source_name }}</td>
+          <td class="mono right muted">{{ src.last_seen_rel }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" class="muted" style="text-align:center;padding:14px">no sources tracked yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Live Enrichment</h2>
+  <form method="POST" action="{{ url_for('attacker_refresh', ip=ip) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn sec" type="submit">Refresh All (CTI · ASN · rDNS · WHOIS)</button>
+    <span class="muted" style="margin-left:10px;font-size:11px">forces a live lookup, bypassing cache</span>
+  </form>
+</div>
+{% endblock %}

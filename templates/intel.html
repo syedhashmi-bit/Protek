@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · intel{% endblock %}
+{% block crumb %}<b>INTEL</b>{% endblock %}
+{% block head %}
+<style>
+.intel-heat{display:grid;gap:1px;font-family:'Share Tech Mono',monospace;font-size:11px}
+.intel-heat .c{aspect-ratio:1.6;background:var(--bg-deep);text-align:center;line-height:30px;color:var(--muted)}
+.intel-heat .c.lvl-1{background:rgba(0,200,255,.18);color:#cfe8ff}
+.intel-heat .c.lvl-2{background:rgba(0,200,255,.36);color:#fff}
+.intel-heat .c.lvl-3{background:rgba(0,200,255,.56);color:#fff}
+.intel-heat .c.lvl-4{background:rgba(0,255,157,.55);color:#06101c}
+.intel-heat .c.lvl-5{background:rgba(255,181,71,.7);color:#06101c}
+.intel-heat .c.lvl-6{background:rgba(255,56,96,.78);color:#fff}
+.intel-heat .lbl{background:var(--bg-panel);color:var(--muted);padding:4px 8px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.intel-heat .hr{background:var(--bg-panel);text-align:center;color:var(--muted-low);font-size:10px;padding:2px 0}
+</style>
+{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Countries (24h)</div><div class="v">{{ kpis.countries }}</div></div>
+  <div class="kpi"><div class="k">ASNs (24h)</div><div class="v">{{ kpis.asns }}</div></div>
+  <div class="kpi"><div class="k">Top Country</div><div class="v cyan" style="font-size:22px">{{ kpis.top_country or '—' }}</div></div>
+  <div class="kpi"><div class="k">Top ASN</div><div class="v cyan" style="font-size:16px;word-break:break-all">{{ kpis.top_asn or '—' }}</div><div class="d">{{ kpis.top_asn_org or '' }}</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-top:16px">
+  <div class="panel">
+    <h2>Top Attacking ASNs (24h)</h2>
+    <table>
+      <thead><tr><th>ASN</th><th>Organization</th><th class="right">Bans</th><th class="right">Unique IPs</th></tr></thead>
+      <tbody>
+        {% for r in top_asn_rows %}
+        <tr>
+          <td class="mono cyan">{{ r.asn or '—' }}</td>
+          <td class="muted" style="word-break:break-word">{{ r.as_org or '—' }}</td>
+          <td class="mono right">{{ r.bans }}</td>
+          <td class="mono right">{{ r.uniq }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted" style="text-align:center;padding:24px">ASN enrichment pending — intel worker fills these in.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Top Attacking Countries (24h)</h2>
+    <table>
+      <thead><tr><th>Country</th><th class="right">Bans</th><th class="right">Unique IPs</th></tr></thead>
+      <tbody>
+        {% for r in top_country_rows %}
+        <tr>
+          <td><span class="mono cyan">{{ r.cc or '—' }}</span> <span class="muted">{{ r.country or '' }}</span></td>
+          <td class="mono right">{{ r.bans }}</td>
+          <td class="mono right">{{ r.uniq }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted" style="text-align:center;padding:24px">geo enrichment pending.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Heatmap — Country × Hour-of-Day (last 7d, UTC)</h2>
+  <div class="intel-heat" style="grid-template-columns:80px repeat(24,minmax(22px,1fr))">
+    <div class="lbl">·</div>
+    {% for h in range(24) %}<div class="hr">{{ '%02d'|format(h) }}</div>{% endfor %}
+    {% for row in heat_country %}
+      <div class="lbl">{{ row.cc }}</div>
+      {% for h in range(24) %}
+        {% set v = row.cells[h] %}
+        <div class="c {% if v %}lvl-{{ row.levels[h] }}{% endif %}" title="{{ row.cc }} {{ '%02d'|format(h) }}:00 · {{ v }} hits">{{ v if v else '' }}</div>
+      {% endfor %}
+    {% else %}
+      <div class="lbl muted">awaiting geo</div>
+      {% for h in range(24) %}<div class="c"></div>{% endfor %}
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Heatmap — ASN × Scenario (top 12 each, 7d)</h2>
+  <div class="intel-heat" style="grid-template-columns:220px repeat({{ heat_scens|length }},minmax(80px,1fr))">
+    <div class="lbl">·</div>
+    {% for s in heat_scens %}<div class="hr" style="white-space:normal">{{ s }}</div>{% endfor %}
+    {% for row in heat_asn %}
+      <div class="lbl" style="word-break:break-word">{{ row.asn }} · <span class="muted">{{ row.as_org or '—' }}</span></div>
+      {% for v, lvl in row.row %}
+        <div class="c {% if v %}lvl-{{ lvl }}{% endif %}" title="{{ row.asn }} · {{ v }}">{{ v if v else '' }}</div>
+      {% endfor %}
+    {% else %}
+      <div class="lbl muted">awaiting enrichment</div>
+      {% for s in heat_scens %}<div class="c"></div>{% endfor %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

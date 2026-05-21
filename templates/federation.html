@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · federation{% endblock %}
+{% block crumb %}<b>FEDERATION</b>{% endblock %}
+{% block head %}
+<style>
+.matrix{display:grid;gap:1px;background:var(--border)}
+.matrix .cell{background:var(--bg-deep);padding:6px 8px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--muted);text-align:center}
+.matrix .cell.head{background:var(--bg-panel);color:var(--cyan);font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.matrix .cell.diag{background:var(--bg-raised);color:var(--muted-low)}
+.matrix .cell.lvl-1{background:rgba(0,200,255,.16);color:#cfe8ff}
+.matrix .cell.lvl-2{background:rgba(0,200,255,.36);color:#fff}
+.matrix .cell.lvl-3{background:rgba(0,200,255,.6);color:#fff}
+.matrix .cell.lvl-4{background:rgba(0,255,157,.6);color:#06101c}
+.topology{padding:16px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;justify-content:center}
+.tnode{background:var(--bg-deep);border:1px solid var(--border);padding:10px 14px;border-radius:4px;
+  font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--text);min-width:170px}
+.tnode .lbl{display:block;font-size:9px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase}
+.tnode .nm{display:block;color:var(--cyan);margin-top:4px}
+.tnode.hub{border-color:var(--cyan);box-shadow:0 0 16px rgba(0,200,255,.18)}
+.tnode.target{border-color:var(--green)}
+.arrow{font-size:24px;color:var(--muted)}
+.scorecard{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;background:var(--border);margin-top:8px}
+.scorecard .cell{background:var(--bg-deep);padding:8px 10px;font-family:'Share Tech Mono',monospace;font-size:12px}
+.scorecard .lbl{color:var(--muted);font-size:9px;letter-spacing:.16em;text-transform:uppercase}
+.scorecard .val{color:var(--green);margin-top:2px}
+.scorecard .val.warn{color:var(--amber)}
+.scorecard .val.bad{color:var(--red)}
+</style>
+{% endblock %}
+{% block body %}
+
+<!-- KPI strip -->
+<div class="grid kpi-strip">
+  <div class="kpi">
+    <div class="k">Sources</div>
+    <div class="v cyan" style="font-size:30px">{{ kpis.total_sources }}</div>
+    <div class="d">{{ kpis.healthy }} healthy · {{ kpis.paused }} paused · {{ kpis.failing }} failing</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Active Decisions (union)</div>
+    <div class="v">{{ kpis.active_total }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Multi-Source Agreement</div>
+    <div class="v cyan">{{ kpis.agreed_2plus }}</div>
+    <div class="d">IPs seen by 2+ sources</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Confidence Threshold</div>
+    <div class="v amber" style="font-size:22px">{{ kpis.confidence_threshold }}</div>
+    <div class="d">{% if kpis.confidence_threshold >= 2 %}paranoid mode{% else %}any-source = ban{% endif %}</div>
+  </div>
+</div>
+
+<!-- Topology -->
+<div class="panel" style="margin-top:16px">
+  <h2>Topology</h2>
+  <div class="topology">
+    {% for s in sources %}
+    <div class="tnode {% if not s.ok %}target{% else %}hub{% endif %}" style="border-color:{{ 'var(--red)' if s.error else ('var(--green)' if s.healthy else 'var(--amber)') }}">
+      <span class="lbl">source · {{ s.contribution }}/h</span>
+      <span class="nm">{{ s.name }}</span>
+      <span class="muted" style="font-size:10px">{{ s.url }}</span>
+    </div>
+    {% endfor %}
+    <span class="arrow">→</span>
+    <div class="tnode hub">
+      <span class="lbl">hub</span>
+      <span class="nm">PROTEK</span>
+      <span class="muted" style="font-size:10px">{{ kpis.active_total }} decisions merged</span>
+    </div>
+    <span class="arrow">→</span>
+    <div class="tnode target">
+      <span class="lbl">target</span>
+      <span class="nm">MikroTik</span>
+      <span class="muted" style="font-size:10px">address-list: {{ mt_list_name }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Sources table + per-source actions -->
+<div class="panel" style="margin-top:16px">
+  <h2>Sources</h2>
+  <table>
+    <thead><tr>
+      <th>Name</th><th>URL</th><th>Status</th><th class="right">Last Pull</th>
+      <th class="right">Contributed</th><th class="right">Confidence</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+      {% for s in sources %}
+      <tr>
+        <td class="mono">{{ s.name }}</td>
+        <td class="mono muted" style="word-break:break-all">{{ s.url }}</td>
+        <td>
+          {% if s.paused %}<span class="badge" style="color:var(--muted)">paused</span>
+          {% elif s.error %}<span class="badge" style="color:var(--red)">down</span>
+          {% elif s.backoff_active %}<span class="badge" style="color:var(--amber)">backoff</span>
+          {% elif s.healthy %}<span class="badge cs">ok</span>
+          {% else %}<span class="badge" style="color:var(--muted)">unknown</span>{% endif %}
+        </td>
+        <td class="mono right muted">{{ s.last_pull_rel }}</td>
+        <td class="mono right">{{ s.contribution }}</td>
+        <td class="mono right">{{ s.confidence }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('federation_action') }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="source_id" value="{{ s.id }}">
+            <input type="hidden" name="action" value="{{ 'unpause' if s.paused else 'pause' }}">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px">{{ 'unpause' if s.paused else 'pause' }}</button>
+          </form>
+          {% if s.name != 'local' %}
+          <form method="POST" action="{{ url_for('federation_action') }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="source_id" value="{{ s.id }}">
+            <input type="hidden" name="action" value="delete">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove this source?')">remove</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% if s.error %}
+      <tr><td colspan="7" class="mono" style="color:var(--red);font-size:11px;padding:4px 16px">↳ {{ s.error }}</td></tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Add source -->
+<div class="panel" style="margin-top:16px">
+  <h2>Add Remote Source</h2>
+  <form method="POST" action="{{ url_for('federation_add') }}" style="display:grid;grid-template-columns:1fr 2fr 2fr 80px 120px;gap:10px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label>Name</label>
+      <input type="text" name="name" placeholder="vps-2" required pattern="[a-zA-Z0-9_-]+">
+    </div>
+    <div>
+      <label>LAPI URL</label>
+      <input type="text" name="url" placeholder="https://lapi.example.com:8080" required>
+    </div>
+    <div>
+      <label>Bouncer Key</label>
+      <input type="password" name="api_key" required>
+    </div>
+    <div>
+      <label>Confidence</label>
+      <input type="number" name="confidence" value="1" min="1" max="10">
+    </div>
+    <button class="btn" type="submit">Test &amp; Add</button>
+  </form>
+  <div class="muted" style="margin-top:10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+    Connection is health-probed before save. Per-source bouncer keys never leave this server.
+  </div>
+</div>
+
+<!-- Confidence threshold -->
+<form method="POST" action="{{ url_for('federation_set_threshold') }}" class="panel" style="margin-top:16px;display:flex;gap:10px;align-items:center;padding:16px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div style="flex:1">
+    <h2 style="margin:0 0 4px">Confidence Threshold (paranoid mode)</h2>
+    <div class="muted" style="font-size:12px;text-transform:none;letter-spacing:0">
+      Only push to MikroTik when an IP is seen by at least this many sources. Set to 1 to mirror every decision (default). Set to 2+ to require cross-source agreement.
+    </div>
+  </div>
+  <input type="number" name="threshold" value="{{ kpis.confidence_threshold }}" min="1" max="10" style="width:70px;text-align:center">
+  <button class="btn sec" type="submit">Save</button>
+</form>
+
+<!-- Overlap matrix -->
+{% if matrix.sources|length > 1 %}
+<div class="panel" style="margin-top:16px">
+  <h2>Cross-Source Overlap Matrix</h2>
+  <div class="muted" style="margin-bottom:10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+    cell <span class="mono">N</span> = IPs both row source AND column source have seen
+  </div>
+  <div class="matrix" style="grid-template-columns:repeat({{ matrix.sources|length + 1 }}, minmax(60px, 1fr))">
+    <div class="cell head">·</div>
+    {% for s in matrix.sources %}<div class="cell head">{{ s }}</div>{% endfor %}
+    {% for i, row in matrix.rows %}
+      <div class="cell head">{{ matrix.sources[i] }}</div>
+      {% for j, v, lvl in row %}
+      <div class="cell {{ 'diag' if i==j else ('lvl-' ~ lvl if v else '') }}">{{ v if v else '·' }}</div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Per-source scorecards -->
+<div class="panel" style="margin-top:16px">
+  <h2>Source Scorecards (last 7 days)</h2>
+  {% for sc in scorecards %}
+  <div style="border-top:1px solid var(--border);padding:14px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="mono" style="color:var(--cyan);font-size:14px">{{ sc.name }}</div>
+        <div class="muted" style="font-size:11px">{{ sc.url }}</div>
+      </div>
+      <div class="muted mono" style="font-size:11px">{{ sc.health_pct }}% uptime · confidence {{ sc.confidence }}</div>
+    </div>
+    <div class="scorecard">
+      <div class="cell"><div class="lbl">Total Contributed</div><div class="val">{{ sc.total }}</div></div>
+      <div class="cell"><div class="lbl">Unique To This Source</div><div class="val">{{ sc.unique }}</div></div>
+      <div class="cell"><div class="lbl">Shared With Others</div><div class="val">{{ sc.shared }}</div></div>
+      <div class="cell"><div class="lbl">Redundancy</div><div class="val {% if sc.redundancy_pct > 80 %}warn{% endif %}">{{ sc.redundancy_pct }}%</div></div>
+    </div>
+    {% if sc.recommendation %}
+    <div class="muted" style="margin-top:6px;font-size:11px;color:var(--amber);letter-spacing:.1em">↳ {{ sc.recommendation }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

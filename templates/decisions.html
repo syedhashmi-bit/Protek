@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · decisions{% endblock %}
+{% block crumb %}<b>DECISIONS</b>{% endblock %}
+{% block body %}
+<div class="panel">
+  <h2>Active Decisions ({{ total }})</h2>
+  <form method="GET" style="display:flex;gap:10px;margin-bottom:14px">
+    <input type="text" name="q" value="{{ q or '' }}" placeholder="filter: IP / scenario / origin…" style="max-width:340px">
+    <button class="btn sec" type="submit">Filter</button>
+    {% if q %}<a class="btn ghost" href="{{ url_for('decisions_page') }}">clear</a>{% endif %}
+  </form>
+  <table>
+    <thead>
+      <tr>
+        <th>First Seen</th>
+        <th>Value</th>
+        <th>Scope</th>
+        <th>Scenario</th>
+        <th>Origin</th>
+        <th>Source</th>
+        <th class="right">Until</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in rows %}
+      <tr>
+        <td class="mono muted">{{ d.first_seen_rel }}</td>
+        <td class="mono"><a href="{{ url_for('attacker_page', ip=d.value) }}">{{ d.value }}</a></td>
+        <td><span class="badge">{{ d.scope }}</span></td>
+        <td><span class="badge {{ d.fam }}">{{ d.scenario or '—' }}</span></td>
+        <td class="muted">{{ d.origin }}</td>
+        <td class="muted">{{ d.origin_source }}</td>
+        <td class="mono right muted">{{ d.until_rel or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted" style="text-align:center;padding:30px">no decisions match.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if pages > 1 %}
+  <div style="margin-top:14px;display:flex;justify-content:space-between;font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--muted)">
+    <div>page {{ page }} / {{ pages }} · {{ total }} total</div>
+    <div>
+      {% if page > 1 %}<a class="btn ghost" href="?page={{ page-1 }}{% if q %}&q={{ q }}{% endif %}">← prev</a>{% endif %}
+      {% if page < pages %}<a class="btn ghost" href="?page={{ page+1 }}{% if q %}&q={{ q }}{% endif %}">next →</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · scenarios catalog{% endblock %}
+{% block crumb %}<b>SCENARIOS</b> · Catalog{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Scenarios</div><div class="v">{{ counts.scenarios }}</div></div>
+  <div class="kpi"><div class="k">Parsers</div><div class="v">{{ counts.parsers }}</div></div>
+  <div class="kpi"><div class="k">Collections</div><div class="v">{{ counts.collections }}</div></div>
+  <div class="kpi"><div class="k">Noisy (FP proxy)</div><div class="v amber" style="font-size:22px">{{ counts.noisy }}</div></div>
+  <div class="kpi"><div class="k">Sleeping (30d)</div><div class="v" style="font-size:22px">{{ counts.sleeping }}</div></div>
+</div>
+
+<div style="display:flex;gap:8px;margin:16px 0">
+  {% for cat in categories %}
+  <a class="btn {{ 'sec' if cat == active_cat else 'ghost' }}" href="{{ url_for('scenarios_catalog', cat=cat) }}">{{ cat }} ({{ counts.get(cat, 0) }})</a>
+  {% endfor %}
+</div>
+
+<div class="panel">
+  <h2>{{ active_cat }} ({{ items|length }})</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Description</th><th class="right">Local Version</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for it in items %}
+      <tr>
+        <td class="mono cyan">{{ it.name }}</td>
+        <td>{{ it.description or '—' }}</td>
+        <td class="mono right muted">{{ it.local_version or '—' }}</td>
+        <td>
+          {% if it.status == 'enabled' %}<span class="badge cs">enabled</span>
+          {% elif it.status == 'disabled' %}<span class="badge" style="color:var(--muted)">disabled</span>
+          {% else %}<span class="badge">{{ it.status or '?' }}</span>{% endif %}
+        </td>
+        <td>
+          <form method="POST" action="{{ url_for('scenarios_action') }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="kind" value="{{ active_cat }}">
+            <input type="hidden" name="name" value="{{ it.name }}">
+            {% if it.status == 'enabled' %}
+              <input type="hidden" name="action" value="remove">
+              <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove {{ it.name }}?')">remove</button>
+            {% else %}
+              <input type="hidden" name="action" value="install">
+              <button class="btn ghost" style="padding:2px 8px;font-size:10px">install</button>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted" style="text-align:center;padding:24px">no items in this category</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Custom Scenarios <a class="btn sec" style="float:right;padding:4px 10px;font-size:11px" href="{{ url_for('scenarios_editor') }}">+ new</a></h2>
+  <table>
+    <thead><tr><th>File</th><th class="right">Size</th><th class="right">Modified</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for f in custom_files %}
+      <tr>
+        <td class="mono cyan">{{ f.name }}</td>
+        <td class="mono right">{{ f.size }}</td>
+        <td class="mono right muted">{{ f.modified[:19] }}</td>
+        <td><a class="btn ghost" style="padding:2px 8px;font-size:10px" href="{{ url_for('scenarios_editor', file=f.name) }}">edit</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted" style="text-align:center;padding:20px">no custom scenarios. Click + new to create one.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+# Pin major versions only — let pip resolve patches.
+# Lift compatible versions from pipsqueeze where they overlap.
+
+# Web
+Flask>=3.0,<4.0
+Flask-WTF>=1.2,<2.0
+gunicorn>=21.0,<24.0
+Jinja2>=3.1,<4.0
+
+# HTTP / config
+requests>=2.31,<3.0
+python-dotenv>=1.0,<2.0
+
+# MikroTik
+RouterOS-api>=0.18,<1.0
+
+# Auth / security
+pyotp>=2.9,<3.0
+bcrypt>=4.0,<5.0
+qrcode>=7.4,<9.0
+
+# Intelligence layer (Arc 3)
+dnspython>=2.6,<3.0
+
+# Encrypted bundle (Arc 7 phase 41)
+cryptography>=42.0,<50.0
+
+# Dev
+pytest>=8.0,<9.0
+pytest-mock>=3.12,<4.0

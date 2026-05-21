@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · whitelist{% endblock %}
+{% block crumb %}<b>WHITELIST</b>{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Active Rules</div><div class="v">{{ kpis.active }}</div></div>
+  <div class="kpi"><div class="k">Hits (24h)</div><div class="v cyan">{{ kpis.hits_24h }}</div></div>
+  <div class="kpi"><div class="k">Hits (7d)</div><div class="v">{{ kpis.hits_7d }}</div></div>
+  <div class="kpi">
+    <div class="k">Approval Queue Mode</div>
+    <form method="POST" action="{{ url_for('whitelist_toggle_mode') }}" style="margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="v" style="font-size:18px;color:{{ 'var(--amber)' if approval_required else 'var(--green)' }}">
+        {{ 'SEMI-AUTO' if approval_required else 'AUTO' }}
+      </div>
+      <button class="btn ghost" type="submit" style="padding:2px 8px;font-size:10px;margin-top:6px">
+        switch to {{ 'AUTO' if approval_required else 'SEMI-AUTO' }}
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Add Rule</h2>
+  <form method="POST" action="{{ url_for('whitelist_add') }}" style="display:grid;grid-template-columns:140px 1fr 2fr 200px 110px;gap:10px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label>Kind</label>
+      <select name="kind" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+        <option value="ip">IP</option><option value="cidr">CIDR</option>
+        <option value="asn">ASN</option><option value="country">Country</option>
+      </select>
+    </div>
+    <div><label>Value</label><input type="text" name="value" placeholder="1.2.3.4 / 10.0.0.0/24 / AS15169 / US" required></div>
+    <div><label>Note</label><input type="text" name="note" placeholder="why is this whitelisted?"></div>
+    <div><label>Expires (optional ISO)</label><input type="text" name="expires_at" placeholder="2026-12-31T00:00:00Z"></div>
+    <button class="btn" type="submit">Add</button>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Active Rules</h2>
+  <table>
+    <thead><tr><th>Kind</th><th>Value</th><th>Note</th><th class="right">Expires</th><th class="right">Created</th><th></th></tr></thead>
+    <tbody>
+      {% for r in rules %}
+      <tr>
+        <td><span class="badge">{{ r.kind|upper }}</span></td>
+        <td class="mono cyan">{{ r.value }}</td>
+        <td class="muted">{{ r.note or '—' }}</td>
+        <td class="mono right muted">{{ r.expires_at or '—' }}</td>
+        <td class="mono right muted">{{ r.created_at[:19] }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('whitelist_delete', wid=r.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)">remove</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted" style="text-align:center;padding:24px">no whitelist rules.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recent Hits (last 50)</h2>
+  <table>
+    <thead><tr><th>When</th><th>IP</th><th>Saved By</th><th>Scenario</th></tr></thead>
+    <tbody>
+      {% for h in hits %}
+      <tr>
+        <td class="mono muted">{{ h.created_rel }}</td>
+        <td class="mono">{{ h.ip }}</td>
+        <td class="mono cyan">{{ h.kind|upper }} · {{ h.value }}</td>
+        <td>{% if h.scenario %}<span class="badge {{ h.fam }}">{{ h.scenario }}</span>{% else %}—{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted" style="text-align:center;padding:20px">no hits yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
