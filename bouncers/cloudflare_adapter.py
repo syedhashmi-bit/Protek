@@ -114,6 +114,12 @@ class CloudflareBouncer:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "bouncer": self.name, "kind": self.kind, "error": str(e)}
 
+    # CF's Lists items endpoint caps GET at per_page=500 (the docs only mention
+    # the POST bulk-add 1000 cap — easy to mix them up). per_page>500 returns
+    # an "invalid cursor" 400 even with no cursor sent, which silently broke
+    # snapshot() and made the reconciler think the list was empty every cycle.
+    SNAPSHOT_PAGE_SIZE = 500
+
     def snapshot(self) -> list[dict[str, Any]]:
         lid = self.list_id
         if not lid:
@@ -124,7 +130,8 @@ class CloudflareBouncer:
         cursor = ""
         try:
             while True:
-                url = f"{API}/accounts/{self.account_id}/rules/lists/{lid}/items?per_page=1000"
+                url = (f"{API}/accounts/{self.account_id}/rules/lists/{lid}/items"
+                       f"?per_page={self.SNAPSHOT_PAGE_SIZE}")
                 if cursor:
                     url += f"&cursor={cursor}"
                 r = requests.get(url, headers=self._hdrs(), timeout=15)
@@ -140,8 +147,12 @@ class CloudflareBouncer:
                         ".id": item.get("id", ""),
                         "list": lid,
                     })
-                cursor = ((payload.get("result_info") or {}).get("cursors") or {}).get("after") or ""
-                if not cursor or len(items) < 1000:
+                # CF returns `cursors: null` (not just missing `after`) on the
+                # last page — handle both shapes defensively.
+                ri = payload.get("result_info") or {}
+                cursors = ri.get("cursors") or {}
+                cursor = cursors.get("after") or ""
+                if not cursor or len(items) < self.SNAPSHOT_PAGE_SIZE:
                     break
         except Exception as e:  # noqa: BLE001
             log.warning("cf snapshot crashed: %s", e)
