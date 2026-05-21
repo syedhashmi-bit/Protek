@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="160" height="160" alt="Protek" src="static/img/logo.png" />
+  <img width="160" height="160" alt="Protek" src="static/logo-256.png" />
 </p>
 
 <h1 align="center">Protek</h1>
