@@ -47,11 +47,33 @@ class CloudflareBouncer:
         return {"Authorization": f"Bearer {self.api_token}", "Accept": "application/json",
                 "Content-Type": "application/json"}
 
-    def _ensure_list(self) -> str | None:
+    def _ensure_list(self) -> tuple[str | None, str]:
+        """Returns (list_id, diagnostic). On success, diagnostic is empty.
+        On failure, list_id is None and diagnostic explains why (so health()
+        can surface the real CF error instead of a generic fallback)."""
         if self.list_id:
-            return self.list_id
+            return self.list_id, ""
         if not self.auto_create_list:
-            return None
+            return None, "auto_create_list=false and no list_id provided"
+        # Before trying to create, see if a list with the same name exists —
+        # operators often create it once in the CF dashboard, then leave
+        # auto_create on. Reuse instead of erroring with "already exists".
+        try:
+            r = requests.get(
+                f"{API}/accounts/{self.account_id}/rules/lists",
+                headers=self._hdrs(), timeout=10,
+            )
+            if r.status_code == 200:
+                for item in r.json().get("result") or []:
+                    if item.get("name") == self.list_name and item.get("kind") == "ip":
+                        self.list_id = item.get("id") or ""
+                        return self.list_id, ""
+            elif r.status_code in (401, 403):
+                return None, (f"CF token rejected listing lists (HTTP {r.status_code}). "
+                              "Token needs Account → Account Filter Lists: Edit.")
+        except Exception as e:  # noqa: BLE001
+            return None, f"network error listing CF lists: {e}"
+        # No existing list — try to create.
         try:
             r = requests.post(
                 f"{API}/accounts/{self.account_id}/rules/lists",
@@ -62,20 +84,22 @@ class CloudflareBouncer:
             if r.status_code in (200, 201):
                 data = r.json().get("result") or {}
                 self.list_id = data.get("id") or ""
-                return self.list_id
+                return self.list_id, ""
+            # Surface the actual error verbatim so the operator can fix it
+            # instead of guessing.
+            return None, f"CF create-list HTTP {r.status_code}: {r.text[:300]}"
         except Exception as e:  # noqa: BLE001
-            log.warning("cf create list failed: %s", e)
-        return None
+            return None, f"network error creating CF list: {e}"
 
     def health(self) -> dict[str, Any]:
         if not self.is_configured():
             return {"ok": False, "bouncer": self.name, "kind": self.kind,
                     "error": "account_id + api_token required"}
         try:
-            lid = self._ensure_list()
+            lid, diag = self._ensure_list()
             if not lid:
                 return {"ok": False, "bouncer": self.name, "kind": self.kind,
-                        "error": "list_id required (no auto-create permission?)"}
+                        "error": diag or "list_id required"}
             r = requests.get(
                 f"{API}/accounts/{self.account_id}/rules/lists/{lid}",
                 headers=self._hdrs(), timeout=10,
@@ -91,7 +115,9 @@ class CloudflareBouncer:
             return {"ok": False, "bouncer": self.name, "kind": self.kind, "error": str(e)}
 
     def snapshot(self) -> list[dict[str, Any]]:
-        lid = self.list_id or self._ensure_list()
+        lid = self.list_id
+        if not lid:
+            lid, _diag = self._ensure_list()
         if not lid:
             return []
         out: list[dict[str, Any]] = []
@@ -122,10 +148,14 @@ class CloudflareBouncer:
         return out
 
     def apply(self, to_add: list[tuple[str, str]], to_remove_ids: list[str]) -> dict[str, Any]:
-        lid = self.list_id or self._ensure_list()
+        lid = self.list_id
+        if not lid:
+            lid, diag = self._ensure_list()
+        else:
+            diag = ""
         if not lid:
             return {"applied_add": 0, "applied_remove": 0, "errors": 1, "push_log": [],
-                    "error": "no list_id"}
+                    "error": diag or "no list_id"}
         applied_add = 0
         applied_remove = 0
         errors = 0
