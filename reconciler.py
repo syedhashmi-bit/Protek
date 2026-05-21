@@ -65,7 +65,18 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
                 error_count += 1
                 note_bits.append(f"{b.name}_snapshot_failed: {e}")
 
-            diff = reconcile(desired, current)
+            # Per-bouncer subset filtering. Configured via the bouncer_targets
+            # row's config_json — `origins` (glob whitelist), `exclude_origins`
+            # (glob blacklist), `max_entries` (cap, prioritized by recency).
+            # Useful when a downstream has a hard size limit (e.g. Cloudflare
+            # Free = 10k items per list).
+            desired_for_b = _filter_desired_for_bouncer(b, desired)
+            if len(desired_for_b) < len(desired):
+                note_bits.append(
+                    f"{b.name}_filtered: {len(desired_for_b)}/{len(desired)}"
+                )
+
+            diff = reconcile(desired_for_b, current)
             total_add += len(diff.to_add)
             total_remove += len(diff.to_remove)
             unchanged += diff.unchanged
@@ -135,6 +146,54 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         "notes": "; ".join(note_bits),
         "bouncer_count": len(all_bouncers),
     }
+
+
+def _filter_desired_for_bouncer(bouncer, desired: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply per-bouncer subset filtering before computing the diff.
+
+    Config keys (read from `bouncer_targets.config_json` for DB targets, or
+    from a per-bouncer optional attribute for env-managed ones — env MT
+    leaves all defaults so behavior is unchanged):
+
+      origins         list[str] of fnmatch globs; if non-empty, decision's
+                      `origin` must match at least one (e.g. ["crowdsec",
+                      "lists:firehol_greensnow"])
+      exclude_origins list[str] of fnmatch globs; if non-empty, exclude any
+                      decision whose origin matches one (e.g. ["lists:*"]
+                      drops the entire CAPI community-list firehose)
+      max_entries     int; cap total push size. Prioritized by lapi_id DESC
+                      (newest first), so the cap keeps the freshest bans
+                      and drops the oldest.
+
+    Returns a NEW list — never mutates the caller's `desired`.
+    """
+    import fnmatch as _fn
+
+    # Pull config off the bouncer object. DB-driven bouncers receive their
+    # full config_json kwargs in __init__; we stash filter keys on the
+    # instance only if they were passed.
+    origins_inc = getattr(bouncer, "origins", None) or []
+    origins_exc = getattr(bouncer, "exclude_origins", None) or []
+    max_entries = getattr(bouncer, "max_entries", None)
+    if not (origins_inc or origins_exc or max_entries):
+        return desired
+
+    def _origin_ok(o: str) -> bool:
+        if origins_exc and any(_fn.fnmatchcase(o, p) for p in origins_exc):
+            return False
+        if origins_inc and not any(_fn.fnmatchcase(o, p) for p in origins_inc):
+            return False
+        return True
+
+    out = [d for d in desired if _origin_ok(d.get("origin") or "")]
+
+    if max_entries and len(out) > max_entries:
+        # Sort by lapi_id DESC as a proxy for "most recently registered" —
+        # higher lapi_id = newer in CrowdSec's monotonic sequence. Keep the
+        # newest `max_entries` and drop the rest.
+        out.sort(key=lambda d: int(d.get("lapi_id") or 0), reverse=True)
+        out = out[:max_entries]
+    return out
 
 
 def _desired_from_db() -> list[dict[str, Any]]:

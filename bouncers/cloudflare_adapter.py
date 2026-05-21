@@ -31,6 +31,9 @@ class CloudflareBouncer:
     def __init__(self, name: str = "cloudflare", account_id: str = "",
                  list_id: str = "", api_token: str = "",
                  list_name: str = "protek_bans", auto_create_list: bool = True,
+                 origins: list[str] | None = None,
+                 exclude_origins: list[str] | None = None,
+                 max_entries: int | None = None,
                  **_: Any):
         self.name = name
         self.kind = "cloudflare"
@@ -39,6 +42,13 @@ class CloudflareBouncer:
         self.api_token = api_token
         self.list_name = list_name
         self.auto_create_list = auto_create_list
+        # Per-bouncer filter knobs, honoured by reconciler._filter_desired_for_bouncer.
+        # Set these in the bouncer config_json to cap CF's 10k Free-tier list
+        # size or to exclude noisy origins (e.g. exclude_origins=["lists:*"]
+        # drops the entire community blocklist firehose).
+        self.origins = list(origins or [])
+        self.exclude_origins = list(exclude_origins or [])
+        self.max_entries = int(max_entries) if max_entries else None
 
     def is_configured(self) -> bool:
         return bool(self.account_id and self.api_token)
