@@ -32,7 +32,7 @@ fi
 PROTEK_DIR=/var/www/Protek
 PROTEK_USER=root  # gunicorn worker runs as root for MT API socket + cscli access
 GUNICORN_BIND=127.0.0.1:8090
-REPO_URL="${PROTEK_REPO_URL:-https://github.com/your-org/protek.git}"
+REPO_URL="${PROTEK_REPO_URL:-https://github.com/syedhashmi-bit/Protek.git}"
 
 say() { printf "\n\033[1;36m[install]\033[0m %s\n" "$*"; }
 ask() { local prompt="$1" default="${2-}" reply; read -rp "$prompt${default:+ [$default]}: " reply; echo "${reply:-$default}"; }
