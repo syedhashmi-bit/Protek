@@ -84,7 +84,8 @@ def load_all_targets() -> list[Bouncer]:
 
 # Import adapters so they self-register via @register().
 from .mikrotik_adapter import MikroTikLegacyAdapter  # noqa: E402,F401
-from . import iptables_adapter   # noqa: E402,F401
-from . import cloudflare_adapter # noqa: E402,F401
-from . import pfsense_adapter    # noqa: E402,F401
-from . import opnsense_adapter   # noqa: E402,F401
+from . import mikrotik_db_adapter  # noqa: E402,F401  (kind="mikrotik" — multi-instance)
+from . import iptables_adapter     # noqa: E402,F401
+from . import cloudflare_adapter   # noqa: E402,F401
+from . import pfsense_adapter      # noqa: E402,F401
+from . import opnsense_adapter     # noqa: E402,F401

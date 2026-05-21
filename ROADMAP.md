@@ -14,6 +14,11 @@ Phases are arranged into **arcs**. Arcs are thematic groupings; the order *withi
 | 6 | 33–38 | **Observability** — Prometheus, SIEM, audit, SLOs |
 | 7 | 39–44 | **Operator quality of life** — mobile, CLI, RBAC, bulk ops |
 | 8 | 45–50 | **Integration & extensibility** — webhooks, REST API, suite integration, 1.0 |
+| 9 | 51–56 | **(v1.1) Polish** — multi-MikroTik, in-place edit, bulk ops, global search, per-stage timing, routing v2 |
+| 10 | 57–62 | **(v1.1) Intelligence v2** — ASN auto-ban, reputation scoring, AbuseIPDB/OTX, Tor, honeypot, ML |
+| 11 | 63–68 | **(v1.1) Resilience** — off-box backup, Litestream, HA, self-monitoring, DR runbook, backpressure |
+| 12 | 69–74 | **(v1.1) Ecosystem** — plugin SDK, OAuth/SAML, deb/rpm, webhook templates, GraphQL, othoni |
+| 13 | 75–80 | **(2.0 prep)** — Postgres, sharding, multi-region, intel publishing, deprecation policy, 2.0 |
 
 ---
 
@@ -479,6 +484,350 @@ All six MVP phases shipped. The bouncer pulls from CrowdSec, computes the diff, 
 - [ ] Tag `v1.0` on git
 
 **Acceptance:** a stranger can clone the repo and have a working Protek on a fresh Ubuntu VPS within 30 minutes, end-to-end, without reading anything but the install instructions.
+
+---
+
+# v1.1 Roadmap — post-1.0 refinements
+
+v1.0 shipped the full vision. v1.1 sands the rough edges discovered in production
+use + opens the door to genuinely new capabilities. Numbered continuing from 50 so
+ROADMAP stays one source of truth.
+
+| Arc | Phases | Theme |
+|---|---|---|
+| 9 | 51–56 | **Polish** — UX gaps from v1.0 production use |
+| 10 | 57–62 | **Intelligence v2** — smarter targeting, reputation scoring |
+| 11 | 63–68 | **Resilience** — HA, backups, off-box durability |
+| 12 | 69–74 | **Ecosystem** — plugin SDK, OAuth, native packages |
+| 13 | 75–80 | **2.0 prep** — Postgres, GraphQL, breaking-change window |
+
+---
+
+## Arc 9 — Polish (gaps surfaced after first production deploy)
+
+### Phase 51 — Multi-MikroTik via the UI (✅ shipped early)
+
+- [x] New `mikrotik` adapter kind (sibling to `mikrotik_env`) takes config from `bouncer_targets.config_json`
+- [x] /bouncers add form lists the new kind first with worked-example JSON
+- [x] Per-bouncer filter knobs (`max_entries`, `origins`, `exclude_origins`) honored
+
+**Acceptance:** add a second MikroTik via /bouncers, watch its address-list fill on the next reconcile cycle, verify the env-anchored router still operates unchanged.
+
+---
+
+### Phase 52 — In-place edit for bouncer targets
+
+- [ ] /bouncers/edit/<id> — change config_json without delete+re-add
+- [ ] Preserve sync state, last_ok_at, last_error across edits
+- [ ] Mask secret fields in the edit form (same pattern as /notifications creds)
+
+**Acceptance:** update a CF list_name without losing the target's history or having to re-paste the API token.
+
+---
+
+### Phase 53 — Bulk operations on /decisions
+
+- [ ] Multi-select checkbox column + sticky action bar
+- [ ] Bulk delete, bulk-add-to-whitelist, bulk-extend-duration
+- [ ] Confirmation modal showing the operation count + first 5 affected IPs
+- [ ] Action audit row records "bulk operation: N items"
+
+**Acceptance:** filter decisions by ASN, select all matching, bulk-add to whitelist with one click — 5 seconds total.
+
+---
+
+### Phase 54 — Global search
+
+- [ ] `cmd-K` palette extended to search across decisions, alerts, scenarios, attackers, audit log
+- [ ] Backend: `/api/v1/search?q=<term>` with ranked results
+- [ ] Saved searches per user (settings table)
+
+**Acceptance:** type `1.2.3` in the palette, get hits across all four entity types in <100ms.
+
+---
+
+### Phase 55 — Per-stage sync timing
+
+- [ ] sync_events columns: `lapi_fetch_ms`, `snapshot_ms`, `diff_ms`, `push_ms`
+- [ ] /perf shows stacked-bar breakdown per cycle
+- [ ] Slow-cycle log identifies "this cycle was slow because of MT push, not LAPI"
+
+**Acceptance:** open /perf during initial sync, see clearly that "MT snapshot took 8s, push took 50s" — no more guessing.
+
+---
+
+### Phase 56 — Notification routing v2
+
+- [ ] `notifications.send(..., channels=[...])` kwarg actually wired (alerting fallback removed)
+- [ ] Per-rule channel override on /alerts/rules ("this rule fires Telegram only")
+- [ ] Multiple webhooks of the same type (e.g. two Discord channels for different teams)
+- [ ] Per-user notification preferences (when phase 42 multi-admin is in use)
+
+**Acceptance:** critical alerts page Telegram + email; warnings only Discord; one user receives nothing.
+
+---
+
+## Arc 10 — Intelligence v2
+
+### Phase 57 — ASN-level auto-ban
+
+- [ ] Threshold: "if N IPs from same ASN attack in M hours, escalate the ASN"
+- [ ] Optional action: ban /24 (or whole ASN) instead of single IP
+- [ ] /intel ASN page surfaces escalated ASNs with one-click "convert to permanent rule"
+
+**Acceptance:** demo ASN with 10+ IPs hitting SSH in an hour gets ASN-wide rule auto-suggested for operator approval.
+
+---
+
+### Phase 58 — Reputation scoring
+
+- [ ] Per-IP composite score: `cti_score × scenario_severity × cross_source_agreement × age_decay`
+- [ ] Three tiers: `auto-ban` (≥80), `queue-for-approval` (50–80), `monitor-only` (<50)
+- [ ] /attackers page shows the score breakdown
+- [ ] Operator can tune thresholds per-bouncer (some targets stricter than others)
+
+**Acceptance:** noisy CAPI feed entries score low + age out fast; locally-detected SSH brute force scores high + stays.
+
+---
+
+### Phase 59 — AbuseIPDB + OTX correlation
+
+- [ ] Three new providers in intel.py alongside CTI (AbuseIPDB, AlienVault OTX, Spamhaus DROP/EDROP)
+- [ ] Per-provider rate-limit awareness
+- [ ] Cross-provider "consensus" panel on attacker page ("this IP is on 4/5 feeds")
+- [ ] Optional: contribute back — report locally-detected attackers to AbuseIPDB (operator opt-in)
+
+**Acceptance:** attacker dossier shows reputation scores from all configured providers; setting a "report-to-abuseipdb" toggle starts contributing back.
+
+---
+
+### Phase 60 — Tor exit + VPN/proxy detection
+
+- [ ] Pull Tor exit list daily, mark matching decisions
+- [ ] proxycheck.io or ipinfo VPN/proxy lookup for high-score IPs
+- [ ] UI toggle: "auto-block Tor exits" / "auto-block known VPNs"
+- [ ] Per-scenario whitelist option: "this scenario doesn't count Tor users"
+
+**Acceptance:** an attacker via Tor shows up tagged "tor-exit"; toggle blocks all Tor edge traffic on opt-in.
+
+---
+
+### Phase 61 — Honeypot mode
+
+- [ ] Instead of dropping high-score attackers, route them to a configurable honeypot URL (proxy via Cloudflare workers or similar)
+- [ ] Collect their behavior, feed back into reputation scoring
+- [ ] Optional integration with `atom` for replay/analysis
+
+**Acceptance:** flagged attacker visits the honeypot; their session is logged; reputation score updates from the captured behavior.
+
+---
+
+### Phase 62 — ML anomaly layer
+
+- [ ] Lightweight scikit-learn isolation forest on per-IP feature vector (request rate, scenario diversity, ASN reputation, time-of-day pattern)
+- [ ] Trained on the operator's own LAPI history
+- [ ] Flags "anomalous" IPs that haven't fired CrowdSec scenarios but look weird
+- [ ] Recommend-only — never auto-bans
+
+**Acceptance:** review a week of decisions, see a "candidates" panel of IPs the ML thinks are suspicious; sanity-check a few.
+
+---
+
+## Arc 11 — Resilience
+
+### Phase 63 — Off-box backup automation
+
+- [ ] Nightly `/admin/backup` export to S3-compatible storage (Backblaze B2, MinIO, AWS S3)
+- [ ] Retention policy (keep last 30 dailies, 12 monthlies)
+- [ ] Restore-test job that decrypts the latest bundle and verifies integrity (no actual import)
+
+**Acceptance:** simulate a VPS loss — restore from yesterday's bundle to a fresh box, full config back in <5 minutes.
+
+---
+
+### Phase 64 — Litestream-based DB replication
+
+- [ ] Stream the SQLite WAL to S3 in near-real-time (Litestream sidecar)
+- [ ] RPO < 60 seconds, RTO < 5 minutes
+- [ ] Documented restore procedure
+
+**Acceptance:** kill the VPS mid-cycle; restore from Litestream; lose at most one minute of decisions / alerts.
+
+---
+
+### Phase 65 — Active-passive HA
+
+- [ ] Two Protek instances, one elected leader writes to bouncers
+- [ ] Leader election via the existing fcntl.flock pattern extended to a network lock (Redis SETNX or DynamoDB conditional write)
+- [ ] Failover within 30 seconds
+- [ ] Acceptance: kill the leader; passive takes over; bouncer push continues
+
+**Acceptance:** simulated leader crash → passive becomes leader → next reconcile cycle pushes within 30s, no decisions lost.
+
+---
+
+### Phase 66 — Self-monitoring depth
+
+- [ ] Detect "phantom-progress" failure modes (LAPI returning stale data, MT silently accepting writes that don't land, etc.)
+- [ ] Synthetic ban test: every 6h, ban a private-range test IP via cscli + verify it appears in each bouncer's snapshot within one cycle
+- [ ] Alert if synthetic doesn't propagate
+
+**Acceptance:** disable MT API mid-test, verify the synthetic alarm fires within 10 minutes.
+
+---
+
+### Phase 67 — Disaster recovery runbook
+
+- [ ] docs/DR-RUNBOOK.md — every failure mode with explicit recovery steps
+- [ ] DR drill template — operator runs it quarterly, results land in audit log
+- [ ] Inventory: what fails if the VPS dies / router dies / CF outage / CrowdSec hub down
+
+**Acceptance:** quarterly drill completes in <30 minutes per scenario, full restoration verified.
+
+---
+
+### Phase 68 — Rate limiting + backpressure
+
+- [ ] Token bucket per upstream (LAPI, each bouncer, each webhook target)
+- [ ] Graceful degradation when an upstream is rate-limiting us
+- [ ] /perf shows the bucket states ("CF: 80/100 req/min consumed")
+
+**Acceptance:** stress-test with 5x normal traffic; no upstream returns 429; cycles slow but don't error.
+
+---
+
+## Arc 12 — Ecosystem
+
+### Phase 69 — Plugin SDK for adapters
+
+- [ ] Publish the Bouncer protocol as a documented public interface
+- [ ] cookiecutter template: `cookiecutter gh:syedhashmi-bit/protek-adapter-template`
+- [ ] Hot-load adapters from `~/.config/protek/adapters/*.py` (no fork-and-merge needed)
+- [ ] Adapter manifest format with metadata (author, kind, version, required config keys)
+
+**Acceptance:** community contributor writes a Sophos adapter using the template, drops it in a hot-load dir, it appears in /bouncers.
+
+---
+
+### Phase 70 — OAuth / SAML SSO
+
+- [ ] OIDC provider integration (Google Workspace / Authentik / Auth0)
+- [ ] SAML 2.0 SP role
+- [ ] Maps external claims → Protek role (viewer/operator/admin)
+- [ ] Per-domain restriction (`@yourcompany.com` only)
+- [ ] Fallback to local user table for break-glass
+
+**Acceptance:** log in via Google, see your role auto-assigned based on group claim, audit log attributes actions to your SSO identity.
+
+---
+
+### Phase 71 — Native packages (.deb / .rpm)
+
+- [ ] dh_python3 build → official Debian/Ubuntu package
+- [ ] RPM equivalent for Fedora/RHEL/Rocky
+- [ ] Hosted in a GitHub-Pages-hosted APT/YUM repo
+- [ ] `apt install protek` works on supported distros
+
+**Acceptance:** fresh Debian 12 → `apt install protek` → service runs → `systemctl status protek` green.
+
+---
+
+### Phase 72 — Webhook input templates
+
+- [ ] Ship example payloads for common integrators (n8n, Zapier, Make, Tines, atom)
+- [ ] Inbound webhook signature verification (per-token HMAC secret)
+- [ ] /api/external introspection endpoint for integrators to test their payload shape
+- [ ] Rate limiting per token
+
+**Acceptance:** n8n cookbook in docs/integrations/ — paste the JSON, set the token, decision lands in Protek within 2s.
+
+---
+
+### Phase 73 — GraphQL surface
+
+- [ ] /api/graphql alongside REST (Strawberry or Ariadne)
+- [ ] Same scope-based auth as REST
+- [ ] Self-documenting GraphiQL at /api/graphql/explorer (admin role only)
+- [ ] Schema covers all reads; mutations limited to safe operations
+
+**Acceptance:** a single query fetches "all active SSH brute-forcers from China with reputation > 70 plus their CTI dossier" — would have needed 50 REST calls.
+
+---
+
+### Phase 74 — Otho­ni cross-app integration deep-dive
+
+- [ ] Embed Protek's tile into othoni's grid (via /api/v1/tile/summary)
+- [ ] Cross-app session via shared cookie (`SESSION_COOKIE_DOMAIN=.syedhashmi.trade`)
+- [ ] Single-pane drilldown: click Protek tile in othoni → land on a contextualized dashboard view
+
+**Acceptance:** sign in to othoni, navigate to Protek's tile, click through to the per-IP attacker page — same session, no re-auth.
+
+---
+
+## Arc 13 — 2.0 preparation
+
+### Phase 75 — Postgres support (additive)
+
+- [ ] DB abstraction layer (SQLAlchemy Core or just a thin shim around our raw SQL)
+- [ ] Postgres schema mirroring SQLite, including the audit_log triggers
+- [ ] Migration tool: dump SQLite → load Postgres
+- [ ] CI matrix tests both backends
+
+**Acceptance:** boot Protek with `DATABASE_URL=postgresql://...`, full functionality, unit tests pass on both backends.
+
+---
+
+### Phase 76 — Sharding by decision origin
+
+- [ ] One Protek instance per origin / region (e.g. dedicated instance for CAPI feeds)
+- [ ] Federation between Protek instances (not just CrowdSec sources)
+- [ ] Aggregated read across shards for the dashboard
+
+**Acceptance:** 3 sharded Protek instances appear as one dashboard; pushing decisions through any of them lands on every shared bouncer.
+
+---
+
+### Phase 77 — Multi-region deploy template
+
+- [ ] Terraform module: deploy Protek to N regions with private mesh between them
+- [ ] WireGuard or Tailscale baked in
+- [ ] Region-affinity for source IP geo (the closest Protek detects)
+
+**Acceptance:** `terraform apply` brings up 3-region cluster with mesh + leader election in <10 min.
+
+---
+
+### Phase 78 — Threat intel publishing (be the source, not the sink)
+
+- [ ] Protek exports its own decisions as a public feed (HTTP + signed)
+- [ ] Federation peers can subscribe directly (no CAPI middle-man)
+- [ ] Opt-in opt-out per scenario / origin
+- [ ] Per-subscriber rate limiting
+
+**Acceptance:** a peer Protek instance configures yours as a federation source, gets the decision stream signed and rate-limited.
+
+---
+
+### Phase 79 — Breaking-change window for 2.0
+
+- [ ] Deprecation policy: 6 months notice on /api/v1 removals
+- [ ] /api/v2 alongside /api/v1 with the migration playbook
+- [ ] Config bundle format v2 (older v1 bundles still importable for one major version)
+- [ ] CLI flag `--api-version`
+
+**Acceptance:** community projects depending on /api/v1 have 6 months and a documented upgrade path before any breaking change.
+
+---
+
+### Phase 80 — Protek 2.0
+
+- [ ] All Arc 9–13 phases shipped
+- [ ] Performance regression suite vs 1.0 baseline (no >10% degradation on any /perf SLO)
+- [ ] Re-do security review (own pen-test using atom)
+- [ ] Migrate the public site + docs to a versioned model
+- [ ] Tag `v2.0.0`
+
+**Acceptance:** install Protek 2.0 on a fresh VPS, restore a 1.0 bundle, every feature works, no functionality regressed.
 
 ---
 

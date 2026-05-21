@@ -53,6 +53,7 @@
     <div>
       <label>Kind</label>
       <select name="kind" id="kind" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px" onchange="showFields(this.value)">
+        <option value="mikrotik">MikroTik (additional router)</option>
         <option value="iptables_ipset">iptables + ipset (local)</option>
         <option value="cloudflare">Cloudflare WAF list</option>
         <option value="pfsense">pfSense (pfsense-pkg-RESTAPI)</option>
@@ -78,11 +79,19 @@
   <div class="panel" style="margin-top:14px;background:var(--bg-deep)">
     <h2 style="font-size:11px">Config shapes</h2>
     <pre class="mono" style="color:var(--green);font-size:11px;white-space:pre-wrap">
+mikrotik        →  {"host":"10.0.0.1", "username":"protek-api", "password":"&lt;...&gt;",
+                    "port":8728, "use_ssl":false,
+                    "address_list":"crowdsec"}
+                   # additional router beyond the .env-anchored one.
+                   # operator owns the firewall drop rule on the router.
+                   # optional filters: "max_entries":30000, "exclude_origins":["lists:*"]
+
 iptables_ipset  →  {} (no config — uses default set names protek-bans / protek-bans6)
                    optional: {"set_v4":"my-set","set_v6":"my-set6","max_v4":200000}
 
 cloudflare      →  {"account_id":"&lt;cf-acct-id&gt;", "api_token":"&lt;scoped-token&gt;",
                     "list_name":"protek_bans"}    # auto-creates list
+                   optional filters: "max_entries":9500, "exclude_origins":["lists:firehol_cruzit_web_attacks"]
 
 pfsense         →  {"base_url":"https://pf.example.com",
                     "api_key":"&lt;X-API-Key&gt;",
@@ -93,6 +102,11 @@ opnsense        →  {"base_url":"https://opn.example.com",
                     "api_key":"&lt;key&gt;", "api_secret":"&lt;secret&gt;",
                     "alias_name":"protek_bans",
                     "verify_tls": false}
+
+ALL ADAPTERS support optional per-bouncer filter knobs:
+  "origins":         ["crowdsec", "lists:firehol_greensnow"]  (whitelist)
+  "exclude_origins": ["lists:*"]                              (blacklist)
+  "max_entries":     9500                                     (newest-first cap)
 </pre>
   </div>
 </div>
