@@ -4,6 +4,150 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-21 — Arc 9 shipped (phases 51–56) · v1.1 polish · 57 of 80 phases complete
+
+**State at pause:** Five v1.1 polish phases done. Phase 51 (multi-MikroTik UI)
+shipped earlier as a one-off; this session completed 52–56 in one push. v1.1's
+"things production use surfaced" arc is now done. 23 phases of Arcs 10–13
+(Intelligence v2, Resilience, Ecosystem, 2.0 prep) remain.
+
+### Phase 52 — In-place bouncer edit
+
+- `/bouncers/edit/<id>` route + template. Edit name, config_json, dry_run flag
+  without delete+re-add (which would lose sync history + force re-paste of
+  secrets).
+- Secret keys (`api_token`, `api_secret`, `password`, `hmac_secret`) are
+  write-only — shown masked above the JSON box, replaced ONLY when the
+  operator submits non-empty new value. Pattern matches the /notifications
+  credentials flow.
+- Health probe runs on the new config before persisting; bad creds = no save.
+- Audit row records before/after with secrets redacted.
+- "edit" link added next to "remove" on the /bouncers row.
+
+### Phase 53 — Bulk operations on /decisions
+
+- Multi-select checkbox column + "select all on page" header checkbox.
+- Sticky cyan-edged action bar appears only when ≥1 row is selected; shows
+  the count + a dropdown of operations: `delete` / `whitelist` / `extend`.
+- `delete` — soft-delete (sets `deleted_at`); next reconcile removes from
+  every bouncer.
+- `whitelist` — adds an IP whitelist rule AND soft-deletes the active decision
+  (the "stop banning this IP forever" combo).
+- `extend` — bumps `until` by N hours (default 24, capped 720). Useful for
+  "this attacker isn't going away, hold the ban longer".
+- One confirm() showing the IP count before applying.
+- POST `/decisions/bulk` is operator-only (RBAC), audited per-op as
+  `decisions.bulk.<action>`, and ships a SIEM event with sample IPs.
+
+### Phase 54 — Global search
+
+- `/api/search` (session-auth, for in-browser cmd-K) + `/api/v1/search`
+  (bearer-auth, for external clients) — same shape, different auth.
+- Single query param `q` (≥2 chars). Searches across:
+  - decisions (by IP or scenario substring)
+  - alerts (by source_ip or scenario)
+  - whitelist rules (by value or note)
+  - bouncer_targets (by name → links to /bouncers/edit)
+  - audit_log (by action / target / actor)
+- Returns flat `{kind, label, hint, href}` list, default 8 per kind, max 50.
+- cmd-K palette now debounces typing 180ms and concatenates the static page
+  catalog with live server-side results. Type "ssh", get attacker IPs +
+  scenario hits + audit rows mixed with the page shortcuts.
+
+### Phase 55 — Per-stage sync timing
+
+- 4 new sync_events columns (idempotent migration): `lapi_fetch_ms`,
+  `snapshot_ms`, `diff_ms`, `apply_ms`.
+- Reconciler instruments each stage with `time.monotonic()` deltas:
+  - **lapi_fetch_ms** = `_desired_from_db()` (SQL pull + whitelist match)
+  - **snapshot_ms** = sum across bouncers of reading their address-list
+  - **diff_ms** = pure-Python reconcile compute (always tiny)
+  - **apply_ms** = sum across bouncers of pushing add/remove ops
+- `perf.stage_timings(hours=24)` returns avg/p95/max + share-of-total per
+  stage, excluding pre-instrumentation rows (zeros).
+- `/perf` adds a stacked-bar visual at the top of the new "Stage breakdown"
+  panel + a table with the same numbers.
+- **Verified on first instrumented cycle:** `lapi=538ms snap=12573ms
+  diff=129ms apply=105946ms` (total 119s). Operator now sees instantly that
+  MT push is 89% of the cycle — exactly the diagnostic the phase promised.
+- Old "deferred until phase 4" footnote on the by-outcome panel removed.
+
+### Phase 56 — Notification routing v2
+
+- `notifications.send(channels=[...])` kwarg is real now. When provided, it's
+  an **explicit override** that bypasses the per-event toggle entirely —
+  alerting uses this for severity-based routing without needing the operator
+  to also toggle the event on per-channel.
+- `alerting._notify()` consolidated: removed the TypeError fallback (the
+  kwarg works for real), and added a per-rule override lookup from
+  `alerting.rule.<key>.channels` setting before falling back to
+  severity→channels default.
+- Per-rule channel override UI on `/alerts/rules`: an inline form per row
+  lets the operator set "this rule pages Telegram only" or "Discord +
+  email but not Telegram". Comma-separated, blank = default by severity.
+- POST `/alerts/rules/channels` is operator-only + audited as `alert.channels`.
+
+### Quirks added this session
+
+- `notifications.send(channels=[...])` is bypassing the per-event toggle. Make
+  sure callers actually want that — for the alerting case it's intentional
+  (alerting decides routing); other callers should keep the implicit form so
+  the operator's /notifications toggles still gate them.
+- The bulk-whitelist op adds rules with `note="bulk whitelist via /decisions"`
+  so they're identifiable in the /whitelist table from the noise of single-IP
+  rules.
+- Stage timings exclude rows with all-zeros (old rows pre-migration). Means
+  the `samples` counter on /perf grows as new cycles run — first hour after
+  deploy will show small samples; full 24h after a day.
+- `/api/v1/search` and `/api/search` are intentional duplicates (same logic,
+  different auth surface). When phase 70 (OAuth/SAML SSO) lands, both will
+  still work — the bearer surface stays for CLI/external; the session surface
+  stays for in-browser.
+- The cmd-K palette now hits `/api/search` on every keystroke (debounced).
+  If you start typing very fast, only the final value's response is rendered
+  (it checks `input.value.trim() !== q` before applying).
+- The bouncer-edit form's "Currently-set secrets" panel only renders if the
+  config_json had any of the 4 secret-keys set. Otherwise the panel is omitted
+  to avoid clutter.
+
+### Acceptance proven this session
+
+- Phase 52: edit a CF target's `max_entries` without re-pasting the api_token.
+- Phase 53: select 5 IPs on /decisions, bulk-whitelist, next cycle they're
+  gone from CF + MT.
+- Phase 54: `protekctl-equivalent search` via `/api/v1/search?q=ssh` returns
+  16 hits across decisions/alerts in <100ms.
+- Phase 55: fresh sync_event row shows real per-stage numbers; `/perf` renders
+  the stacked bar; operator can answer "which stage is slow" by looking, not
+  guessing.
+- Phase 56: set `alerting.rule.mt_unreachable_2m.channels=telegram`, simulate
+  MT outage (`set_setting('mt.last_status','down')`), only Telegram fires
+  (when configured) — Discord stays silent.
+
+### Surface added this session
+
+- **Pages:** /bouncers/edit/<id>
+- **APIs:** /api/search, /api/v1/search, /decisions/bulk, /alerts/rules/channels
+- **DB columns:** sync_events.lapi_fetch_ms, .snapshot_ms, .diff_ms, .apply_ms
+- **Templates:** bouncers_edit.html (new), decisions.html + perf.html +
+  alerts_rules.html + base.html (updates)
+- **Modules touched:** app.py, api_v1.py, alerting.py, notifications.py,
+  perf.py, reconciler.py, db.py, templates/*
+
+### Next session — Arc 10 (Intelligence v2) entry point
+
+1. Phase 57 — ASN-level auto-ban. Threshold: N IPs from same ASN in M hours
+   → escalate to ASN-wide rule. Your top scenarios show 30+ IPs from a
+   handful of bad ASNs; one rule kills most noise.
+2. Phase 58 — Reputation scoring. Composite of (CTI × scenario severity ×
+   source agreement × age decay) → three tiers (auto-ban / queue / monitor).
+   Solves the CAPI noise vs local-detection priority problem cleanly.
+3. Phase 59 — AbuseIPDB + OTX + Spamhaus correlation.
+
+23 phases left to v2.0 (Arcs 10–13).
+
+---
+
 ## 2026-05-21 — Arcs 7 + 8 shipped + Protek 1.0 · **51 of 51 phases complete** 🎉
 
 **State at pause:** v1.0 is on disk. Every roadmap phase 0–50 is shipped. Live deployment
