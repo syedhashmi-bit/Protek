@@ -2198,6 +2198,39 @@ def bouncers_page():
                            active="bouncers")
 
 
+def _detect_private_ip() -> str:
+    """Best-effort: return the wg0 interface's IPv4 if present, otherwise
+    the first non-loopback IPv4. Used by the federation/add wizard to
+    pre-fill the `sudo ufw allow from <ip>` line in the bash block.
+    Returns "" if no candidate is found — caller renders a placeholder.
+    """
+    import socket
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "wg0"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[2] == "inet":
+                    return parts[3].split("/")[0]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        # Fallback: ask the kernel which IP we'd use to reach an arbitrary
+        # public address. No packets are actually sent (UDP socket connect).
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _bouncer_kinds_for_wizard():
     """Pull display metadata + field_schema from each registered adapter.
     Adapters without field_schema (e.g. mikrotik_env which is env-driven
@@ -3300,7 +3333,12 @@ def federation_add():
     if request.method == "GET":
         if request.args.get("advanced"):
             return render_template("federation_add_advanced.html")
-        return render_template("federation_add.html")
+        # Best-effort: surface our own WG/private IP in the bash block so
+        # the operator doesn't have to look it up. Falls back to a
+        # placeholder if we can't find one.
+        protek_host_ip = _detect_private_ip()
+        return render_template("federation_add.html",
+                               protek_host_ip=protek_host_ip)
     name = (request.form.get("name") or "").strip()
     url = (request.form.get("url") or "").strip()
     api_key = (request.form.get("api_key") or "").strip()

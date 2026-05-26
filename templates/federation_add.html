@@ -24,7 +24,7 @@
     </p>
   </div>
 
-  {{ wizard_steps(["Source info", "API key", "Test + save"]) }}
+  {{ wizard_steps(["Source info", "Run on remote", "Paste key", "Test + save"]) }}
 
   <form method="POST" action="{{ url_for('federation_add') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -44,25 +44,52 @@
         <em>not</em> include a trailing slash.
       </p>
 
-      <label for="f-conf">Confidence (1–10)</label>
+      <label for="f-conf">
+        Confidence (1–10)
+        <span title="Higher = trust this source more. The cross-source agreement scorer multiplies this in: a source at 10 alone can cause a ban, while two sources at 3 must agree to do the same. Default 5 = treat the new source as average until you observe it." style="color:var(--info);cursor:help;font-weight:normal">ⓘ</span>
+      </label>
       <input id="f-conf" type="number" name="confidence" min="1" max="10" value="5">
       <p class="help">
-        Higher = trust this source more. Used by the cross-source agreement
-        scorer (phase 10): a source with confidence 10 alone can cause a ban,
-        while two sources at confidence 3 must agree to do the same.
+        Hover the ⓘ for what this does, or read the
+        <a href="https://github.com/syedhashmi-bit/Protek/blob/main/ROADMAP.md#phase-10--cross-source-agreement-scoring-" target="_blank">cross-source agreement scoring</a>
+        doc.
       </p>
     {% endcall %}
 
-    {% call wizard_step(2, "API key") %}
+    {% call wizard_step(2, "Run on remote") %}
       <p class="help" style="margin:0 0 12px">
-        On the remote VPS, register Protek as a bouncer and capture the key
-        it prints:
+        Run these commands on the <b>remote VPS</b> (whose LAPI you entered
+        above). They register Protek as a bouncer on that side and print a
+        bouncer key you'll paste in the next step. The commands are
+        parameterized — the placeholder &lt;this-host&gt; should be replaced
+        with a recognizable label (e.g. your VPS A's hostname).
       </p>
-<pre>sudo cscli bouncers add protek-from-<this-host>
-# copy the printed key into the field below
-# then check the firewall allows TCP 8080 from this host's WG IP</pre>
+<pre id="remote-bash"># 1. Install CrowdSec on the remote if it isn't already.
+curl -s https://install.crowdsec.net | sudo sh
+sudo apt install -y crowdsec
+sudo systemctl enable --now crowdsec
 
-      <label for="f-key">Bouncer key</label>
+# 2. Register Protek as a bouncer and capture the printed key.
+sudo cscli bouncers add protek-from-&lt;this-host&gt;
+# → copy the printed key. You will NOT see it again.
+
+# 3. Allow the remote LAPI's port (default 8080) from this Protek host's
+#    WG / private IP. Adjust to your firewall:
+sudo ufw allow from {{ protek_host_ip or '&lt;protek-host-IP&gt;' }} to any port 8080 proto tcp
+
+# 4. Verify the LAPI binds on the right interface (default 127.0.0.1).
+#    Edit /etc/crowdsec/config.yaml if you need it on a private IP:
+#       api: { server: { listen_uri: <vps-b-wg-ip>:8080 } }
+#    Then restart: sudo systemctl restart crowdsec</pre>
+      <p class="help" style="margin-top:10px">
+        When the <span class="mono">cscli bouncers add</span> command
+        completes, you'll see a 40-char hex key. Continue to the next step
+        to paste it.
+      </p>
+    {% endcall %}
+
+    {% call wizard_step(3, "Paste key") %}
+      <label for="f-key">Bouncer key (from step 2)</label>
       <input id="f-key" type="password" name="api_key" required
              autocomplete="off" placeholder="paste the printed key">
       <p class="help">
@@ -72,7 +99,7 @@
       </p>
     {% endcall %}
 
-    {% call wizard_step(3, "Test + save") %}
+    {% call wizard_step(4, "Test + save") %}
       <p class="help" style="margin:0 0 12px">
         The form runs a connection test against the remote LAPI before
         saving (HTTP fetch + auth handshake + version probe). If the test
@@ -87,8 +114,7 @@
     {% endcall %}
 
     {{ wizard_nav() }}
-  </form>
-</div>
+  </form></div>
 
 {{ wizard_script() }}
 {% endblock %}

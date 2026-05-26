@@ -84,7 +84,9 @@
   <table>
     <thead><tr>
       <th>Name</th><th>URL</th><th>Status</th><th class="right">Last Pull</th>
-      <th class="right">Contributed</th><th class="right">Confidence</th><th>Actions</th>
+      <th class="right">Contributed</th>
+      <th class="right" title="Per-source trust weight (1–10). Multiplied into the cross-source agreement score: a source at 10 alone can cause a ban, two at 3 must agree. Raise the global Confidence Threshold below to require multiple sources." style="cursor:help">Confidence ⓘ</th>
+      <th>Actions</th>
     </tr></thead>
     <tbody>
       {% for s in sources %}
@@ -106,7 +108,11 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="source_id" value="{{ s.id }}">
             <input type="hidden" name="action" value="{{ 'unpause' if s.paused else 'pause' }}">
-            <button class="btn ghost" style="padding:2px 8px;font-size:10px">{{ 'unpause' if s.paused else 'pause' }}</button>
+            <button class="btn ghost"
+                    style="padding:4px 12px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:{% if s.paused %}var(--green){% else %}var(--amber){% endif %}"
+                    title="{% if s.paused %}Resume pulling decisions from this source on the next reconcile cycle.{% else %}Stop pulling decisions from this source without deleting the row (config + key preserved).{% endif %}">
+              {{ '▶ resume' if s.paused else '⏸ pause' }}
+            </button>
           </form>
           {% if s.name != 'local' %}
           <form method="POST" action="{{ url_for('federation_action') }}" style="display:inline">

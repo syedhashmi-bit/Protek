@@ -982,28 +982,38 @@ power users who already know the config shape.
 
 ---
 
-### Phase 83 — Federation onboarding redesign
+### Phase 83 — Federation onboarding redesign ✅ shipped (2026-05-26)
 
-- [ ] Wizard built on phase 81 primitive, walks 4 steps:
-  1. Source metadata: name, URL (free-text, transport-agnostic), confidence
-     with tooltip explaining what 1–10 means.
-  2. **"Run this on the remote box"** — copy-pasteable bash block
-     parameterized to the source URL host (`apt install crowdsec`,
+- [x] Wizard built on phase 81 primitive, walks 4 steps:
+  1. **Source metadata**: name (alphanumeric pattern enforced), URL
+     (free-text, transport-agnostic — WG, Tailscale, public TLS all
+     work), confidence (1–10 with hover-tooltip explaining the
+     cross-source agreement multiplier).
+  2. **Run on remote**: copy-pasteable bash block covering
+     `install.crowdsec.net`, `apt install crowdsec`,
      `systemctl enable --now crowdsec`,
-     `cscli bouncers add protek-from-<this-host>`, firewall hint).
-     Operator runs it, then continues.
-  3. Paste the printed key (masked).
-  4. Test connection (uses phase 84 diagnostic ladder) + save.
-- [ ] Operator can `← Back` to edit any step before save without losing
-  earlier fields.
-- [ ] Existing one-shot form remains at `/federation/add?advanced=1`.
-- [ ] Source-row UI: tooltip on Confidence column, promote Pause button
-  from inline-tiny to a labeled action.
+     `cscli bouncers add protek-from-<this-host>`, and a parameterized
+     `ufw allow from <our-WG-IP> to any port 8080` line.
+     Protek's WG/private IP is auto-detected via `_detect_private_ip()`
+     (reads `ip -4 addr show wg0` first, falls back to a UDP-socket
+     trick). Operator pastes the block, runs it, then advances.
+  3. **Paste the printed key** (`type=password`, masked).
+  4. **Test + save** — runs `federation.test_connection()` (HTTP fetch
+     + auth handshake + version probe) before insert; failure flows
+     back to the wizard with the error inline.
+- [x] Operator can `← Back` to edit earlier steps before save (the
+  phase-81 wizard already supports this since state lives in form
+  fields).
+- [x] Existing one-shot form remains at `/federation/add?advanced=1`.
+- [x] Source-row UI: Confidence column header shows an ⓘ with
+  hover-tooltip; Pause button promoted from inline-tiny to a labeled
+  amber `⏸ pause` / green `▶ resume` action with hover-tooltip
+  explaining the difference between pause and delete.
 
-**Acceptance:** setting up a new federation source goes from the 6-step
-manual procedure (`MEMORY.md` 2026-05-25 entry) to one guided UI flow.
-The remote-box step prints exactly one bash block; no context-switching
-to other docs.
+**Acceptance:** ✅ setting up a new federation source goes from the
+6-step manual procedure (`MEMORY.md` 2026-05-25 entry) to one guided
+UI flow. The remote-box step prints exactly one bash block with
+Protek's actual WG IP filled in; no context-switching to other docs.
 
 ---
 
