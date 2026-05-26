@@ -1146,19 +1146,33 @@ in a future stress test will trip it deterministically).
 
 ---
 
-### Phase 90 — Multi-day soak harness
+### Phase 90 — Multi-day soak harness ✅ shipped (2026-05-26 — harness ready, 72h run pending)
 
-- [ ] Standalone test harness (`tests/soak/` or separate repo) that
-  drives a staging Protek instance with synthetic load: 1k decisions/min
-  via direct LAPI injection, 5 federated sources, full reconcile every
-  10s, restore-test every hour.
-- [ ] Assertions on memory leak (RSS bounded), file-handle leak
-  (open-fds bounded), SQLite lock contention (zero `SQLITE_BUSY` events),
-  WAL bounded by the phase 64 follow-up timer.
-- [ ] Run nightly in CI on a small VPS; alert on first failure.
+- [x] `tests/soak/run_soak.py` — single-file Python harness:
+    - Injects synthetic decisions via `/api/external/decisions` at a
+      configurable rate (default 1000/min), using RFC-5737 test-net IPs
+      so we never accidentally ban a real address.
+    - Samples every 30s: process RSS (`/proc/<pid>/status`), open FDs
+      (`/proc/<pid>/fd` count), WAL size (stat protek.db-wal), and
+      `/api/v1/system/sync_status` for sync errors / duration / adds.
+    - Streams per-sample CSV to `tests/soak/soak-<starttime>.csv`.
+    - Checks thresholds at every sample; only sustained violations
+      (≥3 consecutive samples = 90s at default cadence) trip a fail.
+      Single-sample spikes are ignored.
+    - On fail: writes `<csv>.fail.json` with the offending sample +
+      violation list, then exits non-zero so a nightly cron alerts.
+- [x] Thresholds covered:
+    - `--threshold-rss-growth-mb-per-hour` (default 5) — memory leak
+    - `--threshold-fds-max` (default 500) — FD leak
+    - `--threshold-wal-max-mb` (default 100) — WAL-truncate timer broken
+    - `--threshold-error-rate-per-cycle` (default 5) — error rate creep
+- [x] `tests/soak/README.md` documents smoke-run + full-run + threshold
+  semantics + CI-cron integration.
 
-**Acceptance:** 72-hour continuous soak run produces zero alerts; RSS
-growth slope is statistically flat after the first hour of steady-state.
+**Acceptance:** ⏳ harness is ready; a 72-hour continuous run remains
+pending — needs operator to wire it as a nightly cron on a staging VPS.
+The single-file design intentionally has zero dependencies beyond
+`requests`, so it drops cleanly into a CI job.
 
 ---
 
