@@ -19,8 +19,15 @@
         <td class="mono cyan">{{ t.name }}</td>
         <td><span class="badge">{{ t.kind }}</span></td>
         <td>
-          {% if t.ok %}<span class="badge cs">online</span>
-          {% else %}<span class="badge" style="color:var(--red)">{{ t.error or 'offline' }}</span>{% endif %}
+          {% if t.ok %}
+            <span class="badge cs">online</span>
+          {% elif t.error and t.error.startswith('degraded:') %}
+            {# Phase 89 — bouncer hit its per-cycle timeout but the global #}
+            {# loop kept moving for other targets. Re-attempts every cycle. #}
+            <span class="badge" style="color:var(--amber)" title="{{ t.error }}">degraded</span>
+          {% else %}
+            <span class="badge" style="color:var(--red)">{{ t.error or 'offline' }}</span>
+          {% endif %}
         </td>
         <td class="mono right">{{ t.size if t.size is not none else '—' }}</td>
         <td>{% if t.dry_run %}<span class="badge" style="color:var(--amber)">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>

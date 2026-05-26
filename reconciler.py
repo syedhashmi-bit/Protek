@@ -64,62 +64,61 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         total_remove = 0
         unchanged = 0
     else:
+        # Phase 89 — per-bouncer work runs in parallel with a per-bouncer
+        # timeout. A hung or backpressured bouncer is marked `degraded` and
+        # the cycle keeps moving for the other targets, instead of stalling
+        # the global loop on the slowest one. Cap workers at 4 — bouncers
+        # do meaningful network work (MT API, CF API, etc.), so more than
+        # this on a single VPS is rarely useful.
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TO
+
         total_add = 0
         total_remove = 0
         unchanged = 0
         per_bouncer_push: list[dict[str, Any]] = []
 
-        for b in all_bouncers:
-            t_snap = time.monotonic()
-            try:
-                current = b.snapshot() if b.is_configured() else []
-            except Exception as e:  # noqa: BLE001
-                current = []
-                error_count += 1
-                note_bits.append(f"{b.name}_snapshot_failed: {e}")
-            snapshot_ms += int((time.monotonic() - t_snap) * 1000)
+        max_workers = min(4, max(1, len(all_bouncers)))
+        per_bouncer_timeout_s = float(
+            (__import__("db").get_setting("reconcile.per_bouncer_timeout_s")
+             or "60")
+        )
 
-            # Per-bouncer subset filtering. Configured via the bouncer_targets
-            # row's config_json — `origins` (glob whitelist), `exclude_origins`
-            # (glob blacklist), `max_entries` (cap, prioritized by recency).
-            # Useful when a downstream has a hard size limit (e.g. Cloudflare
-            # Free = 10k items per list).
-            desired_for_b = _filter_desired_for_bouncer(b, desired)
-            if len(desired_for_b) < len(desired):
-                note_bits.append(
-                    f"{b.name}_filtered: {len(desired_for_b)}/{len(desired)}"
-                )
-
-            t_diff = time.monotonic()
-            diff = reconcile(desired_for_b, current)
-            diff_ms += int((time.monotonic() - t_diff) * 1000)
-            total_add += len(diff.to_add)
-            total_remove += len(diff.to_remove)
-            unchanged += diff.unchanged
-
-            # Per-bouncer dry_run gate. DB-driven targets carry a `dry_run`
-            # flag on their bouncer_targets row; legacy mikrotik_env follows
-            # the cycle-level dry_run only (which is sourced from .env
-            # DRY_RUN at boot, settings.dry_run at runtime). Without this
-            # check the per-row dry_run toggle in /bouncers was cosmetic:
-            # a "dry" Cloudflare target would still push live to CF.
-            b_dry = dry_run or _bouncer_is_dry(b)
-            if not b_dry and b.is_configured() and diff.changes:
-                to_add = diff.to_add[:batch_cap]
-                remaining = max(0, batch_cap - len(to_add))
-                to_remove = diff.to_remove[:remaining]
-                t_apply = time.monotonic()
+        with ThreadPoolExecutor(max_workers=max_workers,
+                                 thread_name_prefix="bouncer-apply") as ex:
+            futures = {
+                ex.submit(_run_one_bouncer, b, desired, dry_run, batch_cap): b
+                for b in all_bouncers
+            }
+            for fut, b in futures.items():
                 try:
-                    res = b.apply(to_add, to_remove)
-                    error_count += res.get("errors", 0)
-                    per_bouncer_push.append({"name": b.name, **res})
+                    r = fut.result(timeout=per_bouncer_timeout_s)
+                except _TO:
+                    error_count += 1
+                    note_bits.append(
+                        f"{b.name}_degraded: timeout {per_bouncer_timeout_s:.0f}s"
+                    )
+                    _mark_bouncer_degraded(
+                        b.name,
+                        f"timeout {per_bouncer_timeout_s:.0f}s @ {datetime.now(timezone.utc).isoformat()}",
+                    )
+                    continue
                 except Exception as e:  # noqa: BLE001
                     error_count += 1
                     note_bits.append(f"{b.name}_apply_failed: {e}")
-                apply_ms += int((time.monotonic() - t_apply) * 1000)
-
-            if (len(diff.to_add) + len(diff.to_remove)) > batch_cap:
-                note_bits.append(f"{b.name}_batch_capped: {batch_cap}")
+                    continue
+                snapshot_ms += r["snapshot_ms"]
+                diff_ms     += r["diff_ms"]
+                apply_ms    += r["apply_ms"]
+                total_add   += r["to_add_n"]
+                total_remove += r["to_remove_n"]
+                unchanged   += r["unchanged_n"]
+                error_count += r["errors"]
+                note_bits.extend(r["notes"])
+                if r["push_log"]:
+                    per_bouncer_push.append({"name": b.name, "push_log": r["push_log"]})
+                # Clear the degraded marker if we got a clean cycle.
+                if r["ok"] and not r["errors"]:
+                    _clear_bouncer_degraded(b.name)
 
     duration_ms = int((time.monotonic() - t0) * 1000)
 
@@ -176,6 +175,98 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         "notes": "; ".join(note_bits),
         "bouncer_count": len(all_bouncers),
     }
+
+
+def _run_one_bouncer(b, desired: list[dict[str, Any]],
+                     dry_run: bool, batch_cap: int) -> dict[str, Any]:
+    """Phase 89 — extracted per-bouncer body so we can run it in a thread
+    with a per-bouncer timeout. Returns a dict the caller folds into the
+    cycle totals. Never raises (catches its own exceptions); the future
+    layer above only sees TimeoutError when the timeout actually fires.
+    """
+    out: dict[str, Any] = {
+        "name": b.name, "kind": getattr(b, "kind", ""),
+        "snapshot_ms": 0, "diff_ms": 0, "apply_ms": 0,
+        "to_add_n": 0, "to_remove_n": 0, "unchanged_n": 0,
+        "errors": 0, "notes": [], "push_log": [], "ok": True,
+    }
+    t_snap = time.monotonic()
+    try:
+        current = b.snapshot() if b.is_configured() else []
+    except Exception as e:  # noqa: BLE001
+        current = []
+        out["errors"] += 1
+        out["ok"] = False
+        out["notes"].append(f"{b.name}_snapshot_failed: {e}")
+    out["snapshot_ms"] = int((time.monotonic() - t_snap) * 1000)
+
+    desired_for_b = _filter_desired_for_bouncer(b, desired)
+    if len(desired_for_b) < len(desired):
+        out["notes"].append(
+            f"{b.name}_filtered: {len(desired_for_b)}/{len(desired)}"
+        )
+
+    t_diff = time.monotonic()
+    diff = reconcile(desired_for_b, current)
+    out["diff_ms"] = int((time.monotonic() - t_diff) * 1000)
+    out["to_add_n"] = len(diff.to_add)
+    out["to_remove_n"] = len(diff.to_remove)
+    out["unchanged_n"] = diff.unchanged
+
+    b_dry = dry_run or _bouncer_is_dry(b)
+    if not b_dry and b.is_configured() and diff.changes:
+        to_add = diff.to_add[:batch_cap]
+        remaining = max(0, batch_cap - len(to_add))
+        to_remove = diff.to_remove[:remaining]
+        t_apply = time.monotonic()
+        try:
+            res = b.apply(to_add, to_remove)
+            out["errors"] += res.get("errors", 0)
+            out["push_log"] = res.get("push_log", [])
+        except Exception as e:  # noqa: BLE001
+            out["errors"] += 1
+            out["ok"] = False
+            out["notes"].append(f"{b.name}_apply_failed: {e}")
+        out["apply_ms"] = int((time.monotonic() - t_apply) * 1000)
+
+    if (len(diff.to_add) + len(diff.to_remove)) > batch_cap:
+        out["notes"].append(f"{b.name}_batch_capped: {batch_cap}")
+
+    return out
+
+
+def _mark_bouncer_degraded(name: str, reason: str) -> None:
+    """Write a `degraded: <reason>` marker to bouncer_targets.last_error
+    so /bouncers can show a badge. Best-effort — silent on failure."""
+    try:
+        conn = get_conn()
+        try:
+            conn.execute(
+                "UPDATE bouncer_targets SET last_error = ? WHERE name = ?",
+                (f"degraded: {reason}", name),
+            )
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _clear_bouncer_degraded(name: str) -> None:
+    """Clear the degraded marker on a successful cycle. Only clears rows
+    whose error currently starts with 'degraded:' so we don't blow away
+    a real adapter-side error message."""
+    try:
+        conn = get_conn()
+        try:
+            conn.execute(
+                "UPDATE bouncer_targets SET last_error = '' "
+                "WHERE name = ? AND last_error LIKE 'degraded:%'",
+                (name,),
+            )
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _bouncer_is_dry(bouncer) -> bool:
