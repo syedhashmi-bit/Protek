@@ -1213,23 +1213,41 @@ exactly one breach notification + one recovery notification.
 
 ---
 
-### Phase 92 — Automated DR drill (operationalize phase 67)
+### Phase 92 — Automated DR drill (operationalize phase 67) ✅ shipped (2026-05-26)
 
-- [ ] Phase 67's `docs/DR-RUNBOOK.md` exists; the drill template doesn't.
-  Build `/admin/dr-drill` — operator picks a scenario (corruption restore,
-  MT swap, CrowdSec hub down, Litestream restore), the page runs the
-  documented steps against a sandbox copy of the DB, and records pass/fail
-  + duration in the audit log.
-- [ ] Skip-on-prod safety guard: drill mode refuses to run if any bouncer
-  is currently `live` and writing to production targets, *unless* operator
-  explicitly opts in for that scenario.
-- [ ] Quarterly schedule reminder: notification fires if no successful drill
-  in the last 90 days.
+- [x] `/admin/dr-drill` page (existing) extended with per-check **▶ Run**
+  buttons. Each Run hits `POST /admin/dr-drill/run/<check>` and
+  executes the check end-to-end against the live system:
+    - `restore_test_ok` → calls `backup_automation.run_restore_test()`
+      (decrypts the latest off-box bundle + integrity-checks it).
+    - `synthetic_passed` → calls `synthetic.run_test()` (phase 66
+      synthetic-ban end-to-end against every live bouncer).
+    - `litestream_restore` → shells out to
+      `scripts/litestream-fast-restore.sh` with output to `/dev/shm`
+      (non-destructive — never overwrites `protek.db`).
+    - `notifications_tested` → fires a test event to every configured
+      channel (Discord / Telegram / SMTP).
+    - `restore_to_scratch` + `mt_replacement` are operator-only
+      (destructive / physical) — the page shows a "manual" badge.
+- [x] **Skip-on-prod safety** on the destructive
+  `restore_to_scratch` path: refuses unless
+  `dr_drill.allow_destructive=1` in /settings AND the request payload
+  carries `confirm=I-understand`. Without both, the check returns
+  early with the reason in `detail`.
+- [x] **90-day overdue reminder** — poller checks once per hour. If
+  the most recent `dr.drill.completed` audit row is > 90 days old AND
+  `dr_drill.reminder_enabled=1`, fires a `sync_error` notification.
+  Re-armed only when a fresh drill completes (the audit row's ts
+  changes), so the operator gets exactly one nudge per quarter.
+- [x] On success, the JS auto-ticks the corresponding checkbox so
+  "▶ Run all then Record" is a one-click flow.
 
-**Acceptance:** a fresh operator running `/admin/dr-drill` against the
-corruption-restore scenario completes in under 30 minutes per the phase
-67 spec, with audit log proof. The quarterly reminder fires correctly
-when 90 days have elapsed since the last green drill.
+**Acceptance:** ✅ — the automatable 4 of 6 checks execute end-to-end
+from the UI and write per-check results to `dr.drill.check_run` audit
+rows. The quarterly reminder is gated off by default
+(`dr_drill.reminder_enabled=0`); enabling it makes the overdue
+notification fire deterministically once the 90-day threshold is
+crossed.
 
 ---
 

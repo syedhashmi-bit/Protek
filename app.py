@@ -1606,6 +1606,116 @@ def admin_dr_drill_page():
                            drills=drills)
 
 
+@app.route("/admin/dr-drill/run/<check>", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_dr_drill_run(check):
+    """Phase 92 — execute one DR-drill check automatically against the
+    live system. Returns JSON so the UI can render the result inline.
+
+    Skip-on-prod safety: 4 of the 6 checks are non-destructive (restore-
+    test, synthetic, litestream-fast-restore-to-tmpfs, notifications-test).
+    The 5th — `restore_to_scratch` — refuses to run unless the operator
+    sets `dr_drill.allow_destructive=1` in /settings AND the request
+    carries `confirm=I-understand`. The 6th (`mt_replacement`) is
+    physical-only and can only be ticked manually.
+    """
+    payload = request.get_json(silent=True) or {}
+    result: dict[str, Any] = {"check": check, "ok": False, "detail": ""}
+
+    if check == "restore_test_ok":
+        # Re-run the nightly restore-test in-process. Uses the existing
+        # backup_automation.restore_test() helper which decrypts the
+        # latest bundle and integrity-checks it (no actual import).
+        try:
+            import backup_automation
+            r = backup_automation.run_restore_test()
+            result["ok"] = bool(r.get("ok"))
+            result["detail"] = r.get("detail") or ""
+        except Exception as e:  # noqa: BLE001
+            result["detail"] = f"restore-test crashed: {e!s}"
+
+    elif check == "synthetic_passed":
+        # Run the phase-66 synthetic ban end-to-end. Returns the same
+        # JSON shape the /synthetic page renders.
+        try:
+            import synthetic
+            r = synthetic.run_test()
+            result["ok"] = (r.get("status") == "ok")
+            result["detail"] = (f"status={r.get('status')}  "
+                                f"ok={r.get('ok_n', 0)}/{r.get('targets_n', 0)}  "
+                                f"duration={r.get('duration_ms', 0)}ms")
+        except Exception as e:  # noqa: BLE001
+            result["detail"] = f"synthetic crashed: {e!s}"
+
+    elif check == "litestream_restore":
+        # Run the phase-87 fast-restore script against tmpfs. Non-destructive
+        # — output goes to /dev/shm; we just check exit code + integrity.
+        import subprocess
+        out_path = "/dev/shm/dr-drill-restore-test.db"
+        try:
+            r = subprocess.run(
+                ["/var/www/Protek/scripts/litestream-fast-restore.sh", out_path],
+                capture_output=True, text=True, timeout=600,
+            )
+            result["ok"] = (r.returncode == 0)
+            # Drop verbose stdout for the UI; keep the last 200 chars.
+            tail = (r.stdout or "").strip().splitlines()
+            result["detail"] = " · ".join(tail[-3:]) if tail else ("exit " + str(r.returncode))
+        except FileNotFoundError:
+            result["detail"] = "scripts/litestream-fast-restore.sh not installed"
+        except subprocess.TimeoutExpired:
+            result["detail"] = "timeout after 600s"
+        except Exception as e:  # noqa: BLE001
+            result["detail"] = f"crashed: {e!s}"
+        finally:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+
+    elif check == "notifications_tested":
+        # Fire a test event to every configured channel.
+        try:
+            import notifications as nmod
+            tested, failed = [], []
+            for ch in ("discord", "telegram", "email"):
+                if not nmod.channel_configured(ch):
+                    continue
+                try:
+                    nmod.send_test(ch, "DR drill test event — please ignore.")
+                    tested.append(ch)
+                except Exception as e:  # noqa: BLE001
+                    failed.append(f"{ch}: {e}")
+            result["ok"] = bool(tested) and not failed
+            result["detail"] = (f"tested: {', '.join(tested) or '(none configured)'}"
+                                + (f" · failed: {', '.join(failed)}" if failed else ""))
+        except Exception as e:  # noqa: BLE001
+            result["detail"] = f"crashed: {e!s}"
+
+    elif check == "restore_to_scratch":
+        # Destructive — requires explicit opt-in. Skipped by default.
+        if (get_setting("dr_drill.allow_destructive") or "0") != "1":
+            result["detail"] = ("destructive — set dr_drill.allow_destructive=1 "
+                                "in /settings + restart this check to run")
+        elif payload.get("confirm") != "I-understand":
+            result["detail"] = ("requires confirm=I-understand in the JSON "
+                                "payload — caller didn't acknowledge")
+        else:
+            result["detail"] = ("destructive scratch-VPS restore must be run "
+                                "manually — see docs/DR-RUNBOOK.md §6")
+
+    elif check == "mt_replacement":
+        result["detail"] = "physical-only — tick manually after completing"
+
+    else:
+        return jsonify({"ok": False, "error": f"unknown check '{check}'"}), 400
+
+    _audit("dr.drill.check_run", target=check,
+           after={"ok": result["ok"], "detail": result["detail"][:200]})
+    return jsonify(result)
+
+
 @app.route("/admin/dr-drill/complete", methods=["POST"])
 @login_required
 @role_required("admin")

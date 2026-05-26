@@ -13,39 +13,48 @@
     history is tamper-evident.
   </p>
 
-  <form method="post" action="{{ url_for('admin_dr_drill_complete') }}">
+  <p class="muted" style="margin:0 0 10px;font-size:11px;text-transform:none;letter-spacing:0;line-height:1.6">
+    <b style="color:var(--cyan)">Phase 92:</b> each check below can be run automatically
+    (▶ Run button) — Protek executes the check end-to-end against the live system
+    and ticks the box on success. <span class="mono">restore_to_scratch</span> and
+    <span class="mono">mt_replacement</span> are operator-only (destructive / physical).
+    Enable the 90-day overdue reminder by setting
+    <span class="mono">dr_drill.reminder_enabled=1</span> in /settings.
+  </p>
+
+  <form method="post" action="{{ url_for('admin_dr_drill_complete') }}" id="drill-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px">
-      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
-        <input type="checkbox" name="restore_to_scratch" value="1">
-        <span><b>Restore latest bundle to a scratch VPS</b><br>
-        <span class="muted" style="font-size:11px">Target &lt;30 min — runbook §1 + §6</span></span>
-      </label>
-      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
-        <input type="checkbox" name="restore_test_ok" value="1">
-        <span><b>Automated restore-test passed</b><br>
-        <span class="muted" style="font-size:11px">/admin/backup-automation → "Run restore-test"</span></span>
-      </label>
-      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
-        <input type="checkbox" name="synthetic_passed" value="1">
-        <span><b>Synthetic ban test passes</b><br>
-        <span class="muted" style="font-size:11px">/synthetic → "Run test now"</span></span>
-      </label>
-      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
-        <input type="checkbox" name="litestream_restore" value="1">
-        <span><b>Litestream restore to fresh DB succeeds</b><br>
-        <span class="muted" style="font-size:11px">Target &lt;5 min — runbook §2</span></span>
-      </label>
-      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
-        <input type="checkbox" name="notifications_tested" value="1">
-        <span><b>All notification channels reach you</b><br>
-        <span class="muted" style="font-size:11px">/notifications → "Test" per channel</span></span>
-      </label>
-      <label style="display:flex;align-items:flex-start;gap:8px;text-transform:none;letter-spacing:normal">
-        <input type="checkbox" name="mt_replacement" value="1">
-        <span><b>MikroTik replacement re-push from cold</b><br>
-        <span class="muted" style="font-size:11px">Target &lt;10 min — redirect MT_HOST to a test instance, don't actually swap</span></span>
-      </label>
+
+    {% set rows = [
+      {"key": "restore_to_scratch",   "label": "Restore latest bundle to a scratch VPS", "note": "Target &lt;30 min — runbook §1 + §6", "auto": false},
+      {"key": "restore_test_ok",      "label": "Automated restore-test passed",          "note": "Decrypts the latest bundle + integrity check", "auto": true},
+      {"key": "synthetic_passed",     "label": "Synthetic ban test passes",              "note": "Phase 66 — inject 192.0.2.250, verify push + cleanup", "auto": true},
+      {"key": "litestream_restore",   "label": "Litestream fast-restore to fresh DB succeeds", "note": "Phase 87 — scripts/litestream-fast-restore.sh to tmpfs", "auto": true},
+      {"key": "notifications_tested", "label": "All notification channels reach you",    "note": "Fires test events to Discord / Telegram / SMTP", "auto": true},
+      {"key": "mt_replacement",       "label": "MikroTik replacement re-push from cold", "note": "Physical / operator-only", "auto": false},
+    ] %}
+
+    <div style="display:grid;gap:8px;margin-bottom:12px">
+      {% for r in rows %}
+      <div style="display:grid;grid-template-columns:24px 1fr auto 1fr;gap:10px;align-items:start;padding:10px 12px;background:var(--bg-deep);border:1px solid var(--border);border-radius:3px">
+        <input type="checkbox" name="{{ r.key }}" value="1" id="cb-{{ r.key }}" data-key="{{ r.key }}">
+        <label for="cb-{{ r.key }}" style="text-transform:none;letter-spacing:normal;cursor:pointer;color:var(--text)">
+          <b>{{ r.label }}</b><br>
+          <span class="muted" style="font-size:11px">{{ r.note | safe }}</span>
+        </label>
+        <div>
+          {% if r.auto %}
+          <button type="button" class="btn sec drill-run" data-key="{{ r.key }}"
+                  style="padding:4px 12px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;background:var(--bg-raised);color:var(--cyan);border:1px solid var(--cyan)">
+            ▶ Run
+          </button>
+          {% else %}
+          <span class="muted" style="font-size:10px;font-family:'Share Tech Mono',monospace">manual</span>
+          {% endif %}
+        </div>
+        <div class="drill-result" data-key="{{ r.key }}" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--muted)"></div>
+      </div>
+      {% endfor %}
     </div>
     <div style="margin-bottom:12px">
       <label>Notes (optional, captured to audit log)</label>
@@ -77,4 +86,39 @@
   {% endif %}
 </div>
 
+<script>
+// Phase 92 — wire the per-check Run buttons. On success, auto-tick
+// the corresponding checkbox so a one-click "Run all + Record" flow is
+// possible (operator just hits each Run then submits).
+document.querySelectorAll('.drill-run').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const key  = btn.dataset.key;
+    const cb   = document.getElementById(`cb-${key}`);
+    const out  = document.querySelector(`.drill-result[data-key="${key}"]`);
+    out.textContent = '↻ running…';
+    out.style.color = 'var(--info)';
+    btn.disabled = true;
+    try {
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const r = await fetch(`/admin/dr-drill/run/${key}`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+        body: '{}',
+      });
+      const data = await r.json();
+      if (data.ok) {
+        out.innerHTML = `<span style="color:var(--green)">✓</span> ${data.detail || 'passed'}`;
+        cb.checked = true;
+      } else {
+        out.innerHTML = `<span style="color:var(--red)">✗</span> ${data.detail || data.error || 'failed'}`;
+        cb.checked = false;
+      }
+    } catch (e) {
+      out.innerHTML = `<span style="color:var(--red)">✗</span> ${e}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+});
+</script>
 {% endblock %}

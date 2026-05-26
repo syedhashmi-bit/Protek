@@ -311,6 +311,49 @@ class Poller:
             except Exception as e:  # noqa: BLE001
                 log.debug("peers scheduler swallowed: %s", e)
 
+        # DR drill reminder (phase 92) — if no successful drill in the last
+        # 90 days, fire a single notification per quarter (re-armed once a
+        # fresh drill completes). Cheap check: once per hour (every 360
+        # cycles at 10s interval). Gated by dr_drill.reminder_enabled — off
+        # by default so we don't surprise the operator.
+        if self.cycles % 360 == 0:
+            try:
+                if (get_setting("dr_drill.reminder_enabled") or "0") == "1":
+                    from db import get_conn
+                    conn = get_conn()
+                    try:
+                        row = conn.execute(
+                            "SELECT MAX(ts) AS last FROM audit_log "
+                            "WHERE action = 'dr.drill.completed'"
+                        ).fetchone()
+                    finally:
+                        conn.close()
+                    last_iso = row["last"] if row else None
+                    days_since = 999
+                    if last_iso:
+                        try:
+                            t = datetime.fromisoformat(
+                                last_iso.replace("Z", "+00:00")
+                            )
+                            days_since = (datetime.now(timezone.utc) - t).days
+                        except (ValueError, AttributeError):
+                            pass
+                    last_alerted_at = get_setting("dr_drill.last_reminder_at") or ""
+                    if days_since >= 90 and last_alerted_at != (last_iso or ""):
+                        try:
+                            notifications.send(
+                                "sync_error",
+                                f"DR drill overdue — {days_since} days since last "
+                                f"successful drill. Run via /admin/dr-drill.",
+                                subject="[Protek] DR drill overdue",
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                        # Re-arm on the next completion (last_iso changes)
+                        set_setting("dr_drill.last_reminder_at", last_iso or "fired")
+            except Exception as e:  # noqa: BLE001
+                log.debug("dr drill reminder swallowed: %s", e)
+
         # SLO enforcement (phase 91) — periodically check whether any SLO
         # has been breached for >= grace_min. First sustained breach fires
         # a notification + SIEM event; recovery fires a second notification.
