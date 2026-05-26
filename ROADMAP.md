@@ -1056,27 +1056,33 @@ add-time UX. Edit page can grow the same button when needed.
 
 ---
 
-### Phase 85 — UI for env-var-only setups + peers test button
+### Phase 85 — UI for env-var-only setups + peers test button ⚠ partial (2026-05-26)
 
-- [ ] `/intel` page: per-provider cards for AbuseIPDB, OTX, Spamhaus, Tor,
-  ProxyCheck. Each: enable toggle, key field (masked), "Test" button that
-  hits the provider with the key, request-counter (today's usage / daily
-  limit), last-success timestamp. Keys still live in `.env` but the page
-  writes via either a `scripts/setup_admin.py --intel-set <k>=<v>`
-  shell-out or a `settings` row that overrides `.env` at runtime — choice
-  deferred to implementation, but UX must not require shelling into the VPS.
-- [ ] `/admin/sso` page: OIDC config (issuer, client_id, client_secret,
-  group claim mapping, allowed-domain restriction). "Send test login"
-  button opens a popup that runs the full SSO dance with the configured
-  IdP and reports the resulting claims.
-- [ ] `/honeypot` config page: enable toggle, min_reputation, max_targets,
-  each with a paragraph explaining the knob.
-- [ ] `/peers/add` gets the missing test-connection button before save —
-  mirrors the bouncers + federation pattern.
+- [x] `/peers/add` gets a Test connection button — uses the phase-84
+  diagnostic ladder via `/api/peers/test`. Renders the same per-rung
+  result inline. Mirrors the bouncers + federation pattern.
+- [x] `/intel` page: per-provider cards for AbuseIPDB, OTX, ProxyCheck,
+  Spamhaus, Tor. Each card shows the env-var name + free-tier quota +
+  link to provider docs + a working **Test** button. `/api/intel/test/
+  <provider>` probes the live API with a benign IP (1.1.1.1); status
+  badge flips ok/fail/err based on the response.
+- [ ] **Deferred from this phase:** writing intel keys from the UI
+  (still env-var-only). The reasoning: rotating an API key is rare
+  (months at a time), and the .env file is operator-controlled
+  anyway. A future phase can add either a `scripts/setup_admin.py
+  --intel-set` shell-out or a `settings`-row override.
+- [ ] **Deferred from this phase:** `/admin/sso` (OIDC config page)
+  and `/honeypot` (knob page). Both would be substantial new pages
+  that most operators won't need on day one — OIDC is for multi-admin
+  shops, honeypot is for advanced threat-intel work. Tracked as a
+  v1.3 candidate. The env-var path is documented in `.env.example`
+  and works without UI.
 
-**Acceptance:** operator wires {intel, SSO, honeypot, peers} entirely from
-the dashboard. No `systemctl restart protek` needed. Each has a working
-test button that surfaces structured failure modes.
+**Acceptance:** ⚠ **partial.** The "test buttons everywhere" half is
+done: peers + every intel provider have a working probe. The
+"write env vars from the UI" half is deferred — there's enough
+friction in OIDC + honeypot setup that they need their own design
+pass, and the env-var path remains viable in the meantime.
 
 ---
 

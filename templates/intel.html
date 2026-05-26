@@ -95,4 +95,87 @@
     {% endfor %}
   </div>
 </div>
+
+<!-- Phase 85 — intel provider cards: status + test buttons. Keys still
+     live in .env (no UI write path yet), but the operator can verify
+     wiring without shelling into the VPS. -->
+<div class="panel" style="margin-top:16px">
+  <h2>Intel providers</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0">
+    Each provider's API key lives in <span class="mono">.env</span> (read at boot).
+    The Test button probes the live API with a benign IP (1.1.1.1) so you can
+    verify the key works without waiting for a real attacker lookup.
+  </p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+    {% set providers = [
+      {'key': 'abuseipdb',  'name': 'AbuseIPDB',        'env_var': 'ABUSEIPDB_API_KEY',  'free_tier': '1 000 lookups / day', 'docs': 'https://www.abuseipdb.com/account/api'},
+      {'key': 'otx',        'name': 'AlienVault OTX',   'env_var': '(no key required)',  'free_tier': 'unlimited general lookups', 'docs': 'https://otx.alienvault.com/api'},
+      {'key': 'proxycheck', 'name': 'ProxyCheck.io',    'env_var': 'PROXYCHECK_API_KEY', 'free_tier': '1 000 lookups / day', 'docs': 'https://proxycheck.io/'},
+      {'key': 'spamhaus',   'name': 'Spamhaus DROP',    'env_var': '(bulk download)',    'free_tier': 'unlimited (cached)', 'docs': 'https://www.spamhaus.org/drop/'},
+      {'key': 'tor',        'name': 'Tor exit list',    'env_var': '(bulk download)',    'free_tier': 'unlimited (cached)', 'docs': 'https://check.torproject.org/torbulkexitlist'},
+    ] %}
+    {% for p in providers %}
+    <div style="background:var(--bg-deep);border:1px solid var(--border);border-radius:4px;padding:14px" data-provider="{{ p.key }}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <h3 style="margin:0;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan)">{{ p.name }}</h3>
+        <span class="badge" data-status="badge">unknown</span>
+      </div>
+      <div class="muted" style="margin-top:8px;font-size:11px;line-height:1.6">
+        env var: <span class="mono">{{ p.env_var }}</span><br>
+        quota: {{ p.free_tier }} ·
+        <a href="{{ p.docs }}" target="_blank" rel="noopener" style="color:var(--info)">docs ↗</a>
+      </div>
+      <div style="margin-top:10px">
+        <button type="button" class="btn sec intel-test-btn" data-provider="{{ p.key }}"
+                style="padding:4px 12px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:var(--bg-raised);border:1px solid var(--cyan);color:var(--cyan)">
+          ↻ test
+        </button>
+      </div>
+      <div class="intel-test-result" style="display:none;margin-top:8px;font-family:'Share Tech Mono',monospace;font-size:11px"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+// Phase 85 — intel provider test buttons. Each posts to
+// /api/intel/test/<provider> and renders the JSON inline.
+document.querySelectorAll('.intel-test-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const provider = btn.dataset.provider;
+    const card     = btn.closest('[data-provider]');
+    const badge    = card.querySelector('[data-status="badge"]');
+    const out      = card.querySelector('.intel-test-result');
+    out.style.display = 'block';
+    badge.textContent = '…';
+    badge.style.color = 'var(--info)';
+    out.innerHTML = '<span style="color:var(--info)">probing…</span>';
+    try {
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const r = await fetch(`/api/intel/test/${provider}`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+        body: '{}',
+      });
+      const data = await r.json();
+      if (data.ok) {
+        badge.textContent = 'ok';
+        badge.style.color = 'var(--green)';
+        out.innerHTML = `<span style="color:var(--green)">✓</span> live — ${
+          (data.abuse_confidence !== undefined && `score: ${data.abuse_confidence}`) ||
+          (data.pulse_count    !== undefined && `pulses: ${data.pulse_count}`) ||
+          (data.status_code   !== undefined && `HTTP ${data.status_code}`) || 'API reachable'}`;
+      } else {
+        badge.textContent = 'fail';
+        badge.style.color = 'var(--red)';
+        out.innerHTML = `<span style="color:var(--red)">✗</span> ${data.error || 'failed'}`;
+      }
+    } catch (e) {
+      badge.textContent = 'err';
+      badge.style.color = 'var(--red)';
+      out.innerHTML = `<span style="color:var(--red)">✗ ${e}</span>`;
+    }
+  });
+});
+</script>
 {% endblock %}

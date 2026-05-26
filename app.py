@@ -2379,6 +2379,75 @@ def _bouncer_add_fail(msg: str):
     return redirect(url_for("bouncers_page"))
 
 
+@app.route("/api/intel/test/<provider>", methods=["POST"])
+@login_required
+@role_required("operator")
+def api_intel_test(provider):
+    """Phase 85 — probe an intel provider's configured key without
+    waiting for a real lookup. Uses a well-known benign IP (1.1.1.1)
+    so we never report a real attacker IP just to test the wiring.
+
+    Providers:
+      abuseipdb — requires ABUSEIPDB_API_KEY; HTTP 401/403 means bad key
+      otx       — no key needed (general endpoint); HTTP 200 expected
+      proxycheck — requires PROXYCHECK_API_KEY; 200 expected
+      spamhaus  — bulk-download path; we just HEAD the URL
+      tor       — bulk-download path; HEAD the URL
+    """
+    import intel_providers
+    test_ip = "1.1.1.1"
+    provider = (provider or "").lower()
+    try:
+        if provider == "abuseipdb":
+            result = intel_providers.abuseipdb_lookup(test_ip)
+        elif provider == "otx":
+            result = intel_providers.otx_lookup(test_ip)
+        elif provider == "proxycheck":
+            result = intel_providers.proxycheck_lookup(test_ip)
+        elif provider in ("spamhaus", "tor"):
+            # Bulk-download providers — probe the URL with HEAD.
+            import requests
+            urls = {
+                "spamhaus": "https://www.spamhaus.org/drop/drop.txt",
+                "tor": "https://check.torproject.org/torbulkexitlist",
+            }
+            try:
+                r = requests.head(urls[provider], timeout=5, allow_redirects=True)
+                result = {"ok": r.status_code < 400,
+                          "status_code": r.status_code,
+                          "url": urls[provider]}
+                if r.status_code >= 400:
+                    result["error"] = f"HTTP {r.status_code}"
+            except Exception as e:  # noqa: BLE001
+                result = {"ok": False, "error": str(e)}
+        else:
+            return jsonify({"ok": False, "error": f"unknown provider '{provider}'"}), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify(result)
+
+
+@app.route("/api/peers/test", methods=["POST"])
+@login_required
+@role_required("admin")
+def api_peers_test():
+    """Phase 85 — pre-add diagnostic probe for a peer Protek instance.
+    Reuses the phase-84 ladder. Token goes in Authorization header."""
+    import diagnostic
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("url") or "").strip().rstrip("/")
+    token = (payload.get("token") or "").strip()
+    if not url or not token:
+        return jsonify({"ok": False, "error": "url + token required"}), 400
+    rows = diagnostic.diagnose_url(
+        url, api_key=f"Bearer {token}",
+        auth_header="Authorization",
+        api_smoke_path="/api/v1/tile/summary",
+        api_smoke_query={},
+    )
+    return jsonify({"rows": rows, "summary": diagnostic.summary(rows)})
+
+
 @app.route("/api/diagnose", methods=["POST"])
 @login_required
 @role_required("operator")
