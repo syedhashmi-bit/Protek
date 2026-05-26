@@ -55,7 +55,14 @@ If you run CrowdSec on a single VPS, its decisions only protect that one VPS. If
 
 ## Status
 
-**Pre-MVP — scaffolding only.** See [`ROADMAP.md`](ROADMAP.md) for the phased plan.
+**v1.1 shipped, v1.2 in flight.** Arcs 1–13 (phases 0–80) are complete: MVP,
+federation, intelligence + enrichment, scenarios + rules, multi-bouncer
+(MikroTik / pfSense / OPNsense / iptables / Cloudflare), observability,
+operator QoL, extensibility, polish, intelligence v2, resilience, ecosystem,
+and the 2.0-prep arc. Arcs 14 (Operator UX) and 15 (Production-grade ops)
+are in progress — see [`ROADMAP.md`](ROADMAP.md) for the running plan and
+[`MEMORY.md`](MEMORY.md) for the session-by-session log of what shipped
+and what broke.
 
 ---
 

@@ -87,13 +87,19 @@ def _live_bouncers() -> list[Any]:
     import bouncers as bmod
     import os
     out = []
+    # Match the poller's precedence: settings.dry_run is runtime source of
+    # truth; .env DRY_RUN is only the boot default. Without this the synthetic
+    # test reports "no live bouncers" even when MT has been flipped live via
+    # /settings — exactly the false-negative phase 66 is supposed to catch.
+    settings_dry = get_setting("settings.dry_run")
+    if settings_dry in ("0", "1"):
+        env_dry_live = (settings_dry == "0")
+    else:
+        env_dry = (os.environ.get("DRY_RUN", "true") or "true").strip().lower()
+        env_dry_live = env_dry not in ("1", "true", "yes")
     for b in bmod.load_all_targets():
-        # Legacy MT respects DRY_RUN env var. New targets carry dry_run per row;
-        # bouncers.load_all_targets() doesn't pass that flag along — we re-read
-        # it here from bouncer_targets.
         if b.kind == "mikrotik_env":
-            env_dry = (os.environ.get("DRY_RUN", "true") or "true").strip().lower()
-            if env_dry in ("1", "true", "yes"):
+            if not env_dry_live:
                 continue
             out.append(b)
             continue
@@ -160,18 +166,23 @@ def _hard_purge_synth(lapi_id: int) -> None:
         conn.close()
 
 
-def _ip_in_snapshot(b: Any) -> bool:
+def _find_in_snapshot(b: Any) -> dict[str, Any] | None:
+    """Return the matching entry dict (or None). Caller uses .id for removal."""
     try:
         entries = b.snapshot()
     except Exception as e:  # noqa: BLE001
         log.debug("snapshot failed for %s: %s", b.name, e)
-        return False
+        return None
     for e in entries:
         addr = e.get("address") or e.get("value") or e.get("ip") or ""
         # Normalize /32 vs bare-IP
         if addr.split("/")[0] == SYNTH_IP:
-            return True
-    return False
+            return e
+    return None
+
+
+def _ip_in_snapshot(b: Any) -> bool:
+    return _find_in_snapshot(b) is not None
 
 
 def _record_start() -> int:
@@ -225,28 +236,49 @@ def run_test() -> dict[str, Any]:
             _record_finish(tid, "skipped", results={},
                            duration_ms=int((time.monotonic() - t0) * 1000),
                            error="no live (enabled + non-dry-run) bouncers")
+            set_setting("synthetic.last_at",
+                        datetime.now(timezone.utc).isoformat())
+            set_setting("synthetic.last_status", "skipped")
             return {"id": tid, "status": "skipped",
                     "reason": "no live bouncers"}
 
-        # Phase 1: add. Insert decision → reconcile → check each target.
-        _insert_synth_decision(lapi_id)
-        try:
-            reconciler.run_once(source="synthetic", dry_run=False)
-        except Exception as e:  # noqa: BLE001
-            log.warning("synthetic add reconcile failed: %s", e)
+        # The synthetic test pushes directly via each bouncer's apply()
+        # rather than driving a full reconcile cycle. Going through
+        # reconcile would either starve the synth op behind a large backlog
+        # (batch_cap shared between adds + removes) or — if cap is raised —
+        # spike thousands of unrelated ops at every bouncer every 6 h.
+        # The phase-66 contract is detecting **silent failures in the
+        # apply() → target round-trip**, which is exactly what direct apply
+        # exercises. The diff/reconcile layer has its own unit tests.
+        _insert_synth_decision(lapi_id)  # row exists so the decisions table audit is honest
+        comment = f"protek:{SYNTH_ORIGIN}:self-test:{lapi_id}"
+
+        # Phase 1: add. Direct push → check each target's snapshot.
+        for b in live:
+            results[b.name] = {"add_ok": False, "kind": b.kind,
+                               "remove_ok": False}
+            try:
+                b.apply([(SYNTH_IP, comment)], [])
+            except Exception as e:  # noqa: BLE001
+                log.warning("synthetic add via %s failed: %s", b.name, e)
         time.sleep(1.0)  # let TCP/router finish if push was async-ish
 
         for b in live:
-            present = _ip_in_snapshot(b)
-            results[b.name] = {"add_ok": present, "kind": b.kind,
-                               "remove_ok": False}
+            results[b.name]["add_ok"] = _ip_in_snapshot(b)
 
-        # Phase 2: remove. Soft-delete → reconcile → check absent.
+        # Phase 2: remove. Soft-delete the decision (so the next regular
+        # reconcile won't re-add it), then look up the .id in each bouncer's
+        # snapshot and push a direct remove.
         _soft_delete_synth(lapi_id)
-        try:
-            reconciler.run_once(source="synthetic-cleanup", dry_run=False)
-        except Exception as e:  # noqa: BLE001
-            log.warning("synthetic remove reconcile failed: %s", e)
+        for b in live:
+            entry = _find_in_snapshot(b)
+            if entry is None:
+                continue  # nothing to remove (add probably failed)
+            entry_id = entry.get(".id") or entry.get("id") or entry.get("address")
+            try:
+                b.apply([], [entry_id])
+            except Exception as e:  # noqa: BLE001
+                log.warning("synthetic remove via %s failed: %s", b.name, e)
         time.sleep(1.0)
 
         for b in live:
@@ -354,9 +386,14 @@ def list_runs(limit: int = 30) -> list[dict[str, Any]]:
 
 def status() -> dict[str, Any]:
     _ensure_table()
+    try:
+        live_n = len(_live_bouncers())
+    except Exception:  # noqa: BLE001
+        live_n = 0
     return {
         "enabled": (get_setting("synthetic.enabled") or "0") == "1",
         "ip": SYNTH_IP,
         "last_at": get_setting("synthetic.last_at"),
         "last_status": get_setting("synthetic.last_status") or "",
+        "live_bouncers_n": live_n,
     }

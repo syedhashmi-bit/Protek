@@ -14,11 +14,29 @@
     success but nothing landed.
   </p>
 
+  {% if status.live_bouncers_n == 0 %}
+  <div style="background:rgba(255,180,0,0.08);border:1px solid var(--amber);border-radius:6px;padding:10px 12px;margin:0 0 12px;font-size:12px">
+    <b style="color:var(--amber)">⚠ Synthetic test will skip — no live bouncers.</b>
+    Every bouncer is either disabled or in dry-run mode, so the synthetic
+    decision can't actually be pushed anywhere to verify propagation.
+    Until at least one bouncer is enabled with <span class="mono">dry_run=0</span>,
+    every 6h test will be a no-op and gives no real coverage. Flip a bouncer
+    live (set <span class="mono">dry_run=0</span> on its target row, or unset
+    <span class="mono">DRY_RUN</span> in <span class="mono">.env</span> for the legacy MT adapter) to enable real coverage.
+  </div>
+  {% endif %}
+
   <div class="kpi-row">
     <div class="kpi">
       <div class="kpi-label">Schedule</div>
-      <div class="kpi-value" style="color:{% if status.enabled %}var(--green){% else %}var(--muted){% endif %}">
+      <div class="kpi-value" style="color:{% if status.enabled %}{% if status.live_bouncers_n == 0 %}var(--amber){% else %}var(--green){% endif %}{% else %}var(--muted){% endif %}">
         {% if status.enabled %}ENABLED · every 6h{% else %}OFF{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Live bouncers</div>
+      <div class="kpi-value mono" style="color:{% if status.live_bouncers_n > 0 %}var(--green){% else %}var(--amber){% endif %}">
+        {{ status.live_bouncers_n }}
       </div>
     </div>
     <div class="kpi">

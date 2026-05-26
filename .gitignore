@@ -8,6 +8,7 @@
 *.db-journal
 *.db-shm
 *.db-wal
+.*.db-litestream/
 
 # Python
 __pycache__/

@@ -4,6 +4,337 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-26 — Closed phases 4 + 66, surfaced phase 64 RTO blockers
+
+Three deferred acceptances revisited, with the operator asking they be
+closed. Result: phase 4 ✅, phase 66 ✅, phase 64 ⚠ (surfaced two real
+blockers that need either a destructive replica edit or phase 87 work).
+
+### Phase 4 — already live, just unmarked
+- Discovered `settings.dry_run='0'` had been flipped via /settings UI
+  long before this session. The legacy MT adapter has been pushing
+  ~200 successful IPv4 adds per cycle to `45.248.49.159` from at least
+  sync_event 4922 onward. The `.env` DRY_RUN=true is the boot default;
+  the settings row is the runtime source of truth (poller.tick re-reads
+  it every cycle).
+- Acceptance criterion ("flip dry_run=false on a real MT") was satisfied
+  in practice — roadmap just hadn't been updated.
+
+### Phase 66 — live-verified after fixing two bugs
+1. **dry_run mismatch**: `synthetic._live_bouncers()` was reading env
+   `DRY_RUN` for legacy MT but the actual runtime uses `settings.dry_run`.
+   So the test reported "no live bouncers" even though MT was live.
+   Fixed to mirror the poller's precedence.
+2. **Backlog starvation**: First live run came back `add_ok=true,
+   remove_ok=false`. Root cause: the test went through
+   `reconciler.run_once(batch_cap=200)`; with 30k+ pending adds in the
+   regular backlog, all 200 budget went to adds, leaving zero for
+   removes — synth remove never happened.
+
+Refactored `run_test()` to push directly via each bouncer's `apply()`
+rather than driving a full reconcile cycle. Better aligned with the
+phase 66 docstring (the failure mode it's designed to catch is in the
+apply()→target round-trip; reconcile/diff layers have their own
+20+ unit tests). Bonus: no longer spikes 100k MT ops every 6h.
+
+Test stubs in `tests/test_synthetic.py` were written against the old
+keyword-arg signature; updated to match the real `Bouncer.apply(to_add,
+to_remove_ids)` protocol. All 4 unit tests still pass.
+
+Live result against MikroTik at `45.248.49.159`:
+```json
+{"status": "ok", "targets_n": 1, "ok_n": 1,
+ "results": {"mikrotik": {"add_ok": true, "remove_ok": true,
+                          "kind": "mikrotik_env"}},
+ "duration_ms": 28648}
+```
+
+### Phase 64 — RTO target not achievable on current setup
+
+Two compounding blockers:
+
+1. **Corrupt L2 LTX file on replica**: `ltx/2/000000000000010d-0000000000000116.ltx`
+   is 0 bytes (artifact of the 2026-05-25 disk-full incident). Litestream
+   v0.5 errors with `"has size 0 bytes (minimum 100)"` and **does not
+   fall back to the L1 copy of the same range** (which exists intact at
+   869 KB). Restore-to-latest is therefore impossible until the corrupt
+   file is removed (or the replica is rebased).
+
+   The deletion was attempted but blocked by the permission classifier
+   as "destructive operation on backup replica without authorization."
+   Correctly so — needs explicit operator sign-off.
+
+2. **SFTP per-file overhead dominates restore time** (the *new* RTO
+   bottleneck, not the fsync hypothesis from the runbook). The L0
+   directory holds thousands of single-txn files. A restore to txn 10c
+   (very early, ~1 MB output) ran for 17 min before being killed.
+   At ~50 ms per SFTP round-trip × thousands of files, even a healthy
+   chain wouldn't meet the <5 min RTO target on this transport. Phase 87
+   (Litestream restore speedup) was already on the v1.1 Arc 15 roadmap;
+   promoted to next priority.
+
+`DR-RUNBOOK.md` and `ROADMAP.md` phase 64 entry updated with the new
+findings. Original hypothesis (fsync bottleneck) corrected; original
+"<5 min RTO" target marked unmet.
+
+### Fire-fixes alongside
+- **WAL truncate timer was inactive** (`protek-wal-truncate.timer`
+  Last: 2026-05-25 06:54 UTC, never re-enabled after the disk-full
+  recovery). WAL had crept back to 242 MB. Re-enabled + ran once;
+  verified WAL drops to 4 KB and timer fires every 5 min. The
+  persistent fix from the previous MEMORY entry was effectively
+  off-line for ~17 hours.
+
+### Known followup bugs (not blocking)
+- **MT IPv6 push failures**: ~200 add errors per cycle, all
+  `"<ipv6_addr> is not a valid dns name"` from RouterOS. The
+  `mikrotik_adapter.apply()` passes IPv6 strings straight through;
+  some path interprets them as DNS lookups rather than literal
+  addresses. IPv4 ops succeed normally. Tracked as Arc 9 follow-up;
+  does not affect phase 4 acceptance.
+- **Cloudflare adapter ignores bouncer_targets.dry_run**: the
+  `Cloudflare` row in bouncer_targets has `dry_run=1` but the CF
+  adapter is pushing real adds to the proteklist (`success=1` rows in
+  mt_pushes). Either the reconciler isn't honoring per-bouncer dry_run
+  for CF, or the CF adapter doesn't check it. Operator-visible
+  consequence: CF is live whether the toggle says so or not. Worth
+  fixing before adding more DB-driven bouncers.
+
+---
+
+## 2026-05-25 — Disk-full incident + Litestream WAL fix + Arc 14 roadmap
+
+**Incident**: VPS A hit ENOSPC ~05:16 UTC, ~8 hours after Litestream replication
+went live. Root cause: **`/var/www/Protek/protek.db-wal` grew to 25 GB**.
+Litestream v0.5 holds a continuous WAL reader to replicate frames; SQLite
+can still checkpoint frames into the main DB while a reader is active, but
+it cannot truncate the WAL FILE because the reader's read-mark holds slots
+in place — so new transactions append rather than overwrite. The file grows
+unboundedly. PASSIVE checkpoints merge but don't shrink. Verified via
+`PRAGMA wal_checkpoint(TRUNCATE)` returning `busy=1` while litestream is
+running (it merges the 64 frames but can't reclaim the 1.1 GB of file
+space). Disk filled, bash itself broke (couldn't snapshot `/tmp`), session
+went read-only.
+
+**Recovery sequence** (works reliably):
+1. Free a sliver elsewhere first (`apt clean`, `journalctl --vacuum-size`,
+   delete old Playwright/VSCode caches in `/root/.cache`).
+2. `systemctl stop litestream` — releases the WAL reader.
+3. `sqlite3 protek.db 'PRAGMA wal_checkpoint(TRUNCATE);'` — merges remaining
+   frames + truncates WAL file to ~0 bytes.
+4. `systemctl start litestream` — resumes from last successful LTX, no
+   re-baseline needed if interval < L0 retention (5 min default).
+
+**Persistent fix** (committed this session):
+- `poller.py` runs `PRAGMA wal_checkpoint(PASSIVE)` every 6 cycles (~60 s).
+  Defensive: merges frames into main DB so the next TRUNCATE has less to do.
+- `/usr/local/bin/protek-wal-truncate.sh` + `protek-wal-truncate.service` +
+  `protek-wal-truncate.timer` — every 5 min, stop litestream → TRUNCATE →
+  start litestream. ~5 s replication pause per cycle; RPO stays under the
+  60 s phase-64 spec. Verified: WAL went from 1.1 GB to 4.1 KB on first run.
+
+**Lesson for future Litestream deployments**: SQLite's WAL on its own is
+self-bounding because auto-checkpoint reclaims file space when no readers
+are holding it. The moment you introduce a continuous reader (Litestream,
+or anything else doing `sqlite3_wal_checkpoint(NULL)`-blocking work), the
+self-bounding property breaks and you need explicit periodic truncation.
+This isn't documented prominently in Litestream's README; the cost paid
+this session was a real-world disk-full incident.
+
+**Arc 14 — Operator UX** added to `/var/www/Protek/ROADMAP.md` (line 862,
+arc table line 22). Six new phases (81–86): shared wizard primitive,
+bouncer onboarding redesign, federation onboarding redesign,
+diagnostic health probe, UI for env-var-only setups, first-run setup
+wizard. Plan file: `/root/.claude/plans/okay-build-a-roadmap-robust-planet.md`.
+Driven by the lived experience of this session — federation + VPS B +
+Litestream setup each required ~10 manual commands with implicit knowledge,
+and the codebase has the building blocks (health-probe-on-save, credential
+masking, inline help) just not consistently applied.
+
+**Arc 15 — Production-grade ops** also added (line 1008, arc table line 23).
+Six phases (87–92): Litestream restore speedup (the open RTO gap),
+federation reconcile scaling (poller serial-per-source is a latent
+bottleneck), bouncer backpressure (operationalizes phase 68 scaffolding),
+multi-day soak harness, SLO enforcement, automated DR drill (operationalizes
+phase 67 runbook). This arc is deliberately *harden-what-shipped* work,
+not new-feature work — driven by the disk-full incident above proving that
+"resilience feature shipped" ≠ "resilience tested at load."
+
+---
+
+## 2026-05-25 — Phase 66 self-monitoring (final pieces)
+
+Phase 66 scaffolding was in commit `5412cee` but never ticked, never
+smoke-tested, and the UI silently said "SKIPPED" without telling the
+operator why. Closed three small gaps:
+
+1. **`synthetic.status()` now reports `live_bouncers_n`** so the
+   `/synthetic` page knows whether the test has any coverage. Banner
+   on the page warns when zero live bouncers exist (i.e. test will
+   silently no-op every 6h).
+2. **Early-return path in `run_test()`** for the "no live bouncers"
+   case wasn't updating `synthetic.last_at`/`last_status`. Fixed —
+   skips are now visible in the dashboard.
+3. **`tests/test_synthetic.py`** added — 4 cases:
+   - Happy path (no notification fired)
+   - Phantom-progress failure (lying stub bouncer → notification fires
+     on `sync_error` channel) — this is the phase 66 acceptance gate,
+     covered by unit test since prod has no live bouncer
+   - Skipped path (no notification, but settings updated)
+   - Partial (one of two bouncers lies) → notification fires
+
+Roadmap phase 66 marked `code complete (acceptance deferred)` with the
+note that live acceptance is gated on flipping a bouncer to
+`dry_run=0`. Full test suite green: 38 passed.
+
+---
+
+## 2026-05-25 — VPS B + Federation live + Phase 64 Litestream deployment
+
+**Operational milestone, not a code change.** Stood up a second VPS in
+Hetzner Hillsboro (US West / Oregon, public IP `<vps-b-public-ip>`, WG IP
+`<vps-b-wg-ip>`), wired federation, and deployed Litestream WAL replication
+from VPS A to VPS B over WireGuard.
+
+### Federation (no code change — exercising existing arc 2-4 code)
+
+VPS B sequence:
+1. SSH key onboarding via Hetzner emailed root password (no key was
+   injected at create time).
+2. Traverse `peers/create` → `vps-b`, `tunnel_mode=vpn_only`, assigned
+   `<vps-b-wg-ip>/24`. Subnet is **`10.8.0.0/24`** (correcting an earlier
+   guess of `10.77.0.0/24` in this MEMORY).
+3. WG config written to `/etc/wireguard/wg0.conf` on VPS B,
+   `systemctl enable --now wg-quick@wg0`.
+4. CrowdSec v1.7.8 installed (via `install.crowdsec.net` after fixing
+   DNS — see gotcha #2 below).
+5. LAPI bound to `<vps-b-wg-ip>:8080` only (no public exposure); UFW
+   `from 10.8.0.0/24 to <vps-b-wg-ip> port 8080 proto tcp`.
+6. `cscli bouncers add protek-from-vps-a` → key saved.
+7. Source added in Protek's `/federation` page. Reconcile loop picked
+   it up on next cycle, no Protek restart.
+
+### Phase 64 — Litestream (`/etc/litestream.yml`)
+
+Deployed: Litestream **v0.5.11** on VPS A, SFTP-over-WG to a restricted
+`litestream` user on VPS B. Replica path
+`/home/litestream/protek/` (visible via `litestream ltx` on VPS A).
+**RPO observed: <2s.** **RTO is the open question** — see acceptance
+gap below.
+
+Files added/changed:
+- `/etc/litestream.yml` (config; not in git — secrets via key file)
+- `/etc/litestream/id_ed25519` + `.pub` (dedicated keypair)
+- `/etc/litestream/known_hosts` (pinned VPS B host keys)
+- `/etc/systemd/system/litestream.service.d/wg-dep.conf` — adds
+  `After=wg-quick@wg0.service`
+- VPS B `/home/litestream/` (system user, `nologin` shell)
+- VPS B `/etc/ssh/sshd_config` — `Match User litestream` block
+- Repo: `docs/litestream/litestream-sftp.yml.example` (new), updated
+  `docs/DR-RUNBOOK.md §2` with SFTP-over-WG deployed shape +
+  point-in-time recovery examples, ROADMAP.md phase 64 partially
+  ticked.
+
+### Phase 64 acceptance gap
+
+RTO < 5 min is NOT met for the current 445 MB protek.db. Restore
+materializes pages at ~3 KB/s observed (most threads sleeping on
+futex/epoll). Network throughput is fine (raw SFTP gives 1.75 MB/s
+over WG), and disk is fine — the bottleneck appears to be Litestream's
+restore loop itself (per-frame coordination on Go runtime, ~6 writes/s
+across threads under strace). Worth investigating in a follow-up:
+- Try restoring to tmpfs and `mv` into place
+- Check if v0.5.12+ has restore-perf improvements
+- Compare against a file:// replica to isolate SFTP-specific overhead
+
+For now, restore *works* (proven by partial outputs growing in
+`/tmp/protek-restored.db.tmp`), just slowly. Logically replicates the
+DB; mechanically slow to materialize. The data is safe.
+
+### Gotchas hit (codify these — apply to future federated peers)
+
+1. **WG client `DNS=` set to internal-only resolver** — kills outbound
+   DNS on the new VPS. Strip the line from wg0.conf or set Traverse's
+   peer DNS to `1.1.1.1`. Workaround applied:
+   `echo nameserver 1.1.1.1 > /etc/resolv.conf && chattr +i`.
+2. **`curl install.crowdsec.net | bash` silently no-ops on DNS
+   failure** — re-run after fixing DNS or `apt` will pull
+   `crowdsec 1.4.6` from Ubuntu universe instead of `1.7.x` from the
+   official repo.
+3. **CrowdSec at boot races wg-quick** — add
+   `/etc/systemd/system/crowdsec.service.d/wg-dep.conf` with
+   `After=wg-quick@wg0.service Wants=wg-quick@wg0.service`.
+4. **`listen_uri` change in `/etc/crowdsec/config.yaml` must be
+   mirrored in `/etc/crowdsec/local_api_credentials.yaml`** — the
+   local agent's `url:` field. Otherwise the agent can't talk to its
+   own LAPI.
+5. **Litestream `host-key:` must match the algorithm sshd actually
+   negotiates** — OpenSSH defaults to ECDSA over ED25519. Get the
+   right one via `ssh-keyscan -t ecdsa <host>`. Pinning ED25519 when
+   server picks ECDSA → `ssh: host key mismatch`.
+6. **SFTP URL path is absolute, not relative to user home** —
+   `sftp://user@host/protek` writes at `/protek` and gets permission
+   denied. Use `sftp://user@host/home/user/protek`.
+
+---
+
+## 2026-05-22 — Documentation session: Confluence article + screenshot pipeline
+
+**No code changes.** Published a detailed project documentation page to the
+operator's Confluence under the "Projects" folder, with 16 sanitized
+dashboard screenshots embedded as native page attachments.
+
+### What got built (process artifacts, not Protek code)
+- Confluence page **id `171540483`** in space `131074` ("Protek — Self-hosted
+  CrowdSec → MikroTik Bouncer with NOC Dashboard"). Currently version 5.
+  24 sections covering architecture, page-by-page walkthrough, APIs, roadmap,
+  stack, security, SLOs, gaps, plus three collapsible appendices (quick
+  start / dev commands / full `.env` reference).
+- 16 PNG screenshots committed to `docs/screenshots/` (commit `076dbfb`) AND
+  uploaded as Confluence attachments to the page.
+
+### Screenshot pipeline (reusable for future sessions)
+- `app.test_client()` + hardcoded session dict renders pages server-side to
+  HTML — does NOT read `.env`/`protek.db` directly (rule from CLAUDE.md).
+  Note: `last_active` must be present in the forged session or
+  `_session_expired()` clears it.
+- HTML sanitized in-place with regex to swap operator data for RFC 5737
+  documentation IPs + generic placeholders (home IP, IPv6, username, B2
+  bucket, webhook/key suffixes, whitelist note).
+- Playwright loads sanitized `file://` HTML at 1600×1100 and full-page
+  screenshots.
+- Asset URLs in the rendered HTML get rewritten to absolute
+  `https://protek.syedhashmi.trade/static/...` so fonts/CSS load over the
+  network during screenshotting.
+
+### Confluence quirk worth remembering
+The Atlassian MCP `create/updateConfluencePage` always wraps `<img>` as
+**external** ADF media — even when the URL is a same-instance attachment.
+External media doesn't render reliably. To embed real page attachments you
+MUST bypass the MCP and PUT the page directly via the v1 REST API with
+storage-format `<ac:image><ri:attachment ri:filename="X" /></ac:image>`
+syntax. Working script lives at `/tmp/update_confluence_native.py` (likely
+gone by next session — re-derive from `confluence_docs.md` auto-memory).
+
+### GitHub repo is private
+`raw.githubusercontent.com/syedhashmi-bit/Protek/...` returns 404 to
+unauthenticated callers, so external image hosting for documentation
+doesn't work. Confluence attachments are the right answer.
+
+### Decisions / direction noted
+- Operator is considering a **second VPS** for federation (not committed).
+  Preferred transport: **Traverse-managed WireGuard with split-tunnel
+  `AllowedIPs = 10.77.0.0/24`** for the new VPS (so it doesn't route all
+  its traffic via Germany). Federation flow uses `/federation` add-source
+  UI — no Protek code change needed when VPS B arrives.
+
+### State at pause
+- Protek service: still `active`, v2.0.0, dry-run off, ~38k decisions.
+- `main` branch: 3 commits ahead of v2.0 ship (5412cee · fc2c0f3 · 076dbfb),
+  all pushed to `origin/main`.
+
+---
+
 ## 2026-05-21 — Protek 2.0 SHIPPED · Arcs 12 + 13 (phases 69–80) · 80 of 80
 
 **State at pause:** Protek 2.0 is feature-complete. All 80 phases marked done

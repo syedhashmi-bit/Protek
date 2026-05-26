@@ -112,17 +112,25 @@ either.
 
 **Impact:** no UI, no reconcile cycles, MikroTik keeps last state.
 
-**Recovery (target: <10 min):**
+**Current deployed shape** (live as of 2026-05-25): Litestream v0.5.x streaming
+the WAL from VPS A to VPS B (`<vps-b-wg-ip>`) over the Traverse-managed WireGuard
+tunnel via SFTP. Config: `/etc/litestream.yml`. Service:
+`systemctl status litestream`. Replica path on VPS B:
+`/home/litestream/protek/ltx/`. RPO observed in steady state: <2 seconds
+(sync-interval=1s). RTO depends on DB size — see "Recovery time notes" below.
+
+**Recovery (target: <10 min for typical DB):**
 
 ```bash
 systemctl stop protek
 
-# If Litestream is running, restore from it — RPO < 60s:
+# Restore from Litestream's most recent replica state — RPO < 60s:
 mv /var/www/Protek/protek.db /var/www/Protek/protek.db.corrupt
 litestream restore -o /var/www/Protek/protek.db /var/www/Protek/protek.db
 chown -R root:root /var/www/Protek/protek.db*
 
-# Otherwise restore from the latest bundle (RPO = last daily, up to 24h):
+# Otherwise (Litestream broken too) restore from the latest backup bundle
+# (RPO = last daily, up to 24h):
 cd /tmp && mkdir restore && cd restore
 python3 /var/www/Protek/scripts/restore_backup.py \
     --bundle /path/to/protek-YYYYMMDDTHHMMSSZ.bin \
@@ -131,10 +139,63 @@ python3 /var/www/Protek/scripts/restore_backup.py \
 systemctl start protek
 ```
 
+**Point-in-time recovery** (e.g. "give me the DB as of 5 minutes before the
+bad UPDATE statement landed"):
+
+```bash
+# Restore to a specific timestamp (UTC, RFC3339)
+litestream restore -timestamp 2026-05-25T03:15:00Z \
+    -o /var/www/Protek/protek.db.pit \
+    /var/www/Protek/protek.db
+
+# Or to a specific transaction ID — list available txids first
+litestream snapshots /var/www/Protek/protek.db
+litestream restore -txid 0000000000000010 \
+    -o /var/www/Protek/protek.db.pit \
+    /var/www/Protek/protek.db
+```
+
 **Verify:**
 - [ ] `sqlite3 /var/www/Protek/protek.db 'PRAGMA integrity_check'` → `ok`.
 - [ ] Login still works.
 - [ ] `/api/sync/status` shows fresh reconcile cycle.
+
+**Recovery time notes:**
+
+Restore wall time scales with the *output DB size*, not the network. The
+remote replica is small (~5 MB compressed LTX for our ~445 MB DB), but
+Litestream has to materialize every page back into the local SQLite file,
+which is bottlenecked by local fsync. Expect roughly 30s–2 min per 100 MB
+of restored DB on typical NVMe-backed VPS storage. Tune `vm.dirty_*`
+sysctls or restore to a tmpfs first and `mv` into place if you need to
+beat 5-minute RTO on a multi-GB DB.
+
+**Common pitfalls** (learned during the 2026-05-25 deployment):
+
+1. **SSH host key algorithm** — Litestream's `host-key:` field must match
+   the algorithm the remote sshd actually negotiates. OpenSSH defaults
+   to ECDSA over ED25519. If you pin `ssh-ed25519 ...` and the server
+   answers with `ecdsa-sha2-nistp256 ...`, Litestream rejects the
+   handshake with `ssh: host key mismatch`. Get the right one via:
+   ```bash
+   ssh-keyscan -t ecdsa <vps-b-wg-ip>
+   ```
+
+2. **SFTP URL path is absolute, not relative to the user's home.**
+   `sftp://litestream@<vps-b-wg-ip>:22/protek` tries to write at `/protek`
+   (root) and fails with `permission denied`. Use the full path:
+   `sftp://litestream@<vps-b-wg-ip>:22/home/litestream/protek`.
+
+3. **DNS via the WG client config** — if Traverse's peer wizard set
+   `DNS=` in `wg0.conf` to an internal-only resolver, apt/curl will
+   fail with `Temporary failure resolving` after `wg-quick up`. Strip
+   the `DNS=` line from the WG client config or set it to `1.1.1.1`.
+
+4. **Service ordering** — Litestream tries to bind/connect at boot
+   before WireGuard is up. Drop-in at
+   `/etc/systemd/system/litestream.service.d/wg-dep.conf` adds
+   `After=wg-quick@wg0.service` so it waits. Without this, the first
+   sync attempts fail until the next polling cycle.
 
 ---
 

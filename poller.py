@@ -307,6 +307,23 @@ class Poller:
             except Exception as e:  # noqa: BLE001
                 log.debug("peers scheduler swallowed: %s", e)
 
+        # WAL checkpoint (phase 64 follow-up) — Litestream v0.5 holds a WAL
+        # reader continuously, which blocks SQLite's auto-checkpoint. Without
+        # an explicit PASSIVE checkpoint the WAL grows unbounded (observed
+        # 25 GB in ~8 h on 2026-05-25, filled the disk). PASSIVE doesn't
+        # block writers or interfere with Litestream's replication — it just
+        # merges whatever frames it can. Every 6 cycles ≈ 1 min.
+        if self.cycles % 6 == 0:
+            try:
+                from db import get_conn
+                conn = get_conn()
+                try:
+                    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                finally:
+                    conn.close()
+            except Exception as e:  # noqa: BLE001
+                log.debug("wal checkpoint swallowed: %s", e)
+
     def _envstr(self, name: str) -> str:
         return (os.environ.get(name, "") or "").split("#", 1)[0].strip()
 

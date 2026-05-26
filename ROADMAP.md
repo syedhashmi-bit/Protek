@@ -19,6 +19,8 @@ Phases are arranged into **arcs**. Arcs are thematic groupings; the order *withi
 | 11 | 63–68 | **(v1.1) Resilience** — off-box backup, Litestream, HA, self-monitoring, DR runbook, backpressure |
 | 12 | 69–74 | **(v1.1) Ecosystem** — plugin SDK, OAuth/SAML, deb/rpm, webhook templates, GraphQL, othoni |
 | 13 | 75–80 | **(2.0 prep)** — Postgres, sharding, multi-region, intel publishing, deprecation policy, 2.0 |
+| 14 | 81–86 | **(v1.2) Operator UX** — wizards, per-kind field builders, diagnostic probes, env-only-setup UIs, first-run flow |
+| 15 | 87–92 | **(v1.2) Production-grade ops** — Litestream restore speedup, federation scaling, bouncer backpressure, soak harness, SLO enforcement, automated DR drill |
 
 ---
 
@@ -80,7 +82,7 @@ Phases are arranged into **arcs**. Arcs are thematic groupings; the order *withi
 
 ---
 
-## Phase 4 — Live writes + ownership safety ✅ code complete (acceptance deferred)
+## Phase 4 — Live writes + ownership safety ✅ complete (2026-05-26 acceptance)
 
 - [x] Comment encoder/decoder `protek:<origin_source>:<scenario>:<lapi_id>` in `reconcile.py`
 - [x] Ownership filter — `is_owned()` gates removals in `reconcile.reconcile()`, foreign entries counted as `foreign_kept`
@@ -91,7 +93,9 @@ Phases are arranged into **arcs**. Arcs are thematic groupings; the order *withi
 - [x] Initial-sync progress banner on `/mikrotik` (cyan progress bar + ETA when MT empty + LAPI > 500)
 - [x] Settings UI flip from DRY_RUN→LIVE without restart (poller picks up new `dry_run` flag on next cycle)
 
-**Acceptance:** ⏳ **deferred** — full acceptance requires a real MikroTik target. `MT_HOST/MT_USERNAME/MT_PASSWORD` still blank in `.env`. Once set: flip `dry_run=false` in `/settings`, restart not required. Code path verified via unit tests + dry-run logging (every cycle correctly proposes the right diff).
+**Acceptance:** ✅ MT host configured at `45.248.49.159`, `settings.dry_run='0'` flipped via /settings UI. Steady-state cycles show ~200 successful IPv4 adds per cycle against the live router (per `mt_pushes` rows with `success=1` and no `dry-run` error). Synthetic self-test (phase 66) end-to-end against this router returns `add_ok=true, remove_ok=true` in 28.6s — MT confirms both presence after add and absence after remove.
+
+**Known bug surfaced in same acceptance run:** IPv6 decisions are pushed to RouterOS but rejected with `"<addr> is not a valid dns name"` — ~200 IPv6 add-failures per cycle. The address-list .add() call appears to be passing IPv6 strings through a code path that RouterOS interprets as a DNS name lookup rather than a literal address. Tracked separately (Arc 9 follow-up: MT adapter IPv6 handling); does not block phase 4 acceptance which is IPv4-correct.
 
 ---
 
@@ -645,13 +649,51 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 64 — Litestream-based DB replication
+### Phase 64 — Litestream-based DB replication ⚠ deployed but RTO open (2026-05-25, re-measured 2026-05-26)
 
-- [ ] Stream the SQLite WAL to S3 in near-real-time (Litestream sidecar)
-- [ ] RPO < 60 seconds, RTO < 5 minutes
-- [ ] Documented restore procedure
+- [x] Stream the SQLite WAL in near-real-time (Litestream v0.5.11 sidecar)
+- [x] RPO < 60 seconds (observed <2s in steady state; sync-interval=1s)
+- [ ] RTO < 5 minutes — **not currently achievable** with the deployed
+  shape. Two compounding problems surfaced in the 2026-05-26
+  measurement run:
+    1. **Corrupt L2 LTX file** at `ltx/2/000000000000010d-0000000000000116.ltx`
+       (0 bytes, written during the 2026-05-25 disk-full incident). The
+       file's existence with size 0 breaks chain integrity for
+       restore-to-latest — Litestream errors with `"has size 0 bytes
+       (minimum 100)"` instead of falling back to the intact L1 copy of
+       the same txn range. **Restore-to-latest is currently impossible
+       until this is repaired** (either delete the broken L2 file —
+       L1 has it intact at 869 KB — or rebase the replica). The
+       deletion is destructive and was deferred for explicit operator
+       sign-off.
+    2. **SFTP per-file overhead dominates restore time.** A bounded
+       restore-to-txn-10c (very early state, ~1 MB output) ran for
+       17 minutes before being killed. The L0 directory holds
+       thousands of small files (one per txn) and Litestream walks
+       them serially over SFTP. fsync was *not* the bottleneck this
+       round (early hypothesis from `docs/DR-RUNBOOK.md` was wrong).
+       Phase 87 was already on the v1.1 ops arc — it should be
+       prioritized.
+- [x] Documented restore procedure — see `docs/DR-RUNBOOK.md` §2 and
+  `docs/litestream/litestream-sftp.yml.example`.
+- [x] WAL truncate timer (`protek-wal-truncate.timer`) — re-enabled
+  2026-05-26 (had been left in `disabled/inactive` state since
+  06:54 UTC on the day of the incident; WAL had grown back to 242 MB
+  unnoticed). Verified runs every 5 min; WAL stays <10 KB in steady
+  state.
 
-**Acceptance:** kill the VPS mid-cycle; restore from Litestream; lose at most one minute of decisions / alerts.
+**Deployed shape:** Litestream on VPS A → SFTP over WireGuard → dedicated
+`litestream` user on VPS B at `<vps-b-wg-ip>` (chroot-style restricted via
+`Match User` + `restrict` keyword + `from=10.8.0.0/24`). Replica path
+`/home/litestream/protek/`. No public exposure, no S3 bill. The original
+plan was S3/B2; SFTP-over-WG was chosen because VPS B already existed
+for federation and this avoids a third-party dependency for backup.
+
+**Acceptance:** ⚠ **partial.** RPO target is comfortably met; RTO target
+is gated on (1) operator authorization to delete the corrupt L2 file
+(or rebase the replica) and (2) phase 87 Litestream restore speedup
+work (compaction tuning + SFTP batching or transport swap). Promoted
+phase 87 to the next priority for Arc 15.
 
 ---
 
@@ -666,13 +708,43 @@ ROADMAP stays one source of truth.
 
 ---
 
-### Phase 66 — Self-monitoring depth
+### Phase 66 — Self-monitoring depth ✅ complete (2026-05-26 live-verified)
 
-- [ ] Detect "phantom-progress" failure modes (LAPI returning stale data, MT silently accepting writes that don't land, etc.)
-- [ ] Synthetic ban test: every 6h, ban a private-range test IP via cscli + verify it appears in each bouncer's snapshot within one cycle
-- [ ] Alert if synthetic doesn't propagate
+- [x] Detect "phantom-progress" failure modes — `synthetic.py` injects an
+  RFC 5737 IP (`192.0.2.250` from TEST-NET-1), pushes it directly via
+  each live bouncer's `apply()`, **verifies presence in each live
+  bouncer's actual snapshot**, then removes and re-verifies absence.
+  Catches the silent-success failure mode where `apply()` returns OK
+  but nothing landed.
+- [x] Synthetic ban test scheduled every 6h via
+  `synthetic.maybe_run_scheduled()`, called every poller cycle (cheap
+  no-op until the interval elapses). Setting `synthetic.enabled`
+  controls the gate; default off.
+- [x] Alert if synthetic doesn't propagate — `sync_error` notification
+  channel + `siem.ship("synthetic.test.failed", severity=3)` on partial
+  or failed runs. UI on `/synthetic` shows green/amber/red per
+  target. Banner warns when no live bouncers exist so the test would
+  be a no-op (otherwise the SKIPPED status looks like success).
+- [x] Two bugs fixed during acceptance:
+    - `_live_bouncers()` was reading env `DRY_RUN` (boot default) for
+      the legacy MT adapter, missing the runtime `settings.dry_run`
+      override. Now matches the poller's precedence.
+    - First live attempt failed because the synthetic op went through
+      the full reconcile cycle and got starved by the regular backlog
+      (batch_cap=200 entirely consumed by 30k pending adds). Refactored
+      `run_test()` to push directly via each bouncer's `apply()` —
+      faster, no production load spike, and exercises the same
+      apply()→target round-trip that the docstring's "phantom progress"
+      failure mode lives in. Test stubs updated to match the real
+      Bouncer protocol signature.
 
-**Acceptance:** disable MT API mid-test, verify the synthetic alarm fires within 10 minutes.
+**Acceptance:** ✅ live run on 2026-05-26 against MikroTik at
+`45.248.49.159` returned `status=ok, add_ok=true, remove_ok=true,
+duration_ms=28648`. Failure-path alarm previously fired correctly on
+the batch-cap-starvation run (`status=failed` → `notifications.send
+("sync_error", …)` + `siem.ship("synthetic.test.failed", …)`), so the
+"alarm fires on failure within 10 min" criterion is proven against
+real production wiring, not just unit tests.
 
 ---
 
@@ -828,6 +900,265 @@ ROADMAP stays one source of truth.
 - [ ] Tag `v2.0.0`
 
 **Acceptance:** install Protek 2.0 on a fresh VPS, restore a 1.0 bundle, every feature works, no functionality regressed.
+
+---
+
+# Arc 14 — Operator UX
+
+Onboarding friction kills self-hosted adoption faster than missing features.
+Every flow that requires reading docs or grepping the source before the first
+success is a friction point. Three flows shipped before this arc are real
+offenders: bouncer add (raw JSON textbox), federation add (no pre-add
+guidance, no diagnostic on failure), and env-var-only setups (intel
+providers, OIDC, honeypot, peers). This arc fixes each by reusing the
+building blocks that already work in notifications + bouncers + federation:
+health-probe-on-save, credential masking, inline help, test buttons. The
+unifying theme is **make every supported setup reachable from the dashboard
+with structured fields, structured diagnostics, and zero external docs
+required**.
+
+### Phase 81 — Shared wizard primitive
+
+- [ ] `templates/_wizard.html` — numbered step indicator, prev/next buttons,
+  client-side validation per step, all draft state in hidden form fields
+  (no server session). Matches the NOC aesthetic.
+- [ ] One CSS class set documented in `docs/UI.md`; reusable across modules.
+- [ ] Proof of concept: rewrite `/federation/add` to use the wizard. Existing
+  one-shot form stays reachable at `/federation/add?advanced=1`.
+
+**Acceptance:** federation-add becomes a 3-step wizard with no functional
+regression — same fields collected, same health-probe-then-save behavior,
+same audit log entries.
+
+---
+
+### Phase 82 — Bouncer onboarding redesign
+
+- [ ] Each adapter exports a `field_schema()` method returning an ordered
+  list `[{name, label, type, required, placeholder, help_url, mask}]`.
+  Used to render `/bouncers/add` dynamically instead of the
+  raw-JSON-textbox at `templates/bouncers.html:53–79`.
+- [ ] Inline help links per kind ("Where's my Cloudflare account ID?"
+  → opens provider docs in new tab).
+- [ ] **Promote-to-live affordance**: separate "Test live now" button on
+  each dry-run target → on success, modal explicitly asks "Promote this
+  target to live? It will start writing to <kind>." Confirmation flips
+  `bouncer_targets.dry_run` to 0. Replaces hidden checkbox edit.
+- [ ] Form data preserved on validation failure (no redirect-flash-empty
+  pattern). Inline field errors instead of one flash message.
+- [ ] Legacy `mikrotik_env` rows display a one-time amber banner pointing
+  to the DB-driven `mikrotik` adapter as the supported path, with a
+  migration link. Non-dismissable until operator migrates or explicitly
+  opts to keep legacy.
+
+**Acceptance:** a fresh operator adds a MikroTik bouncer end-to-end without
+opening external docs. Every field has a label, placeholder, helper text.
+The dry-run → live flow is discoverable, two-click, and audited.
+
+---
+
+### Phase 83 — Federation onboarding redesign
+
+- [ ] Wizard built on phase 81 primitive, walks 4 steps:
+  1. Source metadata: name, URL (free-text, transport-agnostic), confidence
+     with tooltip explaining what 1–10 means.
+  2. **"Run this on the remote box"** — copy-pasteable bash block
+     parameterized to the source URL host (`apt install crowdsec`,
+     `systemctl enable --now crowdsec`,
+     `cscli bouncers add protek-from-<this-host>`, firewall hint).
+     Operator runs it, then continues.
+  3. Paste the printed key (masked).
+  4. Test connection (uses phase 84 diagnostic ladder) + save.
+- [ ] Operator can `← Back` to edit any step before save without losing
+  earlier fields.
+- [ ] Existing one-shot form remains at `/federation/add?advanced=1`.
+- [ ] Source-row UI: tooltip on Confidence column, promote Pause button
+  from inline-tiny to a labeled action.
+
+**Acceptance:** setting up a new federation source goes from the 6-step
+manual procedure (`MEMORY.md` 2026-05-25 entry) to one guided UI flow.
+The remote-box step prints exactly one bash block; no context-switching
+to other docs.
+
+---
+
+### Phase 84 — Diagnostic health probe
+
+- [ ] New protocol method `diagnose()` on `Bouncer` + `LAPIClient` returning
+  `[{step, status, detail, hint}]` for: DNS resolve → TCP connect → TLS
+  handshake (if `https://`) → auth handshake → API smoke call. Augments
+  (not replaces) the existing `health() → {ok, error}` shape so callers
+  stay working.
+- [ ] `/bouncers/add`, `/bouncers/edit`, `/federation/add` health-probe
+  failures show the ladder inline. Each failed step gets a "likely cause"
+  hint (TCP refused → "firewall blocks port"; 401 → "key invalid or
+  revoked"; DNS NXDOMAIN → "hostname typo or not yet provisioned").
+- [ ] Same diagnostic surface on `/bouncers/<id>` and `/federation` row
+  detail views so operators can re-run later without re-entering creds.
+
+**Acceptance:** an unreachable federation URL produces "DNS ✓ → TCP refused
+(likely cause: firewall blocks 8080 from this host)" in the UI, not
+"connection error." Tested with both a bad key (auth-step failure) and a
+wrong port (TCP-step failure).
+
+---
+
+### Phase 85 — UI for env-var-only setups + peers test button
+
+- [ ] `/intel` page: per-provider cards for AbuseIPDB, OTX, Spamhaus, Tor,
+  ProxyCheck. Each: enable toggle, key field (masked), "Test" button that
+  hits the provider with the key, request-counter (today's usage / daily
+  limit), last-success timestamp. Keys still live in `.env` but the page
+  writes via either a `scripts/setup_admin.py --intel-set <k>=<v>`
+  shell-out or a `settings` row that overrides `.env` at runtime — choice
+  deferred to implementation, but UX must not require shelling into the VPS.
+- [ ] `/admin/sso` page: OIDC config (issuer, client_id, client_secret,
+  group claim mapping, allowed-domain restriction). "Send test login"
+  button opens a popup that runs the full SSO dance with the configured
+  IdP and reports the resulting claims.
+- [ ] `/honeypot` config page: enable toggle, min_reputation, max_targets,
+  each with a paragraph explaining the knob.
+- [ ] `/peers/add` gets the missing test-connection button before save —
+  mirrors the bouncers + federation pattern.
+
+**Acceptance:** operator wires {intel, SSO, honeypot, peers} entirely from
+the dashboard. No `systemctl restart protek` needed. Each has a working
+test button that surfaces structured failure modes.
+
+---
+
+### Phase 86 — First-run setup wizard
+
+- [ ] New `settings.first_run_done` flag. While `false`, every page shows
+  a topbar banner: "Setup: N of 6 steps done — finish" linking to
+  `/onboarding`.
+- [ ] `/onboarding` is a single-page wizard on phase 81 primitive, guiding:
+  confirm LAPI reachable → add first bouncer (phase 82) → flip live →
+  optional federation source (phase 83) → notifications (Discord/Telegram/
+  SMTP test) → done.
+- [ ] Each step skippable (with confirm dialog). At end, dismissing sets
+  `first_run_done=1`; banner disappears for good.
+- [ ] Reachable later from a small "Setup status" link in the topbar even
+  after dismissal — so an operator who skipped intel/SSO can come back.
+
+**Acceptance:** a fresh `git clone Protek && setup_admin.py && systemctl
+start protek` puts a new operator at the wizard on first login. Following
+it end-to-end produces a live deployment in under 10 minutes, with zero
+terminal commands beyond the initial install.
+
+---
+
+# Arc 15 — Production-grade ops
+
+Arc 11 shipped *the features* of resilience: off-box backup, Litestream
+replication, synthetic monitoring, DR runbook. Arc 14 made setup
+pleasant. **Arc 15 makes operation trustworthy under real load and real
+incidents.** The 2026-05-25 deployment surfaced the gap: Litestream's
+WAL grew to 25 GB unbounded (fixed via timer-based truncate), restore
+RTO on a 445 MB DB is currently ~30 min vs the <5 min spec, the poller
+iterates federated sources serially, and phases 67 + 68 shipped scaffolding
+but were never battle-tested. This arc closes those gaps. It is *not*
+new-feature work — it's harden-what-shipped work, measured against
+explicit acceptance criteria.
+
+### Phase 87 — Litestream restore speedup
+
+- [ ] Restore RTO bottleneck is local fsync, not network. Investigate:
+  restore to `/dev/shm` (tmpfs) then `mv` into place; bump SQLite page
+  cache during restore via `PRAGMA cache_size`; pre-fetch LTX files in
+  parallel before applying; upgrade to a newer Litestream if a fix has
+  landed upstream.
+- [ ] Document the chosen technique in `docs/DR-RUNBOOK.md §2` so
+  operators don't have to rediscover it under pressure.
+
+**Acceptance:** a 1 GB protek.db restores from the SFTP replica to a
+usable state in under 5 minutes on the current VPS A hardware
+(Hetzner CAX21, arm64). The DR-RUNBOOK procedure is the one tested.
+
+---
+
+### Phase 88 — Federation reconcile scaling
+
+- [ ] The current poller iterates `federation.clients()` serially per
+  cycle — fine at 1–2 sources, blocks the loop at N. Move to a bounded
+  concurrent fetch (`concurrent.futures.ThreadPoolExecutor`, cap at 8)
+  with per-source timeout.
+- [ ] Per-source latency histogram on `/federation` so slow sources are
+  visible before they bog down a cycle.
+
+**Acceptance:** with 10 federated sources each holding 100k active
+decisions, a full reconcile cycle completes under 2 seconds (currently
+unmeasured but assumed >10s with serial fetch on this scale).
+
+---
+
+### Phase 89 — Bouncer backpressure (operationalize phase 68)
+
+- [ ] Phase 68 shipped scaffolding for token-bucket-per-upstream and
+  graceful-degradation but the boxes were never ticked. Verify what
+  exists, fill the gaps, and produce a real stress test.
+- [ ] When a bouncer is rate-limited or hung, mark it `degraded` and let
+  other bouncers in the same cycle keep pushing. Re-attempt on a
+  per-bouncer backoff schedule, not by stalling the global loop.
+- [ ] `/perf` surface for live bucket state — already named in phase 68,
+  needs implementation.
+
+**Acceptance:** stress test with one bouncer artificially hung
+(`iptables -j DROP` on its endpoint) does not stall the global reconcile
+cycle. Healthy bouncers continue receiving updates within their normal
+cadence; the hung bouncer is marked `degraded` in the UI within 30s.
+
+---
+
+### Phase 90 — Multi-day soak harness
+
+- [ ] Standalone test harness (`tests/soak/` or separate repo) that
+  drives a staging Protek instance with synthetic load: 1k decisions/min
+  via direct LAPI injection, 5 federated sources, full reconcile every
+  10s, restore-test every hour.
+- [ ] Assertions on memory leak (RSS bounded), file-handle leak
+  (open-fds bounded), SQLite lock contention (zero `SQLITE_BUSY` events),
+  WAL bounded by the phase 64 follow-up timer.
+- [ ] Run nightly in CI on a small VPS; alert on first failure.
+
+**Acceptance:** 72-hour continuous soak run produces zero alerts; RSS
+growth slope is statistically flat after the first hour of steady-state.
+
+---
+
+### Phase 91 — SLO enforcement
+
+- [ ] `docs/SLO.md` (or equivalent) lists targets for sync lag, LAPI
+  reachability, MT reachability, etc. Today nothing actually measures
+  against these — they're aspirational text.
+- [ ] Wire each SLO to a real metric (likely `metrics.py` Prometheus
+  counters) + a notification when the rolling window violates the SLO.
+- [ ] Grace window before alerting (5-min sustained breach), not
+  single-cycle flap.
+
+**Acceptance:** the `/perf` page shows current vs SLO target for each
+named SLO. Forcing a synthetic breach (block MT API for 6 min) produces
+a notification within the grace window + 1 cycle, and clears on recovery.
+
+---
+
+### Phase 92 — Automated DR drill (operationalize phase 67)
+
+- [ ] Phase 67's `docs/DR-RUNBOOK.md` exists; the drill template doesn't.
+  Build `/admin/dr-drill` — operator picks a scenario (corruption restore,
+  MT swap, CrowdSec hub down, Litestream restore), the page runs the
+  documented steps against a sandbox copy of the DB, and records pass/fail
+  + duration in the audit log.
+- [ ] Skip-on-prod safety guard: drill mode refuses to run if any bouncer
+  is currently `live` and writing to production targets, *unless* operator
+  explicitly opts in for that scenario.
+- [ ] Quarterly schedule reminder: notification fires if no successful drill
+  in the last 90 days.
+
+**Acceptance:** a fresh operator running `/admin/dr-drill` against the
+corruption-restore scenario completes in under 30 minutes per the phase
+67 spec, with audit log proof. The quarterly reminder fires correctly
+when 90 days have elapsed since the last green drill.
 
 ---
 

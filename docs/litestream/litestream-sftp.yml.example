@@ -1,0 +1,54 @@
+# Litestream config — copy to /etc/litestream.yml and edit.
+# Streams /var/www/Protek/protek.db's WAL via SFTP over a WireGuard tunnel
+# to a peer VPS. This is the deployed shape for the Protek suite (VPS A → VPS B
+# over Traverse-managed WG, no public exposure, no S3 bill).
+#
+# Tested with Litestream v0.5.x. The v0.5 config schema uses `replica:` (singular)
+# with a `url:` scheme — the older `replicas: [{type: ...}]` form is v0.3.x.
+#
+# Prereqs on the target VPS (VPS B):
+#   useradd --system --create-home --home-dir /home/litestream --shell /usr/sbin/nologin litestream
+#   install -d -o litestream -g litestream -m 700 /home/litestream/.ssh
+#   echo 'from="10.8.0.0/24",restrict <PUBKEY>' > /home/litestream/.ssh/authorized_keys
+#   chown litestream:litestream /home/litestream/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+#   # In /etc/ssh/sshd_config:
+#   #   Match User litestream
+#   #     ForceCommand internal-sftp
+#   #     PasswordAuthentication no
+#   #     AllowTcpForwarding no
+#   #     X11Forwarding no
+#
+# Prereqs on the source VPS (VPS A):
+#   apt install /tmp/litestream-0.5.x-linux-{arm64,x86_64}.deb
+#   install -d -m 700 /etc/litestream
+#   ssh-keygen -t ed25519 -N "" -f /etc/litestream/id_ed25519 -C "litestream@protek-vps-a"
+#   ssh-keyscan -t ecdsa <vps-b-wg-ip> >> /etc/litestream/known_hosts  # capture host key
+#
+# Then start:
+#   systemctl daemon-reload
+#   systemctl enable --now litestream
+#
+# Restore (full DB):
+#   systemctl stop protek litestream
+#   litestream restore -o /var/www/Protek/protek.db /var/www/Protek/protek.db
+#   systemctl start litestream protek
+
+dbs:
+  - path: /var/www/Protek/protek.db
+    replica:
+      # sftp://<remote-user>@<remote-host>:<port>/<absolute-path>
+      # The path is interpreted as ABSOLUTE on the remote — not relative to the
+      # user's home. Use /home/<user>/<subdir> explicitly.
+      url: sftp://litestream@<vps-b-wg-ip>:22/home/litestream/protek
+      key-path: /etc/litestream/id_ed25519
+
+      # Host key pinning — *required* for unattended runs. Get the value via:
+      #   ssh-keyscan -t ecdsa <vps-b-wg-ip>
+      # OpenSSH negotiates ECDSA first by default; ed25519 may not be picked,
+      # so pin the algorithm sshd will actually offer.
+      host-key: ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBB...
+
+      # Tuning. Defaults are fine for most setups.
+      sync-interval: 1s         # how often WAL frames are pushed
+      snapshot-interval: 6h     # how often a fresh base snapshot is written
+      retention: 720h           # 30 days of point-in-time recovery
