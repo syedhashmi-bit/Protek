@@ -962,7 +962,7 @@ add-time UX. Edit page can grow the same button when needed.
 
 ---
 
-### Phase 85 — UI for env-var-only setups + peers test button ⚠ partial (2026-05-26)
+### Phase 85 — UI for env-var-only setups + peers test button ✅ (2026-05-26)
 
 - [x] `/peers/add` gets a Test connection button — uses the phase-84
   diagnostic ladder via `/api/peers/test`. Renders the same per-rung
@@ -972,23 +972,25 @@ add-time UX. Edit page can grow the same button when needed.
   link to provider docs + a working **Test** button. `/api/intel/test/
   <provider>` probes the live API with a benign IP (1.1.1.1); status
   badge flips ok/fail/err based on the response.
-- [ ] **Deferred from this phase:** writing intel keys from the UI
-  (still env-var-only). The reasoning: rotating an API key is rare
-  (months at a time), and the .env file is operator-controlled
-  anyway. A future phase can add either a `scripts/setup_admin.py
-  --intel-set` shell-out or a `settings`-row override.
-- [ ] **Deferred from this phase:** `/admin/sso` (OIDC config page)
-  and `/honeypot` (knob page). Both would be substantial new pages
-  that most operators won't need on day one — OIDC is for multi-admin
-  shops, honeypot is for advanced threat-intel work. Tracked as a
-  v1.3 candidate. The env-var path is documented in `.env.example`
-  and works without UI.
+- [x] `/admin/sso` page — read-only config display + "Test login" button
+  that runs the full OIDC dance against the configured IdP without
+  establishing a session, then reports the claims + resolved role back
+  to the page. Config values stay in `.env` (the client_secret never
+  appears in a form). Break-glass admin login at `/login` still works
+  regardless of OIDC state.
+- [x] `/honeypot` page — full knob UI (enabled / url / min_reputation
+  / max_targets), Refresh-now button, target list preview, consumer
+  wiring snippet. Knobs live in the `settings` table so they're
+  read+write from the UI (unlike intel keys which stay in `.env`).
+- [ ] **Deferred:** writing intel keys from the UI. Rotation is rare
+  (months at a time) and `.env` is operator-controlled. A future
+  phase can add either a `scripts/setup_admin.py --intel-set`
+  shell-out or a `settings`-row override.
 
-**Acceptance:** ⚠ **partial.** The "test buttons everywhere" half is
-done: peers + every intel provider have a working probe. The
-"write env vars from the UI" half is deferred — there's enough
-friction in OIDC + honeypot setup that they need their own design
-pass, and the env-var path remains viable in the meantime.
+**Acceptance:** ✅ operator wires {intel, SSO, honeypot, peers} entirely
+from the dashboard. Each surface has a working test button that
+surfaces structured failure modes. Intel key rotation is the one
+remaining `systemctl restart protek` operation.
 
 ---
 

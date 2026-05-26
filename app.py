@@ -610,6 +610,104 @@ except Exception as e:  # noqa: BLE001
     log.warning("graphql registration skipped: %s", e)
 
 
+@app.route("/honeypot")
+@login_required
+def honeypot_page():
+    """Phase 85 — honeypot knob page. All knobs live in the settings
+    table (not .env) so we can read AND write from the UI."""
+    import honeypot as hp
+    cfg = {
+        "enabled":         hp.is_enabled(),
+        "url":             get_setting("honeypot.url") or "",
+        "min_reputation":  int(get_setting("honeypot.min_reputation") or 80),
+        "max_targets":     int(get_setting("honeypot.max_targets") or 1000),
+        "target_count":    len(hp.list_targets(limit=10000)),
+    }
+    targets = hp.list_targets(limit=200) if cfg["enabled"] else []
+    return render_template(
+        "honeypot.html",
+        cfg=cfg,
+        targets=targets,
+        flash_msg=session.pop("honeypot_flash", None),
+        active="honeypot",
+    )
+
+
+@app.route("/honeypot/save", methods=["POST"])
+@login_required
+@role_required("operator")
+def honeypot_save():
+    enabled = "enabled" in request.form
+    url = (request.form.get("url") or "").strip()
+    try:
+        min_rep = max(0, min(100, int(request.form.get("min_reputation") or 80)))
+    except ValueError:
+        min_rep = 80
+    try:
+        max_t = max(0, int(request.form.get("max_targets") or 1000))
+    except ValueError:
+        max_t = 1000
+    set_setting("honeypot.enabled", "1" if enabled else "0")
+    set_setting("honeypot.url", url)
+    set_setting("honeypot.min_reputation", str(min_rep))
+    set_setting("honeypot.max_targets", str(max_t))
+    _audit("honeypot.save", target="settings",
+           after={"enabled": enabled, "min_reputation": min_rep,
+                  "max_targets": max_t, "url_set": bool(url)})
+    session["honeypot_flash"] = "Saved. Next poller cycle picks up the new knobs."
+    return redirect(url_for("honeypot_page"))
+
+
+@app.route("/honeypot/refresh", methods=["POST"])
+@login_required
+@role_required("operator")
+def honeypot_refresh():
+    import honeypot as hp
+    try:
+        result = hp.refresh_targets()
+        session["honeypot_flash"] = (
+            f"Refreshed: {result.get('tagged', 0)} tagged, "
+            f"{result.get('cleared', 0)} cleared."
+        )
+    except Exception as e:  # noqa: BLE001
+        session["honeypot_flash"] = f"Refresh failed: {e}"
+    return redirect(url_for("honeypot_page"))
+
+
+@app.route("/admin/sso")
+@login_required
+@role_required("admin")
+def admin_sso():
+    """Phase 85 — read-only SSO config display + Test login button.
+    Config values themselves stay in .env (security: never expose the
+    client_secret in a form). The Test button (admin_sso_test) opens
+    the full OIDC dance and reports the claims/role back to this page."""
+    callback_url = url_for("sso_callback", _external=True)
+    return render_template(
+        "admin_sso.html",
+        status=_oidc.status(),
+        callback_url=callback_url,
+        test_result=session.pop("sso_test_result", None),
+        active="admin_sso",
+    )
+
+
+@app.route("/admin/sso/test")
+@login_required
+@role_required("admin")
+def admin_sso_test():
+    """Trigger an OIDC login flow but capture the result instead of
+    granting the session. Marks the session with `sso_test_mode=True`
+    so the callback knows to render the result on /admin/sso rather
+    than performing a real login."""
+    if not _oidc.is_configured() or _oauth is None:
+        flash("OIDC not configured — set OIDC_ISSUER / CLIENT_ID / CLIENT_SECRET in .env first.", "error")
+        return redirect(url_for("admin_sso"))
+    session["sso_test_mode"] = True
+    redirect_uri = url_for("sso_callback", _external=True)
+    return _oauth.oidc.authorize_redirect(redirect_uri)
+
+
 @app.route("/sso/login")
 def sso_login():
     if not _oidc.is_configured() or _oauth is None:
@@ -623,11 +721,19 @@ def sso_callback():
     if not _oidc.is_configured() or _oauth is None:
         return jsonify(error="SSO not configured"), 503
     ip = client_ip()
+    # Phase 85 — if this callback is for a Test login (initiated via
+    # /admin/sso/test by an already-logged-in admin), capture the
+    # result in the session and redirect back to /admin/sso instead of
+    # establishing a real SSO session.
+    test_mode = bool(session.pop("sso_test_mode", False))
     try:
         token = _oauth.oidc.authorize_access_token()
     except Exception as e:  # noqa: BLE001
         log.warning("OIDC token exchange failed: %s", e)
         record_audit(ip, "(sso)", False, "OIDC token exchange failed")
+        if test_mode:
+            session["sso_test_result"] = {"ok": False, "error": f"token exchange failed: {e!s}"[:300]}
+            return redirect(url_for("admin_sso"))
         flash("SSO login failed: " + str(e)[:200], "error")
         return redirect(url_for("login"))
 
@@ -642,10 +748,35 @@ def sso_callback():
     email = (claims.get("email") or "").lower().strip()
     if not email:
         record_audit(ip, "(sso)", False, "OIDC missing email claim")
+        if test_mode:
+            session["sso_test_result"] = {"ok": False, "error": "provider returned no email claim"}
+            return redirect(url_for("admin_sso"))
         flash("SSO failed: provider returned no email.", "error")
         return redirect(url_for("login"))
 
     role = _oidc.role_for_claims(claims)
+    if test_mode:
+        # In test mode we never establish a session, even on success — just
+        # report the resolved role + raw claims back so the admin can verify
+        # their group-mapping config without actually logging in as that user.
+        groups_claim = _oidc._envstr("OIDC_GROUPS_CLAIM") or "groups"
+        groups = claims.get(groups_claim) or []
+        if isinstance(groups, str):
+            groups = [g.strip() for g in groups.split(",") if g.strip()]
+        session["sso_test_result"] = {
+            "ok": True,
+            "claims": {
+                "sub":             claims.get("sub", ""),
+                "email":           email,
+                "email_verified":  bool(claims.get("email_verified")),
+                "name":            claims.get("name", ""),
+                "hd":              claims.get("hd", ""),
+            },
+            "groups": groups,
+            "role":   role,  # may be None — that's a real rejection signal
+        }
+        return redirect(url_for("admin_sso"))
+
     if role is None:
         record_audit(ip, email, False, "OIDC role mapping denied")
         try:

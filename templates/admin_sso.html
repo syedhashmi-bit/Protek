@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}SSO · PROTEK{% endblock %}
+{% block crumb %}<b>ADMIN</b> · SSO (OIDC){% endblock %}
+
+{% block body %}
+<div style="max-width:800px">
+
+<div class="panel">
+  <h2>OpenID Connect SSO</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0;line-height:1.6">
+    OIDC configuration lives in <span class="mono">.env</span> (read at boot, never displayed
+    in writable form for security). This page shows the live config + offers a
+    one-click "test login" that runs the full SSO dance against your IdP and reports
+    the resulting claims. Break-glass: the env-anchored admin at <span class="mono">/login</span>
+    always works regardless of OIDC state — locking yourself out of OIDC does not
+    lock you out of Protek.
+  </p>
+
+  <div style="background:{% if status.configured %}rgba(0,255,157,.06){% else %}rgba(125,148,173,.06){% endif %};border:1px solid {% if status.configured %}var(--green){% else %}var(--border){% endif %};border-radius:4px;padding:14px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:18px">{% if status.configured %}<span style="color:var(--green)">●</span>{% else %}<span style="color:var(--muted)">○</span>{% endif %}</span>
+      <div>
+        <div style="font-family:'Share Tech Mono',monospace;letter-spacing:.15em;text-transform:uppercase;font-size:12px;color:{% if status.configured %}var(--green){% else %}var(--muted){% endif %}">
+          {% if status.configured %}configured{% else %}not configured{% endif %}
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:2px">
+          {% if status.configured %}
+            <a href="{{ url_for('admin_sso_test') }}" style="color:var(--cyan)">▶ Test login</a> — opens the SSO popup, returns to this page with the claims your IdP issued.
+          {% else %}
+            Set <span class="mono">OIDC_ISSUER</span>, <span class="mono">OIDC_CLIENT_ID</span>, and <span class="mono">OIDC_CLIENT_SECRET</span> in <span class="mono">.env</span> and restart the service.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if test_result %}
+  <div style="background:{% if test_result.ok %}rgba(0,255,157,.06){% else %}rgba(255,56,96,.06){% endif %};border:1px solid {% if test_result.ok %}var(--green){% else %}var(--red){% endif %};border-radius:4px;padding:14px;margin-bottom:14px">
+    <div style="font-family:'Share Tech Mono',monospace;letter-spacing:.15em;text-transform:uppercase;font-size:12px;color:{% if test_result.ok %}var(--green){% else %}var(--red){% endif %};margin-bottom:8px">
+      {% if test_result.ok %}✓ test login succeeded{% else %}✗ test login failed{% endif %}
+    </div>
+    {% if test_result.ok %}
+    <div class="mono" style="font-size:12px;line-height:1.8">
+      sub        · <b>{{ test_result.claims.sub or '—' }}</b><br>
+      email      · <b>{{ test_result.claims.email or '—' }}</b>{% if test_result.claims.email_verified %} <span style="color:var(--green)">(verified)</span>{% endif %}<br>
+      name       · <b>{{ test_result.claims.name or '—' }}</b><br>
+      hd / domain · <b>{{ test_result.claims.hd or '—' }}</b><br>
+      groups     · <b>{{ test_result.groups|join(', ') if test_result.groups else '—' }}</b><br>
+      → mapped role · <b style="color:var(--cyan)">{{ test_result.role or '(rejected)' }}</b>
+    </div>
+    {% else %}
+    <div class="mono" style="font-size:12px;color:var(--red)">{{ test_result.error }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <table style="margin-top:14px">
+    <thead><tr><th>Setting</th><th>Value (from .env)</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">OIDC_ISSUER</td>           <td class="mono cyan">{{ status.issuer }}</td></tr>
+      <tr><td class="mono">OIDC_CLIENT_ID</td>        <td class="mono">{{ status.client_id }}</td></tr>
+      <tr><td class="mono">OIDC_CLIENT_SECRET</td>    <td class="muted">(masked — set in .env, never displayed)</td></tr>
+      <tr><td class="mono">OIDC_ALLOWED_DOMAINS</td>  <td class="mono">{{ status.domains }}</td></tr>
+      <tr><td class="mono">OIDC_GROUPS_CLAIM</td>     <td class="mono">{{ status.groups_claim }}</td></tr>
+      <tr><td class="mono">OIDC_GROUPS_ADMIN</td>     <td class="mono">{{ status.groups_admin }}</td></tr>
+      <tr><td class="mono">OIDC_GROUPS_OPERATOR</td>  <td class="mono">{{ status.groups_operator }}</td></tr>
+      <tr><td class="mono">OIDC_GROUPS_VIEWER</td>    <td class="mono">{{ status.groups_viewer }}</td></tr>
+      <tr><td class="mono">OIDC_DEFAULT_ROLE</td>     <td class="mono">{{ status.default_role }}</td></tr>
+    </tbody>
+  </table>
+
+  <p class="muted" style="font-size:11px;margin-top:14px;line-height:1.6">
+    Provider examples: <a href="https://accounts.google.com" target="_blank">Google</a>
+    (issuer <span class="mono">https://accounts.google.com</span>) ·
+    Authentik (<span class="mono">https://&lt;authentik&gt;/application/o/protek/</span>) ·
+    Auth0 (<span class="mono">https://&lt;tenant&gt;.auth0.com/</span>) ·
+    Keycloak (<span class="mono">https://&lt;kc&gt;/realms/&lt;realm&gt;</span>).
+    Redirect URI to register with the provider:
+    <span class="mono cyan">{{ callback_url }}</span>
+  </p>
+</div>
+
+</div>
+{% endblock %}
