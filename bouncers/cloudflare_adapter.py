@@ -28,6 +28,33 @@ API = "https://api.cloudflare.com/client/v4"
 class CloudflareBouncer:
     """Cloudflare Rules List bouncer (account-level)."""
 
+    field_schema = [
+        {"name": "account_id", "label": "Cloudflare account ID", "type": "text",
+         "required": True, "placeholder": "a1b2c3d4e5f6…",
+         "help_url": "https://developers.cloudflare.com/fundamentals/setup/find-account-and-zone-ids/",
+         "help": "Account-level ID (not zone). Dashboard → right sidebar → 'Account ID'."},
+        {"name": "api_token", "label": "API token", "type": "password",
+         "required": True, "mask": True,
+         "help_url": "https://developers.cloudflare.com/api/tokens/create/",
+         "help": "Scoped token with 'Account → Account Filter Lists: Edit' permission. "
+                 "Don't use the global API key."},
+        {"name": "list_name", "label": "List name", "type": "text",
+         "required": False, "placeholder": "protek_bans", "default": "protek_bans",
+         "help": "Name of the Rules List Cloudflare will manage. If auto_create_list is on, "
+                 "Protek creates it on first health check."},
+        {"name": "auto_create_list", "label": "Auto-create list if missing", "type": "checkbox",
+         "required": False, "default": True, "coerce": "bool"},
+        {"name": "max_entries", "label": "Max entries (optional)", "type": "number",
+         "required": False, "placeholder": "9500", "coerce": "int_or_none",
+         "help": "Cloudflare Free caps lists at 10 000 items per account. Set 9 500 to leave "
+                 "headroom for the operator's manual entries."},
+        {"name": "exclude_origins", "label": "Exclude origins (comma-separated)", "type": "text",
+         "required": False, "placeholder": "lists:firehol_cruzit_web_attacks",
+         "coerce": "csv",
+         "help": "Skip decisions whose origin matches these globs. Useful to drop noisy "
+                 "community blocklists from a small-quota Cloudflare list."},
+    ]
+
     def __init__(self, name: str = "cloudflare", account_id: str = "",
                  list_id: str = "", api_token: str = "",
                  list_name: str = "protek_bans", auto_create_list: bool = True,

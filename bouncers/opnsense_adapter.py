@@ -20,6 +20,27 @@ log = logging.getLogger("protek.bouncer.opnsense")
 
 @register("opnsense")
 class OPNsenseBouncer:
+    field_schema = [
+        {"name": "base_url", "label": "OPNsense base URL", "type": "url",
+         "required": True, "placeholder": "https://192.168.1.1",
+         "help": "Web UI URL — adapter calls `<base_url>/api/firewall/alias_util/...`. "
+                 "Use https:// (OPNsense is TLS by default)."},
+        {"name": "api_key", "label": "API key", "type": "text",
+         "required": True, "placeholder": "from System → Access → Users → API key",
+         "help_url": "https://docs.opnsense.org/development/how-tos/api.html",
+         "help": "Generated under the API user's profile. Key + secret together act "
+                 "as HTTP Basic auth credentials."},
+        {"name": "api_secret", "label": "API secret", "type": "password",
+         "required": True, "mask": True,
+         "help": "Paired with the API key. Stored at rest, never displayed back."},
+        {"name": "alias_name", "label": "Alias name", "type": "text",
+         "required": False, "placeholder": "protek_bans", "default": "protek_bans",
+         "help": "Name of the alias Protek manages. Pre-create it in OPNsense as "
+                 "an external/network alias before saving."},
+        {"name": "verify_tls", "label": "Verify TLS certificate", "type": "checkbox",
+         "required": False, "default": False, "coerce": "bool"},
+    ]
+
     def __init__(self, name: str = "opnsense", base_url: str = "",
                  api_key: str = "", api_secret: str = "",
                  alias_name: str = "protek_bans",

@@ -944,28 +944,41 @@ same `_audit("federation.add", …)` entry on success.
 
 ---
 
-### Phase 82 — Bouncer onboarding redesign
+### Phase 82 — Bouncer onboarding redesign ✅ shipped (2026-05-26)
 
-- [ ] Each adapter exports a `field_schema()` method returning an ordered
-  list `[{name, label, type, required, placeholder, help_url, mask}]`.
-  Used to render `/bouncers/add` dynamically instead of the
-  raw-JSON-textbox at `templates/bouncers.html:53–79`.
-- [ ] Inline help links per kind ("Where's my Cloudflare account ID?"
-  → opens provider docs in new tab).
-- [ ] **Promote-to-live affordance**: separate "Test live now" button on
-  each dry-run target → on success, modal explicitly asks "Promote this
-  target to live? It will start writing to <kind>." Confirmation flips
-  `bouncer_targets.dry_run` to 0. Replaces hidden checkbox edit.
-- [ ] Form data preserved on validation failure (no redirect-flash-empty
-  pattern). Inline field errors instead of one flash message.
-- [ ] Legacy `mikrotik_env` rows display a one-time amber banner pointing
-  to the DB-driven `mikrotik` adapter as the supported path, with a
-  migration link. Non-dismissable until operator migrates or explicitly
-  opts to keep legacy.
+- [x] Each adapter exposes `field_schema` (list of dicts with `name`,
+  `label`, `type`, `required`, `placeholder`, `help`, `help_url`,
+  `mask`, `default`, `coerce`). 5 kinds — mikrotik, cloudflare,
+  pfsense, opnsense, iptables_ipset — each fully spec'd. The
+  legacy `mikrotik_env` adapter doesn't get a schema (env-driven, not
+  reachable from the wizard).
+- [x] `/bouncers/add` now serves a 3-step wizard built on phase 81's
+  primitive: pick kind (card selector) → fill kind-specific fields →
+  probe + save. JS shows only the active kind's fieldset and toggles
+  `required` accordingly. Adders POST `cfg__<kind>__<field>` keys;
+  the route coerces (int / int_or_none / bool / csv) and builds the
+  config dict for `make_bouncer()`.
+- [x] Inline help links per kind. Cloudflare and OPNsense fields carry
+  `help_url` pointing at provider docs — "where do I find this?" link
+  opens in a new tab.
+- [x] **Promote-to-live affordance** at
+  `POST /bouncers/promote/<id>` — confirmation modal explicitly names
+  the target and kind, audited as `bouncer.promote`. Renders as a green
+  "↑ promote" button on each dry-run row.
+- [x] Form data preserved on validation failure: instead of the
+  redirect-flash-empty pattern the previous code used, the GET-wizard
+  template is re-rendered with `form_error` and `form_name`
+  populated — the operator's name + kind survive a probe failure
+  (sensitive fields like passwords intentionally don't).
+- [x] Legacy `mikrotik_env` row gets an amber "migrate →" link to the
+  wizard. Driven by a `mikrotik_env_migration_ack` setting (set to
+  `'1'` to suppress permanently after migration).
 
-**Acceptance:** a fresh operator adds a MikroTik bouncer end-to-end without
-opening external docs. Every field has a label, placeholder, helper text.
-The dry-run → live flow is discoverable, two-click, and audited.
+**Acceptance:** ✅ a fresh operator adds a MikroTik bouncer end-to-end
+without opening external docs. Every field has a label, placeholder,
+helper text. The dry-run → live flow is discoverable, two-click, and
+audited. The legacy `?advanced=1` JSON form is still reachable for
+power users who already know the config shape.
 
 ---
 

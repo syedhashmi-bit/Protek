@@ -33,6 +33,22 @@ from . import register
 class IpsetBouncer:
     """Local-host iptables/ipset bouncer. Runs as root (Protek already does)."""
 
+    field_schema = [
+        {"name": "set_v4", "label": "IPv4 ipset name", "type": "text",
+         "required": False, "placeholder": "protek-bans", "default": "protek-bans",
+         "help": "ipset set name for IPv4 addresses. Operator owns the matching "
+                 "iptables `-m set --match-set <name> src -j DROP` rule."},
+        {"name": "set_v6", "label": "IPv6 ipset name", "type": "text",
+         "required": False, "placeholder": "protek-bans6", "default": "protek-bans6",
+         "help": "ipset set name for IPv6 addresses. Adapter auto-creates both sets "
+                 "on first health check (-exist, idempotent)."},
+        {"name": "max_v4", "label": "Max IPv4 entries", "type": "number",
+         "required": False, "placeholder": "200000", "default": 200000, "coerce": "int",
+         "help": "Set's hash table size. Default 200 000 fits the largest community feeds."},
+        {"name": "max_v6", "label": "Max IPv6 entries", "type": "number",
+         "required": False, "placeholder": "50000", "default": 50000, "coerce": "int"},
+    ]
+
     def __init__(self, name: str = "iptables", set_v4: str = "protek-bans",
                  set_v6: str = "protek-bans6", max_v4: int = 200000, max_v6: int = 50000,
                  **_: Any):

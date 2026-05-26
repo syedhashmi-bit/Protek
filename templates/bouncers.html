@@ -27,13 +27,27 @@
         <td class="mono muted">{{ t.last_sync_rel }}</td>
         <td>
           {% if t.removable %}
+          {% if t.dry_run %}
+          <form method="POST" action="{{ url_for('bouncers_promote', tid=t.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--green)"
+                    onclick="return confirm('Promote {{ t.name }} ({{ t.kind }}) to LIVE? It will start writing to the target on the next reconcile cycle.')">
+              ↑ promote
+            </button>
+          </form>
+          {% endif %}
           <a class="btn ghost" href="{{ url_for('bouncers_edit', tid=t.id) }}"
              style="padding:2px 8px;font-size:10px;color:var(--cyan)">edit</a>
           <form method="POST" action="{{ url_for('bouncers_delete', tid=t.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove target?')">remove</button>
           </form>
-          {% else %}<span class="muted" style="font-size:10px">env-managed</span>{% endif %}
+          {% else %}
+          <span class="muted" style="font-size:10px">env-managed</span>
+          {% if t.kind == 'mikrotik_env' and migration_banner %}
+          <a href="{{ url_for('bouncers_add') }}" style="font-size:10px;color:var(--amber);margin-left:6px;text-decoration:underline">migrate →</a>
+          {% endif %}
+          {% endif %}
         </td>
       </tr>
       {% if t.error and not t.ok %}
@@ -45,12 +59,26 @@
 </div>
 
 <div class="panel" style="margin-top:16px">
-  <h2>Add Target</h2>
-  <div class="muted" style="margin-bottom:12px;font-size:12px;text-transform:none;letter-spacing:0">
-    Pick an adapter, fill its config, and Protek will start applying the same merged decision set to it on the next reconcile cycle. Operator owns the consuming firewall rule (block/drop); Protek owns only the list contents.
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:20px">
+    <div>
+      <h2 style="margin:0 0 4px">Add Target</h2>
+      <div class="muted" style="font-size:12px;text-transform:none;letter-spacing:0">
+        Pick an adapter, fill its config, and Protek will start applying the same merged decision set to it on the next reconcile cycle. Operator owns the consuming firewall rule (block/drop); Protek owns only the list contents.
+      </div>
+    </div>
+    <a href="{{ url_for('bouncers_add') }}" class="btn"
+       style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;text-decoration:none;border-radius:3px;white-space:nowrap">
+      + Guided wizard →
+    </a>
   </div>
 
-  <form method="POST" action="{{ url_for('bouncers_add') }}" style="display:grid;grid-template-columns:160px 200px 1fr 80px;gap:10px;align-items:end">
+  {% if request.args.get('advanced') %}
+  <div style="margin-top:12px;padding:8px 12px;background:rgba(255,180,71,0.08);border:1px solid var(--amber);border-radius:3px;font-size:11px;color:var(--amber)">
+    Advanced one-shot form below. The <a href="{{ url_for('bouncers_add') }}" style="color:var(--amber);text-decoration:underline">guided wizard</a> is recommended for new bouncers — structured fields, inline help, health-probe-on-save.
+  </div>
+  {% endif %}
+
+  <form method="POST" action="{{ url_for('bouncers_add') }}" style="display:grid;grid-template-columns:160px 200px 1fr 80px;gap:10px;align-items:end;margin-top:14px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div>
       <label>Kind</label>

@@ -2183,41 +2183,143 @@ def bouncers_page():
     kpis = {"total": len(view), "online": online, "errors": errors_n, "total_entries": total_entries}
     from bouncers.plugin_loader import list_loaded, plugin_dir
     plugins = list_loaded()
+    # Phase 82 migration banner — flagged when the env-driven legacy MT
+    # adapter is in play AND the operator hasn't acked the migration to
+    # the DB-driven `mikrotik` adapter. Banner is non-dismissable until
+    # explicitly suppressed via /settings → set
+    # 'mikrotik_env_migration_ack' to '1'.
+    migration_banner = (
+        any(t["kind"] == "mikrotik_env" for t in view)
+        and (get_setting("mikrotik_env_migration_ack") or "0") != "1"
+    )
     return render_template("bouncers.html", targets=view, kpis=kpis,
                            plugins=plugins, plugin_dir=str(plugin_dir()),
+                           migration_banner=migration_banner,
                            active="bouncers")
 
 
-@app.route("/bouncers/add", methods=["POST"])
+def _bouncer_kinds_for_wizard():
+    """Pull display metadata + field_schema from each registered adapter.
+    Adapters without field_schema (e.g. mikrotik_env which is env-driven
+    only) are excluded — they shouldn't appear in the add wizard.
+    """
+    import bouncers as bmod
+    blurbs = {
+        "mikrotik":       ("MikroTik RouterOS", "Additional RouterOS router via API (multi-router setup). The legacy mikrotik_env adapter still serves the .env-configured primary router."),
+        "cloudflare":     ("Cloudflare WAF",    "Account-level Rules List, fronted by a WAF Custom Rule the operator wires manually."),
+        "pfsense":        ("pfSense",           "Uses the pfsense-pkg-RESTAPI v2 package. PATCHes the whole alias array per cycle and triggers /firewall/apply."),
+        "opnsense":       ("OPNsense",          "Built-in REST API, no plugin required. Per-entry add/delete via alias_util."),
+        "iptables_ipset": ("iptables / ipset",  "Local-host firewall via ipset. Auto-manages v4 + v6 sets; operator owns the consuming match-set rules."),
+    }
+    out = []
+    for kind, cls in bmod.KINDS.items():
+        schema = getattr(cls, "field_schema", None)
+        if schema is None:
+            continue
+        title, blurb = blurbs.get(kind, (kind, ""))
+        out.append({"kind": kind, "title": title, "blurb": blurb, "fields": schema})
+    return out
+
+
+def _coerce_field(value, kind):
+    """Apply field_schema's `coerce` rule to a posted form string."""
+    if value is None:
+        return None
+    if kind == "int":
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    if kind == "int_or_none":
+        s = (value or "").strip()
+        if not s:
+            return None
+        try:
+            return int(s)
+        except (TypeError, ValueError):
+            return None
+    if kind == "bool":
+        # Checkboxes post their value when checked, omit when unchecked.
+        # When this coercer is called, presence already implies True.
+        return str(value).lower() in ("1", "true", "yes", "on")
+    if kind == "csv":
+        return [s.strip() for s in (value or "").split(",") if s.strip()]
+    return value  # default: pass-through string
+
+
+@app.route("/bouncers/add", methods=["GET", "POST"])
 @login_required
 @role_required("operator")
 def bouncers_add():
     import bouncers as bmod
     import json as _json
+
+    if request.method == "GET":
+        if request.args.get("advanced"):
+            # Legacy one-shot form still rendered inline on the /bouncers page.
+            return redirect(url_for("bouncers_page", advanced="1"))
+        return render_template(
+            "bouncers_add.html",
+            kinds=_bouncer_kinds_for_wizard(),
+            form_error=None, form_name="",
+        )
+
     name = (request.form.get("name") or "").strip()
     kind = (request.form.get("kind") or "").strip()
-    config_json = (request.form.get("config_json") or "{}").strip()
     dry_run = (request.form.get("dry_run") or "1") == "1"
+
     if not (name and kind):
         flash("name + kind required", "error")
         return redirect(url_for("bouncers_page"))
     if kind not in bmod.KINDS:
         flash("unknown kind", "error")
         return redirect(url_for("bouncers_page"))
-    try:
-        cfg = _json.loads(config_json or "{}")
-    except _json.JSONDecodeError as e:
-        flash(f"invalid JSON: {e}", "error")
-        return redirect(url_for("bouncers_page"))
-    # Probe health before save
+
+    # Two posting shapes:
+    #   (1) wizard:    cfg__<kind>__<field>=<value> for each schema entry
+    #   (2) advanced:  config_json=<raw JSON string>
+    legacy_json = request.form.get("config_json")
+    if legacy_json is not None:
+        try:
+            cfg = _json.loads(legacy_json or "{}")
+        except _json.JSONDecodeError as e:
+            flash(f"invalid JSON: {e}", "error")
+            return redirect(url_for("bouncers_page"))
+    else:
+        cls = bmod.KINDS[kind]
+        schema = getattr(cls, "field_schema", None) or []
+        cfg = {}
+        for f in schema:
+            field_name = f["name"]
+            posted_key = f"cfg__{kind}__{field_name}"
+            if f.get("type") == "checkbox":
+                cfg[field_name] = posted_key in request.form
+                continue
+            raw = request.form.get(posted_key, "").strip()
+            if raw == "" and not f.get("required"):
+                # Don't write empty strings — let the adapter use its default.
+                continue
+            cfg[field_name] = _coerce_field(raw, f.get("coerce", ""))
+
     probe = bmod.make_bouncer(name, kind, cfg)
     if not probe:
-        flash("could not instantiate bouncer with given config", "error")
-        return redirect(url_for("bouncers_page"))
+        return render_template(
+            "bouncers_add.html",
+            kinds=_bouncer_kinds_for_wizard(),
+            form_error="could not instantiate bouncer with given config",
+            form_name=name,
+        ) if legacy_json is None else _bouncer_add_fail("could not instantiate bouncer with given config")
     h = probe.health() if probe.is_configured() else {"ok": False, "error": "not configured"}
     if not h.get("ok"):
-        flash(f"health check failed: {h.get('error')}", "error")
-        return redirect(url_for("bouncers_page"))
+        msg = f"health check failed: {h.get('error')}"
+        if legacy_json is None:
+            return render_template(
+                "bouncers_add.html",
+                kinds=_bouncer_kinds_for_wizard(),
+                form_error=msg, form_name=name,
+            )
+        return _bouncer_add_fail(msg)
+
     now = datetime.now(timezone.utc).isoformat()
     conn = get_conn()
     try:
@@ -2234,7 +2336,43 @@ def bouncers_add():
         conn.close()
     flash(f"target '{name}' added ({kind}) — applies on next reconcile cycle.", "info")
     _audit("bouncer.add", target=name,
-           after={"name": name, "kind": kind, "dry_run": dry_run, "config_keys": list(cfg.keys())})
+           after={"name": name, "kind": kind, "dry_run": dry_run,
+                  "config_keys": list(cfg.keys())})
+    return redirect(url_for("bouncers_page"))
+
+
+def _bouncer_add_fail(msg: str):
+    flash(msg, "error")
+    return redirect(url_for("bouncers_page"))
+
+
+@app.route("/bouncers/promote/<int:tid>", methods=["POST"])
+@login_required
+@role_required("operator")
+def bouncers_promote(tid):
+    """Flip a bouncer target from dry_run=1 to dry_run=0 after explicit
+    operator confirmation (the promote-to-live affordance, phase 82).
+    Audited so the timing is recoverable."""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT name, kind, dry_run FROM bouncer_targets WHERE id = ?",
+            (tid,),
+        ).fetchone()
+        if not row:
+            flash("target not found", "error")
+            return redirect(url_for("bouncers_page"))
+        if not int(row["dry_run"] or 0):
+            flash(f"'{row['name']}' is already live (dry_run=0)", "info")
+            return redirect(url_for("bouncers_page"))
+        conn.execute(
+            "UPDATE bouncer_targets SET dry_run = 0 WHERE id = ?", (tid,),
+        )
+    finally:
+        conn.close()
+    flash(f"'{row['name']}' promoted to LIVE — next reconcile cycle will push.", "info")
+    _audit("bouncer.promote", target=row["name"],
+           before={"dry_run": 1}, after={"dry_run": 0})
     return redirect(url_for("bouncers_page"))
 
 

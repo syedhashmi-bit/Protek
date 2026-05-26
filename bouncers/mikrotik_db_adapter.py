@@ -36,6 +36,37 @@ from . import register
 class MikroTikDBAdapter:
     """DB-configured MikroTik. Each row in bouncer_targets is one router."""
 
+    # Phase 82 — field_schema() drives the /bouncers/add wizard rendering.
+    # Each entry maps directly to a wizard input. `mask=True` renders as
+    # <input type="password">; `coerce` is applied to the posted string
+    # before it lands in config_json.
+    field_schema = [
+        {"name": "host", "label": "Router host or IP", "type": "text",
+         "required": True, "placeholder": "192.168.88.1",
+         "help": "RouterOS API host. Hostname or IP — port goes in the next field."},
+        {"name": "username", "label": "API username", "type": "text",
+         "required": True, "placeholder": "protek-api",
+         "help": "Dedicated user with `read,write,api,!sensitive` rights on the firewall menu. "
+                 "Don't use admin."},
+        {"name": "password", "label": "API password", "type": "password",
+         "required": True, "mask": True,
+         "help": "Stored at rest in bouncer_targets.config_json. Never shown again after save — "
+                 "rotate from the edit page when needed."},
+        {"name": "port", "label": "API port", "type": "number",
+         "required": False, "placeholder": "8728", "default": 8728, "coerce": "int",
+         "help": "8728 (plaintext) or 8729 (TLS, set use_ssl=true)."},
+        {"name": "use_ssl", "label": "Use TLS (API 8729)", "type": "checkbox",
+         "required": False, "default": False, "coerce": "bool"},
+        {"name": "address_list", "label": "Address-list name", "type": "text",
+         "required": False, "placeholder": "crowdsec", "default": "crowdsec",
+         "help": "Name of the address-list on the router. Operator's firewall rules "
+                 "consume this list — Protek never touches the rules."},
+        {"name": "max_entries", "label": "Max entries (optional cap)", "type": "number",
+         "required": False, "placeholder": "30000", "coerce": "int_or_none",
+         "help": "Leave blank to push everything. Useful for slower routers that struggle "
+                 "with multi-thousand address-lists."},
+    ]
+
     def __init__(self, name: str = "mikrotik",
                  host: str = "", username: str = "", password: str = "",
                  port: int = 8728, use_ssl: bool = False,

@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% from "_wizard.html" import wizard_styles, wizard_steps, wizard_step,
+                                 wizard_nav, wizard_script %}
+
+{% block title %}Add bouncer · PROTEK{% endblock %}
+
+{% block content %}
+{{ wizard_styles() }}
+
+<style>
+.kind-card{display:block;background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;
+  padding:16px;cursor:pointer;transition:border-color .15s,background .15s}
+.kind-card:hover{border-color:var(--cyan)}
+.kind-card.selected{border-color:var(--cyan);background:var(--bg-raised);box-shadow:0 0 0 2px rgba(0,200,255,.18)}
+.kind-card h4{margin:0 0 6px;color:var(--cyan);font-size:13px;letter-spacing:.12em;text-transform:uppercase}
+.kind-card .sub{font-size:11px;color:var(--muted);line-height:1.6}
+.kind-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field-help-url{font-size:11px;color:var(--info)}
+.field-help-url::before{content:"↗ "}
+</style>
+
+<div style="max-width:760px;margin:0 auto;padding:32px 20px">
+  <div style="margin:0 0 24px">
+    <a href="{{ url_for('bouncers_page') }}" style="font-size:11px;color:var(--muted)">← Back to /bouncers</a>
+    <h1 style="margin:8px 0 4px;font-size:18px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan)">
+      Add bouncer target
+    </h1>
+    <p style="margin:0;font-size:12px;color:var(--muted);line-height:1.6">
+      A bouncer target is a downstream firewall Protek pushes decisions to.
+      The wizard picks the adapter, collects the kind-specific fields with
+      help text inline, health-probes the target, and saves it in dry-run
+      mode by default. Promote to live from the /bouncers row when ready.
+      <a href="{{ url_for('bouncers_add', advanced='1') }}">Skip the wizard</a>
+      if you prefer the raw JSON form.
+    </p>
+  </div>
+
+  {% if form_error %}
+  <div style="background:rgba(255,56,96,.08);border:1px solid var(--red);border-radius:3px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--red)">
+    {{ form_error }}
+  </div>
+  {% endif %}
+
+  {{ wizard_steps(["Adapter kind", "Configure", "Probe + save"]) }}
+
+  <form method="POST" action="{{ url_for('bouncers_add') }}" id="bouncer-add-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    {% call wizard_step(1, "Adapter kind") %}
+      <p class="help" style="margin:0 0 12px">
+        Pick the firewall family that matches your target. Each kind has its
+        own configuration set, surfaced in step 2 once you've selected.
+      </p>
+      <div class="kind-cards">
+        {% for k in kinds %}
+        <label class="kind-card" data-kind="{{ k.kind }}">
+          <input type="radio" name="kind" value="{{ k.kind }}" required style="display:none"
+                 {% if loop.first %}checked{% endif %}>
+          <h4>{{ k.title }}</h4>
+          <div class="sub">{{ k.blurb }}</div>
+        </label>
+        {% endfor %}
+      </div>
+
+      <label for="b-name" style="margin-top:20px">Name (label only)</label>
+      <input id="b-name" type="text" name="name" required
+             pattern="[a-zA-Z0-9_-]+" placeholder="cf-main"
+             value="{{ form_name or '' }}">
+      <p class="help">
+        Display label only — alphanumeric, underscores, or hyphens.
+        Must be unique across bouncer_targets.
+      </p>
+    {% endcall %}
+
+    {% call wizard_step(2, "Configure") %}
+      <p class="help" style="margin:0 0 12px">
+        Fields below are scoped to the adapter you picked in step 1. Required
+        fields are marked with *. Helper text under each input explains the
+        value and links to provider docs where relevant.
+      </p>
+      {% for k in kinds %}
+      <fieldset class="kind-fields" data-kind="{{ k.kind }}" style="border:0;padding:0;margin:0">
+        {% for f in k.fields %}
+        <div style="margin-bottom:14px" data-field="{{ f.name }}">
+          {% if f.type == 'checkbox' %}
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:0">
+            <input type="checkbox" name="cfg__{{ k.kind }}__{{ f.name }}"
+                   {% if f.default %}checked{% endif %}
+                   data-required="{{ f.required|tojson }}">
+            <span>{{ f.label }}{% if f.required %} *{% endif %}</span>
+          </label>
+          {% else %}
+          <label for="b-{{ k.kind }}-{{ f.name }}">
+            {{ f.label }}{% if f.required %} *{% endif %}
+          </label>
+          <input id="b-{{ k.kind }}-{{ f.name }}"
+                 type="{% if f.mask %}password{% else %}{{ f.type }}{% endif %}"
+                 name="cfg__{{ k.kind }}__{{ f.name }}"
+                 data-required="{{ f.required|tojson }}"
+                 {% if f.placeholder %}placeholder="{{ f.placeholder }}"{% endif %}
+                 {% if f.default is defined and f.default %}value="{{ f.default }}"{% endif %}
+                 autocomplete="off">
+          {% endif %}
+          {% if f.help %}
+          <p class="help">{{ f.help }}
+            {% if f.help_url %}
+            <a href="{{ f.help_url }}" target="_blank" rel="noopener" class="field-help-url">where do I find this?</a>
+            {% endif %}
+          </p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </fieldset>
+      {% endfor %}
+    {% endcall %}
+
+    {% call wizard_step(3, "Probe + save") %}
+      <p class="help" style="margin:0 0 12px">
+        On save: the adapter is instantiated with your config, a health
+        probe runs (DNS → connect → auth → API smoke), and the row is
+        inserted with <span class="mono">dry_run=1</span>. The target won't
+        push live until you promote it from /bouncers.
+      </p>
+      <p class="help" style="margin:0">
+        If the probe fails, you'll be returned to this form with the
+        error inline and your field values preserved.
+      </p>
+
+      <label style="display:flex;align-items:center;gap:10px;margin-top:20px;cursor:pointer">
+        <input type="checkbox" name="dry_run" value="1" checked>
+        <span>Save as <span class="mono">dry-run</span> (recommended for first deploy)</span>
+      </label>
+      <p class="help">
+        Uncheck only if you've already validated this target elsewhere
+        (e.g. a second router of the same kind).
+      </p>
+    {% endcall %}
+
+    {{ wizard_nav() }}
+  </form>
+</div>
+
+<script>
+// Selected-kind highlight + per-kind fieldset visibility.
+(function(){
+  const cards = document.querySelectorAll('.kind-card');
+  const sets  = document.querySelectorAll('.kind-fields');
+  function syncKind(kind){
+    cards.forEach(c => c.classList.toggle('selected', c.dataset.kind === kind));
+    sets.forEach(s => {
+      const match = s.dataset.kind === kind;
+      s.style.display = match ? '' : 'none';
+      // Toggle the required attribute on inputs that explicitly declared it,
+      // so the wizard's per-step validateStep() only checks the visible set.
+      s.querySelectorAll('input').forEach(inp => {
+        const wantsRequired = inp.dataset.required === 'true';
+        if (match && wantsRequired) inp.setAttribute('required', 'required');
+        else inp.removeAttribute('required');
+      });
+    });
+  }
+  cards.forEach(c => c.addEventListener('click', () => {
+    c.querySelector('input').checked = true;
+    syncKind(c.dataset.kind);
+  }));
+  const initial = document.querySelector('.kind-card input:checked')?.value
+                 || document.querySelector('.kind-card')?.dataset.kind;
+  if (initial) syncKind(initial);
+})();
+</script>
+
+{{ wizard_script() }}
+{% endblock %}
