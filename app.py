@@ -3151,10 +3151,18 @@ def federation_page():
     )
 
 
-@app.route("/federation/add", methods=["POST"])
+@app.route("/federation/add", methods=["GET", "POST"])
 @login_required
 @role_required("operator")
 def federation_add():
+    # GET renders the phase-81 wizard (3 steps). `?advanced=1` falls back
+    # to the single one-shot form for operators who already know all the
+    # values. The POST handler is shared so both forms write through the
+    # same code path.
+    if request.method == "GET":
+        if request.args.get("advanced"):
+            return render_template("federation_add_advanced.html")
+        return render_template("federation_add.html")
     name = (request.form.get("name") or "").strip()
     url = (request.form.get("url") or "").strip()
     api_key = (request.form.get("api_key") or "").strip()

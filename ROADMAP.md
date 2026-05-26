@@ -921,18 +921,26 @@ unifying theme is **make every supported setup reachable from the dashboard
 with structured fields, structured diagnostics, and zero external docs
 required**.
 
-### Phase 81 — Shared wizard primitive
+### Phase 81 — Shared wizard primitive ✅ shipped (2026-05-26)
 
-- [ ] `templates/_wizard.html` — numbered step indicator, prev/next buttons,
-  client-side validation per step, all draft state in hidden form fields
-  (no server session). Matches the NOC aesthetic.
-- [ ] One CSS class set documented in `docs/UI.md`; reusable across modules.
-- [ ] Proof of concept: rewrite `/federation/add` to use the wizard. Existing
-  one-shot form stays reachable at `/federation/add?advanced=1`.
+- [x] `templates/_wizard.html` — numbered step indicator, prev/next
+  buttons, client-side validation per step, all draft state in hidden
+  form fields (no server session). Matches the NOC aesthetic via the
+  base.html palette (cyan accent on active step, green checkmark on
+  done, amber on invalid). Macros: `wizard_styles()`, `wizard_steps()`,
+  `wizard_step(n, title)`, `wizard_nav()`, `wizard_script()`.
+- [x] CSS class set documented in `docs/UI.md` §8 (Wizards). Reusable
+  across modules — bouncer add, federation add, first-run, SSO config.
+- [x] Proof of concept: `/federation/add` is now a 3-step wizard
+  (Source info → API key → Test + save). The existing one-shot form
+  stays reachable at `/federation/add?advanced=1` via a separate
+  `federation_add_advanced.html` template. POST handler is shared so
+  both forms exercise the same code path.
 
-**Acceptance:** federation-add becomes a 3-step wizard with no functional
-regression — same fields collected, same health-probe-then-save behavior,
-same audit log entries.
+**Acceptance:** ✅ federation-add is a guided 3-step wizard with no
+functional regression — same fields collected (name, url, api_key,
+confidence), same `federation.test_connection()` probe before save,
+same `_audit("federation.add", …)` entry on success.
 
 ---
 

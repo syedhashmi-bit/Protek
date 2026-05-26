@@ -127,31 +127,18 @@
 </div>
 
 <!-- Add source -->
-<div class="panel" style="margin-top:16px">
-  <h2>Add Remote Source</h2>
-  <form method="POST" action="{{ url_for('federation_add') }}" style="display:grid;grid-template-columns:1fr 2fr 2fr 80px 120px;gap:10px;align-items:end">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div>
-      <label>Name</label>
-      <input type="text" name="name" placeholder="vps-2" required pattern="[a-zA-Z0-9_-]+">
+<div class="panel" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;padding:18px 20px">
+  <div>
+    <h2 style="margin:0 0 4px">Add Remote Source</h2>
+    <div class="muted" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+      Guided 3-step wizard: source info → key paste → connection probe + save.
+      Per-source bouncer keys never leave this server.
     </div>
-    <div>
-      <label>LAPI URL</label>
-      <input type="text" name="url" placeholder="https://lapi.example.com:8080" required>
-    </div>
-    <div>
-      <label>Bouncer Key</label>
-      <input type="password" name="api_key" required>
-    </div>
-    <div>
-      <label>Confidence</label>
-      <input type="number" name="confidence" value="1" min="1" max="10">
-    </div>
-    <button class="btn" type="submit">Test &amp; Add</button>
-  </form>
-  <div class="muted" style="margin-top:10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase">
-    Connection is health-probed before save. Per-source bouncer keys never leave this server.
   </div>
+  <a href="{{ url_for('federation_add') }}" class="btn"
+     style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;text-decoration:none;border-radius:3px">
+    + Add source →
+  </a>
 </div>
 
 <!-- Confidence threshold -->

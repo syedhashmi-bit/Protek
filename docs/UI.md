@@ -190,7 +190,84 @@ The aesthetic uses tight contrast in places (muted slate text). Provide:
 
 ---
 
-## 8. What the UI is NOT
+## 8. Wizards (`_wizard.html` macro set)
+
+Arc 14 phase 81 ships a shared multi-step wizard primitive at
+`templates/_wizard.html`. Use it whenever a configuration flow needs more
+than one logical step (bouncer add, federation source add, first-run
+setup, SSO config).
+
+### Usage
+
+```jinja
+{% extends "base.html" %}
+{% from "_wizard.html" import wizard_styles, wizard_steps, wizard_step,
+                                 wizard_nav, wizard_script %}
+
+{% block head %}{{ wizard_styles() }}{% endblock %}
+
+{% block content %}
+{{ wizard_steps(["Step A", "Step B", "Step C"]) }}
+<form method="POST" action="…">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% call wizard_step(1, "Step A") %}
+    <label>Name</label><input name="name" required>
+  {% endcall %}
+  {% call wizard_step(2, "Step B") %}
+    <label>Key</label><input name="key" required>
+  {% endcall %}
+  {% call wizard_step(3, "Step C") %}
+    <p>Review then save.</p>
+  {% endcall %}
+  {{ wizard_nav() }}
+</form>
+{{ wizard_script() }}
+{% endblock %}
+```
+
+### CSS classes (all defined in `wizard_styles()`)
+
+- `.wiz-steps` — the numbered step indicator at the top. Becomes the only
+  scoped element that uses `<ol>`. Each child `<li>` is a `.wiz-step-pill`.
+- `.wiz-step-pill.active` — current step, cyan tint, glowing number disc.
+- `.wiz-step-pill.done` — earlier step, green tint, checkmark replaces the
+  number. Clicking jumps back (forward jumps require validation).
+- `.wiz-panel` — one per step. `.active` makes it visible; others are
+  `display:none`. The `_wizard.html` JS toggles this on next/prev.
+- `.wiz-panel h3` — step title; styled in cyan uppercase to match the
+  topbar crumb style.
+- `.wiz-panel label / input / select / textarea / .help / pre` — the
+  primary control set. Help text uses `.help` for the muted explanation
+  line below each field.
+- `.wiz-err` — validation error banner at the top of the form. Shown by
+  the JS when a required field fails `checkValidity()`.
+- `.wiz-nav` — the prev/next button row at the bottom. Contains
+  `#wiz-prev` (`.btn`) and `#wiz-next` (`.btn .primary`). The next button
+  text flips to "Save →" on the last step.
+
+### State model
+
+Wizards are **purely client-side**. State lives in the form's hidden /
+visible fields; navigation just toggles `.active` on the panels. On submit
+the full form POSTs in one shot — no server-side draft persistence, no
+session state, no autosave. A page refresh resets the wizard.
+
+This matches the existing one-shot-form pattern; the wizard is just a
+guided rendering of the same fields, not a state machine.
+
+### Optional `?advanced=1` escape hatch
+
+Long-form wizards should also expose a one-shot form at
+`?advanced=1` for operators who already know all the values. The route
+returns the wizard template by default and the advanced template when
+the query param is present. POST handler is shared.
+
+See `templates/federation_add.html` + `templates/federation_add_advanced.html`
+for the canonical pattern.
+
+---
+
+## 9. What the UI is NOT
 
 - **Not Bootstrap.** No Bootstrap classes, no Bootstrap defaults visible. Don't even import it.
 - **Not Material.** No ripples, no FABs, no shadows that look like paper.
