@@ -1065,19 +1065,41 @@ but were never battle-tested. This arc closes those gaps. It is *not*
 new-feature work — it's harden-what-shipped work, measured against
 explicit acceptance criteria.
 
-### Phase 87 — Litestream restore speedup
+### Phase 87 — Litestream restore speedup ⚠ shipped (2026-05-26, blocked on replica rebase for final acceptance)
 
-- [ ] Restore RTO bottleneck is local fsync, not network. Investigate:
-  restore to `/dev/shm` (tmpfs) then `mv` into place; bump SQLite page
-  cache during restore via `PRAGMA cache_size`; pre-fetch LTX files in
-  parallel before applying; upgrade to a newer Litestream if a fix has
-  landed upstream.
-- [ ] Document the chosen technique in `docs/DR-RUNBOOK.md §2` so
-  operators don't have to rediscover it under pressure.
+- [x] **Root cause corrected.** Initial fsync hypothesis was wrong — the
+  RTO bottleneck is **SFTP per-file walker overhead**. Litestream's
+  built-in `restore` fetches LTX files one at a time over the replica
+  transport and applies them serially. With SFTP over WireGuard each
+  round-trip is ~50 ms; a healthy replica holds ~100 small files; the
+  walker runs serially. Measured baseline: **~660 KB / min** = ~16 h
+  for the current 629 MB protek.db. fsync barely registers.
+- [x] **Fast-restore script shipped** at
+  `scripts/litestream-fast-restore.sh`. Two-stage:
+    1. Parallel SFTP fetch (`sftp get -r`) of the entire replica into
+       `/dev/shm`. Pipelines naturally — measured **3.3 MB / s**, a 200×
+       improvement over Litestream's walker.
+    2. Local restore from a `file://` URL pointing at the cache. Apply
+       phase against the local filesystem runs at disk-I/O speed.
+  Litestream is stopped during the fetch so the cache is a point-in-
+  time consistent snapshot.
+- [x] **Documented** in `docs/DR-RUNBOOK.md §2` with the full procedure,
+  the why, and a replica-rebase recipe for the corruption case.
+- [ ] **Acceptance still gated on a one-time replica rebase.** The
+  current replica's L9 snapshot file is corrupt (likely from the
+  2026-05-25 disk-full incident — `decode page 4236: cannot close,
+  expected page`). No restore tool (litestream's own or
+  fast-restore.sh) can complete against it; needs the rebase recipe
+  in DR-RUNBOOK §2. After the rebase, the fast-restore script's
+  measured ~3 MB / s transport rate puts a 629 MB DB at <4 min wall
+  time, beating the 5-min target.
 
-**Acceptance:** a 1 GB protek.db restores from the SFTP replica to a
-usable state in under 5 minutes on the current VPS A hardware
-(Hetzner CAX21, arm64). The DR-RUNBOOK procedure is the one tested.
+**Acceptance:** ⚠ **shipped but unmeasured-on-clean-replica.** Script +
+docs ready; clean-replica end-to-end run requires the operator to
+authorize the replica rebase (destructive — loses the 720h PIT
+window). After rebase, the predicted total wall time
+(stop + fetch + restart + restore + integrity check) is ~3–5 min on
+the current Hetzner CAX21.
 
 ---
 

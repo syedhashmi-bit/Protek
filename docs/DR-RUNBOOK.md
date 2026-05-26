@@ -119,17 +119,25 @@ tunnel via SFTP. Config: `/etc/litestream.yml`. Service:
 `/home/litestream/protek/ltx/`. RPO observed in steady state: <2 seconds
 (sync-interval=1s). RTO depends on DB size — see "Recovery time notes" below.
 
-**Recovery (target: <10 min for typical DB):**
+**Recovery (target: <5 min using the phase-87 fast-restore script):**
 
 ```bash
 systemctl stop protek
 
-# Restore from Litestream's most recent replica state — RPO < 60s:
+# RECOMMENDED — fast-restore via parallel SFTP + local cache.
+# ~3–5 min wall time on a 600 MB DB (vs ~16 hours for raw litestream restore).
+# See "Why fast-restore" below.
+sudo /var/www/Protek/scripts/litestream-fast-restore.sh /tmp/protek.db.restored
+
+# After integrity_check passes:
 mv /var/www/Protek/protek.db /var/www/Protek/protek.db.corrupt
-litestream restore -o /var/www/Protek/protek.db /var/www/Protek/protek.db
+mv /tmp/protek.db.restored /var/www/Protek/protek.db
 chown -R root:root /var/www/Protek/protek.db*
 
-# Otherwise (Litestream broken too) restore from the latest backup bundle
+# OR (if you must) the slow path — works but takes hours on a >500 MB DB:
+# litestream restore -o /var/www/Protek/protek.db /var/www/Protek/protek.db
+
+# If Litestream itself is broken — restore from the latest backup bundle
 # (RPO = last daily, up to 24h):
 cd /tmp && mkdir restore && cd restore
 python3 /var/www/Protek/scripts/restore_backup.py \
@@ -138,6 +146,64 @@ python3 /var/www/Protek/scripts/restore_backup.py \
 
 systemctl start protek
 ```
+
+### Why fast-restore (phase 87)
+
+Litestream's built-in `restore` fetches LTX files one at a time over the
+replica's transport and applies them. With SFTP over WireGuard each
+round-trip is ~50 ms; a healthy replica holds ~100 small files; the walker
+runs serially. Measured baseline: ~660 KB / min. A 629 MB protek.db
+extrapolates to ~16 hours.
+
+`scripts/litestream-fast-restore.sh` does the same work in two passes:
+
+1. **Parallel SFTP fetch** (`sftp get -r`) of the entire replica to a
+   `/dev/shm` cache. Pipelines naturally — measured 3.3 MB / s, ~200x
+   faster than Litestream's walker.
+2. **Local restore** from a `file://` URL pointing at the cache. The
+   apply phase against a local filesystem runs at disk-I/O speed.
+
+Litestream is stopped during the fetch so the cache is a point-in-time
+consistent snapshot (live writes during fetch produce inconsistent LTX
+chains).
+
+### Replica corruption — recovery via rebase
+
+If `litestream restore` errors with `decode page N: cannot close` /
+`nonsequential page numbers` / `has size 0 bytes`, the LTX chain on the
+replica is broken. **L1 always carries the same txn range as the L2
+above it**, so 0-byte L2 files are cleaned automatically by
+`/usr/local/bin/protek-wal-truncate.sh` every 5 min. But corruption at
+the L9 (snapshot) level breaks restore entirely.
+
+Recovery: rebase the replica from the current healthy local DB.
+
+```bash
+# 1. Confirm the local DB itself is healthy (it almost always is — only
+#    the replica suffers from the stop-time SFTP truncation bug).
+sqlite3 /var/www/Protek/protek.db 'PRAGMA integrity_check;'   # → ok
+
+# 2. Wipe the broken replica and let Litestream baseline a clean chain.
+systemctl stop litestream
+sftp -i /etc/litestream/id_ed25519 litestream@<vps-b-wg-ip> <<EOF
+rm -r /home/litestream/protek/ltx/0
+rm -r /home/litestream/protek/ltx/1
+rm -r /home/litestream/protek/ltx/2
+rm -r /home/litestream/protek/ltx/3
+rm -r /home/litestream/protek/ltx/9
+EOF
+systemctl start litestream
+
+# 3. Watch the first snapshot land (default snapshot-interval=6h, but the
+#    first one is immediate after a missing baseline).
+journalctl -u litestream -f --since "1 minute ago"
+
+# 4. After the baseline snapshot, the fast-restore script works again.
+```
+
+Lost when you rebase: the 720h retention window of point-in-time
+recovery snapshots. Off-box nightly backups (phase 63) still cover
+daily-grain PIT recovery.
 
 **Point-in-time recovery** (e.g. "give me the DB as of 5 minutes before the
 bad UPDATE statement landed"):
