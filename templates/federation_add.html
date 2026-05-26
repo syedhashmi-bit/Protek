@@ -101,11 +101,24 @@ sudo ufw allow from {{ protek_host_ip or '&lt;protek-host-IP&gt;' }} to any port
 
     {% call wizard_step(4, "Test + save") %}
       <p class="help" style="margin:0 0 12px">
-        The form runs a connection test against the remote LAPI before
-        saving (HTTP fetch + auth handshake + version probe). If the test
-        fails, the wizard returns you to step 1 with the error displayed so
-        you can correct the URL or key without re-typing.
+        The form runs a structured 5-rung probe against the remote LAPI
+        (parse URL → DNS → TCP → TLS → auth → API) before saving. If any
+        rung fails, the ladder shows exactly which one — no more guessing
+        between "wrong key" and "firewall blocking TCP 8080".
       </p>
+
+      <button type="button" id="fed-probe-btn"
+              style="margin:8px 0 12px;padding:8px 16px;font-family:'Share Tech Mono',monospace;
+                     font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+                     background:var(--bg-raised);border:1px solid var(--cyan);color:var(--cyan);
+                     border-radius:3px;cursor:pointer">
+        ↻ Run diagnostic probe (without saving)
+      </button>
+      <div id="fed-probe-result" style="display:none;background:var(--bg-deep);border:1px solid var(--border);
+                                         border-radius:3px;padding:12px;margin-bottom:12px;font-family:'Share Tech Mono',monospace;font-size:12px">
+        <!-- filled by JS -->
+      </div>
+
       <p class="help">
         On success: the source row is created, bootstrap pulls active
         decisions on the next reconcile cycle (default 10 s), and the audit
@@ -115,6 +128,58 @@ sudo ufw allow from {{ protek_host_ip or '&lt;protek-host-IP&gt;' }} to any port
 
     {{ wizard_nav() }}
   </form></div>
+
+<script>
+// Phase 84 — federation diagnostic probe. Same /api/diagnose endpoint
+// as the bouncer wizard; the LAPI shape is the default so no per-kind
+// overrides needed.
+(function(){
+  const btn = document.getElementById('fed-probe-btn');
+  const out = document.getElementById('fed-probe-result');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const url = document.querySelector('input[name="url"]').value.trim();
+    const key = document.querySelector('input[name="api_key"]').value.trim();
+    if (!url || !key) {
+      out.style.display = 'block';
+      out.innerHTML = '<div style="color:var(--amber)">Fill URL (step 1) and key (step 3) first.</div>';
+      return;
+    }
+    out.style.display = 'block';
+    out.innerHTML = '<div style="color:var(--info)">↻ probing…</div>';
+    try {
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const r = await fetch('/api/diagnose', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+        body: JSON.stringify({url, api_key: key}),
+      });
+      const data = await r.json();
+      if (!data.rows) {
+        out.innerHTML = `<div style="color:var(--red)">probe error: ${data.error || 'unknown'}</div>`;
+        return;
+      }
+      const head = data.summary.ok
+        ? `<div style="color:var(--green);margin-bottom:8px">✓ ${data.summary.headline}</div>`
+        : `<div style="color:var(--red);margin-bottom:8px">✗ ${data.summary.headline}</div>`;
+      const rows = data.rows.map(r => {
+        const colors = {ok: 'var(--green)', fail: 'var(--red)', skip: 'var(--muted)'};
+        const icon  = {ok: '✓', fail: '✗', skip: '·'}[r.status];
+        return `<div style="display:flex;gap:8px;padding:2px 0;color:${colors[r.status]}">
+                  <span style="width:14px">${icon}</span>
+                  <span style="width:50px;text-transform:uppercase;letter-spacing:.12em;font-size:10px">${r.step}</span>
+                  <span style="flex:1">${r.detail || ''}</span>
+                  ${r.ms ? `<span style="color:var(--muted)">${r.ms}ms</span>` : ''}
+                </div>
+                ${r.hint ? `<div style="margin-left:72px;color:var(--info);font-size:11px;margin-bottom:4px">↳ ${r.hint}</div>` : ''}`;
+      }).join('');
+      out.innerHTML = head + rows;
+    } catch (e) {
+      out.innerHTML = `<div style="color:var(--red)">probe error: ${e}</div>`;
+    }
+  });
+})();
+</script>
 
 {{ wizard_script() }}
 {% endblock %}

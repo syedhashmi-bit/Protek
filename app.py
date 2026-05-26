@@ -2379,6 +2379,49 @@ def _bouncer_add_fail(msg: str):
     return redirect(url_for("bouncers_page"))
 
 
+@app.route("/api/diagnose", methods=["POST"])
+@login_required
+@role_required("operator")
+def api_diagnose():
+    """Phase 84 — JSON endpoint backing the diagnostic ladder UI.
+    Accepts {url, api_key?, kind?} and returns {rows: [...], summary: {...}}.
+
+    Bouncer/federation pages call this on a button click; the wizard
+    surfaces the structured failure inline. No DB writes, no audit
+    entries — it's just a probe.
+    """
+    import diagnostic
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("url") or "").strip()
+    api_key = (payload.get("api_key") or "").strip() or None
+    if not url:
+        return jsonify({"ok": False, "error": "url is required"}), 400
+    # Per-kind tweaks: bouncer adapters use different auth headers /
+    # smoke paths than the CrowdSec LAPI. Default = LAPI shape.
+    kind = (payload.get("kind") or "").strip().lower()
+    kwargs = {}
+    if kind == "cloudflare":
+        # Cloudflare uses bearer auth; the diagnose path probes the
+        # IPs/lists root.
+        kwargs["auth_header"] = "Authorization"
+        if api_key and not api_key.startswith("Bearer "):
+            api_key = f"Bearer {api_key}"
+        kwargs["api_smoke_path"] = "/client/v4/user/tokens/verify"
+        kwargs["api_smoke_query"] = {}
+    elif kind in ("pfsense",):
+        kwargs["auth_header"] = "X-API-Key"
+        kwargs["api_smoke_path"] = "/api/v2/status/system"
+        kwargs["api_smoke_query"] = {}
+    elif kind in ("opnsense",):
+        # OPNsense uses HTTP basic; we can't model that with a header
+        # field cleanly. Skip auth probing — TLS + reachability is the
+        # value here.
+        kwargs["api_smoke_path"] = "/api/diagnostics/interface/getInterfaceNames"
+        kwargs["api_smoke_query"] = {}
+    rows = diagnostic.diagnose_url(url, api_key=api_key, **kwargs)
+    return jsonify({"rows": rows, "summary": diagnostic.summary(rows)})
+
+
 @app.route("/bouncers/promote/<int:tid>", methods=["POST"])
 @login_required
 @role_required("operator")
@@ -3352,10 +3395,21 @@ def federation_add():
     if not name.replace("-", "").replace("_", "").isalnum():
         flash("name must be alphanumeric (plus _ and -).", "error")
         return redirect(url_for("federation_page"))
-    # Health probe before save.
+    # Health probe before save. Phase 84 — run the structured ladder
+    # alongside the legacy single-shot probe so failure messages can
+    # name the failing rung instead of just "Connection failed: …".
     probe = federation.test_connection(url, api_key)
     if not probe.get("ok"):
-        flash(f"Connection failed: {probe.get('error')}", "error")
+        try:
+            import diagnostic
+            rows = diagnostic.diagnose_url(url, api_key=api_key)
+            summary = diagnostic.summary(rows)
+            detail = summary["headline"]
+            if summary["fail_hint"]:
+                detail += f" — {summary['fail_hint']}"
+        except Exception:  # noqa: BLE001
+            detail = probe.get("error") or "unknown"
+        flash(f"Connection failed: {detail}", "error")
         return redirect(url_for("federation_page"))
     try:
         federation.add_source(name=name, url=url, api_key=api_key, confidence=confidence)

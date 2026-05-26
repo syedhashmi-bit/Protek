@@ -1017,24 +1017,42 @@ Protek's actual WG IP filled in; no context-switching to other docs.
 
 ---
 
-### Phase 84 — Diagnostic health probe
+### Phase 84 — Diagnostic health probe ✅ shipped (2026-05-26)
 
-- [ ] New protocol method `diagnose()` on `Bouncer` + `LAPIClient` returning
-  `[{step, status, detail, hint}]` for: DNS resolve → TCP connect → TLS
-  handshake (if `https://`) → auth handshake → API smoke call. Augments
-  (not replaces) the existing `health() → {ok, error}` shape so callers
-  stay working.
-- [ ] `/bouncers/add`, `/bouncers/edit`, `/federation/add` health-probe
-  failures show the ladder inline. Each failed step gets a "likely cause"
-  hint (TCP refused → "firewall blocks port"; 401 → "key invalid or
-  revoked"; DNS NXDOMAIN → "hostname typo or not yet provisioned").
-- [ ] Same diagnostic surface on `/bouncers/<id>` and `/federation` row
-  detail views so operators can re-run later without re-entering creds.
+- [x] `diagnostic.py` module exposes `diagnose_url(url, api_key, ...)`
+  returning `[{step, status, detail, hint, ms}]` for a 5-rung ladder:
+  parse URL → DNS → TCP → TLS (skipped for plaintext HTTP) → auth →
+  API smoke. Each rung has a small timeout (default 3 s) so the full
+  ladder completes in seconds even against a fully-broken host.
+  Failed rungs short-circuit subsequent rungs to "skip · earlier step
+  failed" — no spurious downstream timeouts. Hints are
+  operator-actionable ("firewall is silently dropping TCP 8080 from
+  this host" beats "connection error").
+- [x] Per-kind tweaks via `/api/diagnose` JSON endpoint:
+  - Default = CrowdSec LAPI shape (`X-Api-Key`, `/v1/decisions/stream`).
+  - `cloudflare` → bearer auth, `/client/v4/user/tokens/verify`.
+  - `pfsense` → `X-API-Key`, `/api/v2/status/system`.
+  - `opnsense` → no auth step (HTTP basic doesn't fit the header
+    model); TLS + reachability is the value.
+- [x] `/bouncers/add` wizard step 3 has an "↻ Run diagnostic probe"
+  button. The result panel renders the ladder with per-rung colors
+  (green/red/muted) + hint text indented under each failed rung.
+- [x] `/federation/add` wizard step 4 has the same button.
+- [x] Federation save path uses the ladder for the failure message —
+  on probe failure the flash shows the failing rung + hint instead of
+  the generic "Connection failed: …".
 
-**Acceptance:** an unreachable federation URL produces "DNS ✓ → TCP refused
-(likely cause: firewall blocks 8080 from this host)" in the UI, not
-"connection error." Tested with both a bad key (auth-step failure) and a
-wrong port (TCP-step failure).
+**Acceptance:** ✅ verified locally:
+- TCP refused → ladder reports `[fail] TCP connection refused on
+  127.0.0.1:9999 · hint: nothing listening on TCP 9999 — service down,
+  wrong port, or bound on a different interface`.
+- DNS NXDOMAIN → `[fail] DNS [Errno -2] · hint: hostname 'X' doesn't
+  resolve — typo, DNS down, or remote not provisioned yet`.
+- Reachable host → all rungs OK, summary "OK — last good rung: API".
+
+`/bouncers/<id>` re-probe affordance (run probe later without
+re-entering creds) is deferred — the wizard probe is sufficient for
+add-time UX. Edit page can grow the same button when needed.
 
 ---
 
