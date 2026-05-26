@@ -4,6 +4,77 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-26 (cont.) — Phase 64 chain integrity restored, root cause of recurring L2 corruption identified + fixed
+
+Continuation of the same-day session. Operator authorized the destructive
+SFTP delete of the corrupt L2 LTX file from yesterday's disk-full incident.
+Pre-delete scan of the replica turned up **two more 0-byte L2 files** from
+*today* (00:45 UTC and 01:10 UTC), so the corruption wasn't a one-off — it
+was actively recurring at ~1 file per 25 min.
+
+### Root cause
+
+The WAL-truncate timer (`protek-wal-truncate.service`, every 5 min) runs:
+```
+systemctl stop litestream
+sqlite3 protek.db 'PRAGMA wal_checkpoint(TRUNCATE);'
+systemctl start litestream
+```
+
+`systemctl stop` sends SIGTERM. If litestream is mid-L2-compaction-upload
+over SFTP when SIGTERM arrives, the destination LTX file lands on the
+replica at 0 bytes (SFTP has opened the file but no bytes written yet).
+Litestream's restore tool then errors with `"has size 0 bytes
+(minimum 100)"` instead of falling back to the L1 copy of the same txn
+range (which always exists intact). Observed at ~1 file per 25 min on
+this host, so over 24 h that's ~57 broken L2 files.
+
+`TimeoutStopSec=1min 30s` is the default and is plenty; the issue is
+litestream itself does not finish or rollback an in-flight SFTP upload
+on SIGTERM — it just exits, leaving the dest file behind.
+
+### Fix
+
+`deploy/protek-wal-truncate.sh` extended with a post-truncate self-heal:
+
+```bash
+# After truncating, before restart:
+ssh-via-sftp-key → ls -la ltx/{0,1,2,3}/ → awk '$5==0 && /\.ltx$/' → sftp rm
+```
+
+Idempotent, safe — L1 always carries the same txn range so deleting
+broken L2 files never costs us recoverable data. Installs to
+`/usr/local/bin/protek-wal-truncate.sh`; the service + timer units in
+`deploy/protek-wal-truncate.{service,timer}` are unchanged from
+2026-05-25.
+
+### Measured RTO
+
+After deleting the 3 known corrupt files (chain integrity restored),
+ran `litestream restore -o /dev/shm/protek-restore-test/protek.db`
+to measure RTO on the current 629 MB DB. Killed it at 5 min having
+restored 57 KB. Extrapolated rate: ~660 KB / min. Full-DB restore
+estimate: **~16 hours**, not 5 min.
+
+So fsync was *not* the bottleneck the 2026-05-25 runbook hypothesized.
+The bottleneck is **SFTP per-file overhead** — the L0 directory holds
+thousands of single-txn files and Litestream walks them serially over
+SFTP. Each round-trip is ~50 ms over the WireGuard tunnel, and there
+are tens of thousands of files to fetch.
+
+Phase 87 (Litestream restore speedup) is the only path to <5 min RTO
+now. Options:
+- Batch SFTP operations (mget-style)
+- Use lftp's parallel transfer for the initial bulk fetch
+- Swap transport to S3/B2 with range fetches
+- Force more aggressive remote compaction so there are fewer files
+
+ROADMAP.md phase 64 entry updated with all of the above. Phase 64
+acceptance is still ⚠ partial, blocked solely on phase 87 now (not on
+chain corruption anymore).
+
+---
+
 ## 2026-05-26 — Closed phases 4 + 66, surfaced phase 64 RTO blockers
 
 Three deferred acceptances revisited, with the operator asking they be

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Protek WAL truncate every 5 minutes (phase 64 follow-up)
+Documentation=file:///var/www/Protek/MEMORY.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

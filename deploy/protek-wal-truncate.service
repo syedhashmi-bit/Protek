@@ -1,0 +1,8 @@
+[Unit]
+Description=Protek SQLite WAL truncate cycle (bounds Litestream-blocked WAL growth)
+After=protek.service litestream.service
+ConditionPathExists=/var/www/Protek/protek.db
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/protek-wal-truncate.sh
