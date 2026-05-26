@@ -203,6 +203,15 @@ label{display:block;font-size:10px;letter-spacing:.18em;color:var(--muted);text-
       </span>
     {% endif %}
   </div>
+  {% if onboarding_banner %}
+  <a href="{{ url_for('onboarding') }}"
+     style="font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:.14em;
+            text-transform:uppercase;color:var(--amber);padding:4px 12px;border:1px solid var(--amber);
+            border-radius:3px;text-decoration:none;background:rgba(255,180,71,0.06)"
+     title="First-run setup: finish or skip the remaining steps to dismiss this banner permanently">
+    setup {{ onboarding_banner.done_n }}/{{ onboarding_banner.total }} →
+  </a>
+  {% endif %}
   <a href="{{ url_for('crowdsec_page') }}" target="_blank"
      style="font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:.14em;
             text-transform:uppercase;color:var(--cyan);padding:4px 12px;border:1px solid var(--cyan);

@@ -2198,6 +2198,233 @@ def bouncers_page():
                            active="bouncers")
 
 
+def _onboarding_steps() -> list[dict]:
+    """Phase 86 — compute the first-run setup state for each step.
+    Pure runtime check: looks at the actual config, no per-step persisted
+    "done" flag (you can't fake done by setting a bit). Skips are
+    operator-explicit and persisted in the `settings` table.
+
+    Returns: [{id, title, why, action_href, action_label, status, detail}]
+    where status ∈ {'done', 'skipped', 'pending'}.
+    """
+    import crowdsec
+    skipped = set(
+        (get_setting("onboarding.skipped") or "").split(",")
+    ) - {""}
+
+    def status(step_id: str, done: bool, detail: str = ""):
+        if done:
+            return "done", detail
+        if step_id in skipped:
+            return "skipped", ""
+        return "pending", ""
+
+    # 1. LAPI reachable
+    try:
+        from crowdsec import LAPIClient
+        lapi_url = os.environ.get("CROWDSEC_LAPI_URL") or "http://127.0.0.1:8080"
+        lapi_key = os.environ.get("CROWDSEC_BOUNCER_KEY") or ""
+        c = LAPIClient(url=lapi_url, api_key=lapi_key, name="onboarding-probe")
+        h = c.health()
+        lapi_ok = bool(h.get("ok"))
+        lapi_detail = f"{lapi_url} · v{h.get('version', '?')}" if lapi_ok else ""
+    except Exception:  # noqa: BLE001
+        lapi_ok, lapi_detail = False, ""
+
+    # 2. Has at least one bouncer target (legacy MT counts)
+    bouncer_count, live_bouncer_count = 0, 0
+    try:
+        import bouncers as bmod
+        for b in bmod.load_all_targets():
+            bouncer_count += 1
+            # Live = enabled + not dry-run (per the same rules as
+            # synthetic._live_bouncers).
+            if b.kind == "mikrotik_env":
+                sd = get_setting("settings.dry_run")
+                if sd in ("0", "1"):
+                    live = (sd == "0")
+                else:
+                    env_dry = (os.environ.get("DRY_RUN", "true") or "true").strip().lower()
+                    live = env_dry not in ("1", "true", "yes")
+                if live:
+                    live_bouncer_count += 1
+            else:
+                conn = get_conn()
+                try:
+                    row = conn.execute(
+                        "SELECT dry_run FROM bouncer_targets WHERE name=?", (b.name,)
+                    ).fetchone()
+                finally:
+                    conn.close()
+                if row and not int(row["dry_run"] or 0):
+                    live_bouncer_count += 1
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 4. Federation sources count
+    fed_count = 0
+    try:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM sources WHERE name != 'local'"
+            ).fetchone()
+            fed_count = int(row["n"]) if row else 0
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 5. At least one notification channel configured
+    try:
+        import notifications as nmod
+        notif_ok = any([
+            nmod.channel_configured("discord"),
+            nmod.channel_configured("telegram"),
+            nmod.channel_configured("email"),
+        ])
+    except Exception:  # noqa: BLE001
+        notif_ok = False
+
+    # Build the steps. action_href/label only matter when status==pending.
+    s1_status, s1_detail = status("lapi", lapi_ok, lapi_detail)
+    s2_status, s2_detail = status("bouncer", bouncer_count > 0,
+                                  f"{bouncer_count} configured")
+    s3_status, s3_detail = status("live", live_bouncer_count > 0,
+                                  f"{live_bouncer_count} live")
+    s4_status, s4_detail = status("federation", fed_count > 0,
+                                  f"{fed_count} sources")
+    s5_status, s5_detail = status("notifications", notif_ok, "configured")
+
+    return [
+        {
+            "id": "lapi", "status": s1_status, "detail": s1_detail,
+            "title": "Confirm CrowdSec LAPI reachable",
+            "why": "Protek needs to read decisions from a CrowdSec LAPI. "
+                   "This step is automatic — we probe the LAPI URL from .env "
+                   "and the bouncer key. If pending, check CROWDSEC_LAPI_URL "
+                   "and CROWDSEC_BOUNCER_KEY in /var/www/Protek/.env and "
+                   "restart the service.",
+            "action_href": "/crowdsec",
+            "action_label": "Open /crowdsec",
+        },
+        {
+            "id": "bouncer", "status": s2_status, "detail": s2_detail,
+            "title": "Add the first bouncer target",
+            "why": "A bouncer is a downstream firewall (MikroTik, pfSense, "
+                   "OPNsense, iptables, or Cloudflare) Protek pushes decisions "
+                   "to. The wizard at /bouncers/add walks you through it.",
+            "action_href": url_for("bouncers_add"),
+            "action_label": "Add bouncer →",
+        },
+        {
+            "id": "live", "status": s3_status, "detail": s3_detail,
+            "title": "Promote the bouncer to LIVE",
+            "why": "New bouncers default to dry-run for safety. Once you've "
+                   "verified the diff looks right in /mikrotik (or the target's "
+                   "page), promote it to LIVE so it starts pushing real bans.",
+            "action_href": url_for("bouncers_page"),
+            "action_label": "Open /bouncers",
+        },
+        {
+            "id": "federation", "status": s4_status, "detail": s4_detail,
+            "title": "Add a federation source (optional)",
+            "why": "If you have multiple CrowdSec instances across your fleet, "
+                   "you can federate them — Protek pulls from each, dedupes, "
+                   "and pushes the union. Skip this if you only have one LAPI.",
+            "action_href": url_for("federation_add"),
+            "action_label": "Add source →",
+        },
+        {
+            "id": "notifications", "status": s5_status, "detail": s5_detail,
+            "title": "Configure at least one notification channel",
+            "why": "Discord, Telegram, or SMTP — pick one (or more). Protek "
+                   "alerts on sync errors, LAPI/MT outages, login lockouts, "
+                   "and daily digests. The /notifications page has Test "
+                   "buttons for each.",
+            "action_href": url_for("notifications_page")
+                          if "notifications_page" in app.view_functions else "/notifications",
+            "action_label": "Open /notifications",
+        },
+    ]
+
+
+def _onboarding_summary() -> dict:
+    """Counts done / skipped / pending steps. Used by the topbar banner
+    via the context processor + by the onboarding page itself."""
+    steps = _onboarding_steps()
+    done_n = sum(1 for s in steps if s["status"] == "done")
+    skipped_n = sum(1 for s in steps if s["status"] == "skipped")
+    pending_n = sum(1 for s in steps if s["status"] == "pending")
+    return {
+        "steps": steps,
+        "done_n": done_n,
+        "skipped_n": skipped_n,
+        "pending_n": pending_n,
+        "total": len(steps),
+        "all_resolved": pending_n == 0,
+    }
+
+
+@app.context_processor
+def _onboarding_context():
+    """Expose the setup banner state to every template. Banner shows
+    while settings.first_run_done != '1', linking to /onboarding."""
+    try:
+        done = (get_setting("first_run_done") or "0") == "1"
+        if done:
+            return {"onboarding_banner": None}
+        summary = _onboarding_summary()
+        return {"onboarding_banner": {
+            "done_n": summary["done_n"], "total": summary["total"],
+            "pending_n": summary["pending_n"],
+        }}
+    except Exception:  # noqa: BLE001
+        return {"onboarding_banner": None}
+
+
+@app.route("/onboarding")
+@login_required
+def onboarding():
+    summary = _onboarding_summary()
+    return render_template(
+        "onboarding.html",
+        steps=summary["steps"],
+        done_n=summary["done_n"],
+        skipped_n=summary["skipped_n"],
+        pending_n=summary["pending_n"],
+        all_resolved=summary["all_resolved"],
+        active="onboarding",
+    )
+
+
+@app.route("/onboarding/skip/<step>", methods=["POST"])
+@login_required
+@role_required("operator")
+def onboarding_skip(step):
+    skipped = set(
+        (get_setting("onboarding.skipped") or "").split(",")
+    ) - {""}
+    skipped.add(step)
+    set_setting("onboarding.skipped", ",".join(sorted(skipped)))
+    return redirect(url_for("onboarding"))
+
+
+@app.route("/onboarding/complete", methods=["POST"])
+@login_required
+@role_required("operator")
+def onboarding_complete():
+    summary = _onboarding_summary()
+    if not summary["all_resolved"]:
+        flash("Finish or skip the remaining steps before dismissing.", "error")
+        return redirect(url_for("onboarding"))
+    set_setting("first_run_done", "1")
+    _audit("onboarding.complete", target="self", after={"done_n": summary["done_n"],
+                                                         "skipped_n": summary["skipped_n"]})
+    flash("Setup complete. Banner dismissed — re-open /onboarding any time.", "info")
+    return redirect(url_for("dashboard") if "dashboard" in app.view_functions else "/")
+
+
 def _detect_private_ip() -> str:
     """Best-effort: return the wg0 interface's IPv4 if present, otherwise
     the first non-loopback IPv4. Used by the federation/add wizard to

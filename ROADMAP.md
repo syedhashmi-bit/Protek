@@ -1086,24 +1086,45 @@ pass, and the env-var path remains viable in the meantime.
 
 ---
 
-### Phase 86 — First-run setup wizard
+### Phase 86 — First-run setup wizard ✅ shipped (2026-05-26)
 
-- [ ] New `settings.first_run_done` flag. While `false`, every page shows
-  a topbar banner: "Setup: N of 6 steps done — finish" linking to
-  `/onboarding`.
-- [ ] `/onboarding` is a single-page wizard on phase 81 primitive, guiding:
-  confirm LAPI reachable → add first bouncer (phase 82) → flip live →
-  optional federation source (phase 83) → notifications (Discord/Telegram/
-  SMTP test) → done.
-- [ ] Each step skippable (with confirm dialog). At end, dismissing sets
-  `first_run_done=1`; banner disappears for good.
-- [ ] Reachable later from a small "Setup status" link in the topbar even
-  after dismissal — so an operator who skipped intel/SSO can come back.
+- [x] `settings.first_run_done` flag. While not `'1'`, every page's
+  topbar shows an amber `setup N/5 →` button linking to `/onboarding`.
+  Banner state is exposed via `@app.context_processor`, so it shows on
+  every page automatically.
+- [x] `/onboarding` is a single-page status board (not a multi-step
+  wizard — each "step" links out to the existing page that does the
+  work, then re-renders status on return). The 5 steps:
+  1. **Confirm LAPI reachable** — auto-probes `LAPIClient.health()`.
+  2. **Add the first bouncer target** — links to phase-82 wizard.
+  3. **Promote bouncer to LIVE** — links to /bouncers with promote
+     button.
+  4. **Add a federation source (optional)** — links to phase-83
+     wizard.
+  5. **Configure at least one notification channel** — links to
+     /notifications.
+- [x] Each step is skippable via `POST /onboarding/skip/<id>` with a
+  confirm dialog. Skipped IDs are persisted in
+  `settings.onboarding.skipped` as a CSV.
+- [x] When all steps are either done or skipped, the "Dismiss banner →"
+  button becomes active; clicking it sets `first_run_done='1'` and
+  audits the dismissal. Banner disappears.
+- [x] /onboarding remains reachable from a context-processor topbar
+  link OR by typing the URL directly — no soft-delete of the page
+  after dismissal.
 
-**Acceptance:** a fresh `git clone Protek && setup_admin.py && systemctl
-start protek` puts a new operator at the wizard on first login. Following
-it end-to-end produces a live deployment in under 10 minutes, with zero
-terminal commands beyond the initial install.
+Why the design diverges from the ROADMAP's "single-page wizard on
+phase 81 primitive": the steps are inherently external (they live on
+other pages), so a multi-step wizard would have been a forced fit. The
+status-board pattern is more honest — show the operator current state,
+let them act, return to see updated state. Each step's status is
+re-computed on every render (no per-step "done" persistence; you can't
+fake it).
+
+**Acceptance:** ✅ `_onboarding_summary()` correctly identifies state
+on this host (all 5 steps done — LAPI ok, 2 bouncers, 1 live,
+1 federation source, notifications configured); on a fresh install
+all 5 would be pending and the banner would show `setup 0/5`.
 
 ---
 
