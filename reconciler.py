@@ -97,7 +97,14 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
             total_remove += len(diff.to_remove)
             unchanged += diff.unchanged
 
-            if not dry_run and b.is_configured() and diff.changes:
+            # Per-bouncer dry_run gate. DB-driven targets carry a `dry_run`
+            # flag on their bouncer_targets row; legacy mikrotik_env follows
+            # the cycle-level dry_run only (which is sourced from .env
+            # DRY_RUN at boot, settings.dry_run at runtime). Without this
+            # check the per-row dry_run toggle in /bouncers was cosmetic:
+            # a "dry" Cloudflare target would still push live to CF.
+            b_dry = dry_run or _bouncer_is_dry(b)
+            if not b_dry and b.is_configured() and diff.changes:
                 to_add = diff.to_add[:batch_cap]
                 remaining = max(0, batch_cap - len(to_add))
                 to_remove = diff.to_remove[:remaining]
@@ -169,6 +176,36 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         "notes": "; ".join(note_bits),
         "bouncer_count": len(all_bouncers),
     }
+
+
+def _bouncer_is_dry(bouncer) -> bool:
+    """Check the per-bouncer dry_run flag. Legacy mikrotik_env follows the
+    cycle-level dry_run only (already enforced at the caller); DB-driven
+    targets carry a `dry_run` column on their bouncer_targets row.
+
+    Failing closed: any error reading the row treats the bouncer as live
+    (not dry) — the cycle-level dry_run is still in front of this, so the
+    worst case is we honor the cycle's intent. The opposite (failing dry)
+    would silently drop pushes from a working live target if the row
+    lookup raced with a /bouncers edit, which is a bigger surprise.
+    """
+    if getattr(bouncer, "kind", "") == "mikrotik_env":
+        return False
+    name = getattr(bouncer, "name", "")
+    if not name:
+        return False
+    try:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                "SELECT dry_run FROM bouncer_targets WHERE name = ?",
+                (name,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return bool(row and int(row["dry_run"] or 0))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _filter_desired_for_bouncer(bouncer, desired: list[dict[str, Any]]) -> list[dict[str, Any]]:

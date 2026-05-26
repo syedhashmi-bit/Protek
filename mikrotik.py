@@ -133,18 +133,40 @@ class MikroTik:
             return {"ok": False, "configured": True, "host": self.host, "port": self.port, "error": str(e)}
 
     def get_address_list(self, list_name: str) -> list[dict[str, Any]]:
-        """Return all entries with `list == list_name`. Connect/disconnect inline."""
+        """Return all entries with `list == list_name` across BOTH the IPv4
+        and IPv6 address-lists. RouterOS keeps them as separate resources:
+            /ip/firewall/address-list   — IPv4 only
+            /ipv6/firewall/address-list — IPv6 only
+        Snapshot must walk both. Each returned entry has its `.id` prefixed
+        with `v4:` or `v6:` so the apply() side knows which resource the
+        `.id` belongs to when issuing a remove. Older snapshots returned
+        bare `.id` values (treated as v4 for backward-compat in apply).
+        """
         if not self.is_configured():
             raise MikroTikError("MikroTik not configured")
         self.connect()
         try:
-            res = self._api.get_resource("/ip/firewall/address-list")
-            try:
-                entries = res.get(list=list_name)
-            except TypeError:
-                # Older client variants don't accept kwargs to get()
-                entries = [e for e in res.get() if e.get("list") == list_name]
-            return list(entries or [])
+            all_entries: list[dict[str, Any]] = []
+            for family, path in (("v4", "/ip/firewall/address-list"),
+                                 ("v6", "/ipv6/firewall/address-list")):
+                try:
+                    res = self._api.get_resource(path)
+                    try:
+                        entries = res.get(list=list_name)
+                    except TypeError:
+                        entries = [e for e in res.get() if e.get("list") == list_name]
+                except Exception:  # noqa: BLE001
+                    # /ipv6/firewall/address-list may not exist on a router
+                    # without an IPv6 routing config — treat as empty list,
+                    # don't fail the whole snapshot.
+                    continue
+                for e in entries or []:
+                    raw_id = e.get(".id") or e.get("id") or e.get("numbers") or ""
+                    if raw_id:
+                        e[".id"] = f"{family}:{raw_id}"
+                    e["_family"] = family
+                    all_entries.append(e)
+            return all_entries
         except Exception as e:  # noqa: BLE001
             raise MikroTikError(f"get_address_list({list_name}) failed: {e}") from e
         finally:
