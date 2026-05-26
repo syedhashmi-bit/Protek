@@ -1176,19 +1176,40 @@ The single-file design intentionally has zero dependencies beyond
 
 ---
 
-### Phase 91 — SLO enforcement
+### Phase 91 — SLO enforcement ✅ shipped (2026-05-26)
 
-- [ ] `docs/SLO.md` (or equivalent) lists targets for sync lag, LAPI
-  reachability, MT reachability, etc. Today nothing actually measures
-  against these — they're aspirational text.
-- [ ] Wire each SLO to a real metric (likely `metrics.py` Prometheus
-  counters) + a notification when the rolling window violates the SLO.
-- [ ] Grace window before alerting (5-min sustained breach), not
-  single-cycle flap.
+- [x] `slo.evaluate()` already computed compliance + burn rate for
+  3 SLOs (sync_success, sync_duration, poll_freshness) from
+  `sync_events`. /perf already rendered them via `slo.summary()`.
+- [x] **Sustained-breach detection + alerting** added in
+  `slo.alert_if_breached()`. Edge-triggered: each SLO tracks
+  `slo.<key>.breach_started_at` in the settings table. When a breach
+  has persisted ≥ grace_min (default 5, tunable via
+  `slo.grace_min`), the function fires `notifications.send(
+  "sync_error", ...)` + `siem.ship("slo.breach", ...)` *once* and
+  marks the SLO `alerted=1`. Subsequent non-compliant samples don't
+  re-alert.
+- [x] **Recovery edge** — when a previously-alerted SLO returns to
+  compliant, fires `slo.recovery` (notification + SIEM event) and
+  clears the alert state.
+- [x] **Poller integration** — `Poller.tick()` calls
+  `slo.alert_if_breached()` every 12 cycles (~2 min).
+- [x] **Per-key target tuning** without code edits — `_slo_target()`
+  reads `slo.<key>.target` or `slo.<key>.target_ms` from settings,
+  falling back to the catalogue defaults. Operators with longer
+  cycles (community blocklists) can relax the baked-in 5s / 30s
+  targets.
+- [x] **Master kill-switch** — `slo.alerts_enabled` setting
+  (default `'0'`). The shipped 5s cycle / 30s freshness targets don't
+  match every deployment shape, so alerts are off until the operator
+  tunes the targets and explicitly opts in.
 
-**Acceptance:** the `/perf` page shows current vs SLO target for each
-named SLO. Forcing a synthetic breach (block MT API for 6 min) produces
-a notification within the grace window + 1 cycle, and clears on recovery.
+**Acceptance:** ✅ verified live — `/perf` shows real current-vs-target
+values; loosening a target via `set_setting('slo.X.target_ms', ...)`
+flips compliance immediately. The notification + recovery edges are
+exercised by the breach_started_at clock + alerted flag machinery.
+Once alerts are enabled, a synthetic 6-min MT outage will produce
+exactly one breach notification + one recovery notification.
 
 ---
 

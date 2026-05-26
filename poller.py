@@ -311,6 +311,18 @@ class Poller:
             except Exception as e:  # noqa: BLE001
                 log.debug("peers scheduler swallowed: %s", e)
 
+        # SLO enforcement (phase 91) — periodically check whether any SLO
+        # has been breached for >= grace_min. First sustained breach fires
+        # a notification + SIEM event; recovery fires a second notification.
+        # Edge-triggered via slo.<key>.{breach_started_at,alerted} state in
+        # the settings table — no flap alerts. Every 12 cycles ≈ 2 min.
+        if self.cycles % 12 == 0:
+            try:
+                import slo
+                slo.alert_if_breached(window_hours=24)
+            except Exception as e:  # noqa: BLE001
+                log.debug("SLO check swallowed: %s", e)
+
         # WAL checkpoint (phase 64 follow-up) — Litestream v0.5 holds a WAL
         # reader continuously, which blocks SQLite's auto-checkpoint. Without
         # an explicit PASSIVE checkpoint the WAL grows unbounded (observed
