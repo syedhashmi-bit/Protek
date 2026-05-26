@@ -45,6 +45,7 @@ class Source:
     backoff_until: str | None = None     # phase-9 backoff control
     paused: bool = False                  # phase-9 pause-from-UI
     confidence: int = 1                   # phase-10 weight (1 = normal)
+    last_pull_ms: int = 0                 # phase-88 per-source pull duration
 
 
 # ── Seed local ──────────────────────────────────────────────────────────────
@@ -103,6 +104,7 @@ def list_sources(include_disabled: bool = False) -> list[Source]:
             backoff_until=r["backoff_until"] if "backoff_until" in keys else None,
             paused=bool(r["paused"]) if "paused" in keys else False,
             confidence=r["confidence"] if "confidence" in keys and r["confidence"] is not None else 1,
+            last_pull_ms=int(r["last_pull_ms"] or 0) if "last_pull_ms" in keys else 0,
         ))
     return out
 
@@ -116,14 +118,29 @@ def clients() -> list[LAPIClient]:
     ]
 
 
-def record_pull(source_id: int, count: int, error: str = "") -> None:
+def record_pull(source_id: int, count: int, error: str = "",
+                duration_ms: int = 0) -> None:
+    """Phase 88 — duration_ms is the wall-clock time the pull took.
+    Surfaced on /federation so a slow source is visible before it
+    bogs the global cycle. Falls back gracefully if the column hasn't
+    been migrated yet (sources.last_pull_ms is added in init_db, but a
+    pre-migration DB can still record without it)."""
     now = datetime.now(timezone.utc).isoformat()
     conn = get_conn()
     try:
-        conn.execute(
-            "UPDATE sources SET last_pull_at = ?, last_pull_n = ?, last_error = ? WHERE id = ?",
-            (now, count, error, source_id),
-        )
+        try:
+            conn.execute(
+                "UPDATE sources SET last_pull_at = ?, last_pull_n = ?, "
+                "last_error = ?, last_pull_ms = ? WHERE id = ?",
+                (now, count, error, int(duration_ms or 0), source_id),
+            )
+        except Exception:  # noqa: BLE001
+            # Pre-migration: column doesn't exist yet
+            conn.execute(
+                "UPDATE sources SET last_pull_at = ?, last_pull_n = ?, "
+                "last_error = ? WHERE id = ?",
+                (now, count, error, source_id),
+            )
     finally:
         conn.close()
 

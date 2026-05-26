@@ -120,20 +120,24 @@ class Poller:
             self.last_cycle_at = started.isoformat()
             return
 
-        any_ok = False
-        any_active_source = False
-        per_source_results: list[dict[str, Any]] = []
+        # Phase 88 — parallel source fetch. With N federated sources the
+        # original serial loop blocked the reconcile loop on its slowest
+        # source. ThreadPoolExecutor with bounded concurrency lets healthy
+        # sources finish at network-latency speed instead of waiting on
+        # the laggards. Cap workers at 8 so we don't open hundreds of
+        # parallel HTTP connections if someone wires up an absurd
+        # federation count.
+        from concurrent.futures import ThreadPoolExecutor
 
-        for src in sources:
-            if src.paused:
-                continue
-            any_active_source = True
-            if _in_backoff(src):
-                continue
-            r = self._pull_source(src)
-            per_source_results.append(r)
-            if r["ok"]:
-                any_ok = True
+        active = [s for s in sources if not s.paused and not _in_backoff(s)]
+        any_active_source = any(not s.paused for s in sources)
+        per_source_results: list[dict[str, Any]] = []
+        if active:
+            max_workers = min(8, len(active))
+            with ThreadPoolExecutor(max_workers=max_workers,
+                                     thread_name_prefix="fed-pull") as ex:
+                per_source_results = list(ex.map(self._pull_source, active))
+        any_ok = any(r["ok"] for r in per_source_results)
 
         # Aggregate counts
         self.last_active_count = _count_active()
@@ -385,8 +389,14 @@ class Poller:
 
     # ── per-source pull ─────────────────────────────────────────────────────
     def _pull_source(self, src: Source) -> dict[str, Any]:
+        # Phase 88 — wall-clock time per source. Reported back via record_pull
+        # so /federation can surface "this source took 4.5s" before it
+        # noticeably bogs the global cycle.
+        import time
+        t0 = time.monotonic()
         client = LAPIClient(url=src.url, api_key=src.api_key, name=src.name)
-        result: dict[str, Any] = {"name": src.name, "ok": False, "error": "", "count": 0}
+        result: dict[str, Any] = {"name": src.name, "ok": False, "error": "",
+                                   "count": 0, "duration_ms": 0}
         try:
             if not self._bootstrap_done.get(src.name):
                 count = self._bootstrap(client)
@@ -395,7 +405,8 @@ class Poller:
                 count = self._stream_apply(client)
             result["ok"] = True
             result["count"] = count
-            record_pull(src.id, count, error="")
+            result["duration_ms"] = int((time.monotonic() - t0) * 1000)
+            record_pull(src.id, count, error="", duration_ms=result["duration_ms"])
             self._fail_streak[src.name] = 0
             # Edge-triggered recovery notification
             if not self._prev_lapi_ok.get(src.name, True):
@@ -411,7 +422,8 @@ class Poller:
         except LAPIError as e:
             err = str(e)
             result["error"] = err
-            record_pull(src.id, 0, error=err)
+            result["duration_ms"] = int((time.monotonic() - t0) * 1000)
+            record_pull(src.id, 0, error=err, duration_ms=result["duration_ms"])
             streak = self._fail_streak.get(src.name, 0) + 1
             self._fail_streak[src.name] = streak
             # Exponential backoff: 2^streak minutes, capped at 30
@@ -434,7 +446,8 @@ class Poller:
         except Exception as e:  # noqa: BLE001
             err = str(e)
             result["error"] = err
-            record_pull(src.id, 0, error=err)
+            result["duration_ms"] = int((time.monotonic() - t0) * 1000)
+            record_pull(src.id, 0, error=err, duration_ms=result["duration_ms"])
             log.exception("source %s crashed: %s", src.name, err)
         return result
 

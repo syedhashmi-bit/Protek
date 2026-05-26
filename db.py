@@ -184,6 +184,8 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("sources", "backoff_until", "TEXT DEFAULT NULL"),
     ("sources", "paused", "INTEGER NOT NULL DEFAULT 0"),
     ("sources", "confidence", "INTEGER NOT NULL DEFAULT 1"),
+    # Arc 15 phase 88 — per-source pull duration for /federation latency display
+    ("sources", "last_pull_ms", "INTEGER NOT NULL DEFAULT 0"),
     # Arc 3 — Intelligence
     ("decisions", "asn", "TEXT DEFAULT ''"),
     ("decisions", "as_org", "TEXT DEFAULT ''"),

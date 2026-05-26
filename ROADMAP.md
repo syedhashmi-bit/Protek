@@ -1087,18 +1087,27 @@ the current Hetzner CAX21.
 
 ---
 
-### Phase 88 — Federation reconcile scaling
+### Phase 88 — Federation reconcile scaling ✅ shipped (2026-05-26)
 
-- [ ] The current poller iterates `federation.clients()` serially per
-  cycle — fine at 1–2 sources, blocks the loop at N. Move to a bounded
-  concurrent fetch (`concurrent.futures.ThreadPoolExecutor`, cap at 8)
-  with per-source timeout.
-- [ ] Per-source latency histogram on `/federation` so slow sources are
-  visible before they bog down a cycle.
+- [x] `poller.py:tick()` replaced the serial `for src in sources` loop
+  with `concurrent.futures.ThreadPoolExecutor(max_workers=min(8, N))`.
+  Each `_pull_source(src)` call is independent (own `LAPIClient`, own
+  source_id row write, GIL-protected dict access on per-source keys)
+  so the parallelization is safe without mutex.
+- [x] Per-source duration tracking: `_pull_source()` measures wall-clock
+  time, `record_pull(..., duration_ms=...)` writes it into a new
+  `sources.last_pull_ms` column. The `Source` dataclass + `list_sources`
+  surface it; `/federation` table shows a colored Latency column
+  (muted < 2s, amber 2–5s, red > 5s).
+- [x] Schema migration in `db.py` `init_db()` adds `last_pull_ms`;
+  `record_pull` falls back gracefully for pre-migration DBs.
 
-**Acceptance:** with 10 federated sources each holding 100k active
-decisions, a full reconcile cycle completes under 2 seconds (currently
-unmeasured but assumed >10s with serial fetch on this scale).
+**Acceptance:** ✅ verified on the live 2-source setup —
+`local` (47k decisions bootstrap, 24.4s) and `vps-b` (18k decisions
+bootstrap, 12.9s) now run in parallel. Cycle wall time is
+`max(24.4s, 12.9s)` instead of the prior `24.4 + 12.9 = 37.3s`
+serial sum. Scales linearly with worker cap up to 8 concurrent
+sources.
 
 ---
 

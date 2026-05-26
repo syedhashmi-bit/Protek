@@ -84,6 +84,7 @@
   <table>
     <thead><tr>
       <th>Name</th><th>URL</th><th>Status</th><th class="right">Last Pull</th>
+      <th class="right" title="Wall-clock time the last pull took. Phase 88 — parallel pull means slow sources no longer block the global cycle, but a consistently >2s source is a flag." style="cursor:help">Latency ⓘ</th>
       <th class="right">Contributed</th>
       <th class="right" title="Per-source trust weight (1–10). Multiplied into the cross-source agreement score: a source at 10 alone can cause a ban, two at 3 must agree. Raise the global Confidence Threshold below to require multiple sources." style="cursor:help">Confidence ⓘ</th>
       <th>Actions</th>
@@ -101,6 +102,7 @@
           {% else %}<span class="badge" style="color:var(--muted)">unknown</span>{% endif %}
         </td>
         <td class="mono right muted">{{ s.last_pull_rel }}</td>
+        <td class="mono right" style="color:{% if s.last_pull_ms > 2000 %}var(--amber){% elif s.last_pull_ms > 5000 %}var(--red){% else %}var(--muted){% endif %}">{% if s.last_pull_ms %}{{ s.last_pull_ms }}ms{% else %}—{% endif %}</td>
         <td class="mono right">{{ s.contribution }}</td>
         <td class="mono right">{{ s.confidence }}</td>
         <td>

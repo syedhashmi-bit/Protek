@@ -3710,6 +3710,7 @@ def federation_page():
             "healthy": ok,
             "backoff_active": backoff_active,
             "last_pull_rel": rel_time(s.last_pull_at),
+            "last_pull_ms": s.last_pull_ms,  # phase 88 latency display
             "contribution": contribution,
             "confidence": s.confidence,
         })
