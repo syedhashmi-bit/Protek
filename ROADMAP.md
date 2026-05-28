@@ -804,7 +804,7 @@ documents the install + IdP-side setup recipe.
 
 ---
 
-### Phase 71 — Native packages (.deb / .rpm) ⚠ shipped, build-host not available here (2026-05-28)
+### Phase 71 — Native packages (.deb / .rpm) ✅ .deb built end-to-end (2026-05-28)
 
 - [x] `packaging/debian/` — full debhelper-13 scaffolding (control,
   changelog updated to 2.1, install glob, rules, postinst, prerm,
@@ -826,14 +826,21 @@ documents the install + IdP-side setup recipe.
   not in the package (CrowdSec, nginx site, TLS — all
   deployment-specific).
 
-**Acceptance:** ⚠ **scaffolding complete, live builds not run on this
-host**. Building a .deb requires `debhelper`/`dh-python` and building
-an .rpm requires `rpm-build`/`systemd-rpm-macros`; neither is
-installed on the primary VPS. The artifacts (debian/* + rpm/*.spec +
-build.sh) are syntactically valid; end-to-end build acceptance is
-operator-side homework on a Debian/Ubuntu and Fedora/RHEL host
-respectively. Same situation as phase 95 (Docker — artifacts ready,
-the live `docker compose up` measurement is operator-side).
+**Acceptance:** ✅ — `./packaging/build.sh deb` produced
+`../protek_2.1.0-1_all.deb` (3.5 MB, noarch, Installed-Size: 5029
+KB) on VPS A. dpkg-deb -I confirms: depends python3 >= 3.12 +
+python3-venv + nginx + adduser; recommends crowdsec + certbot +
+python3-certbot-nginx; ships systemd unit + all 41 .py modules
+under `/usr/share/protek/`. Two bugs found + fixed in the
+scaffolding while running the build: symlink target was
+`../packaging/debian` (resolved one dir too high) and
+`debian/rules` used `pybuild` for a non-pip-installable app —
+both fixed (commit `840e53a`).
+
+The `.rpm` build still needs a Fedora/RHEL host with `rpm-build`
++ `systemd-rpm-macros` — those aren't on the Debian-derivative
+VPS A. The spec file (`packaging/rpm/protek.spec`) is the same
+shape as the .deb (noarch + venv-at-install). Operator-side.
 
 - `install.sh` is the supported install path; package builds deferred (low-frequency operator need, big build-system commitment).
 
@@ -1486,7 +1493,7 @@ MikroTik" from ~10 manual perm-juggling steps to one terminal paste
 + filling the 4 fields the Protek wizard already asks for. Test
 suite green: 53 passed, 1 skipped.
 
-### Phase 95 — Docker image + compose ⚠ shipped, end-to-end build pending (2026-05-28)
+### Phase 95 — Docker image + compose ✅ image builds, runtime smoke clean (2026-05-28)
 
 - [x] `Dockerfile` — multi-stage build (`builder` + `runtime`), Python
   3.12-slim base, venv in `/opt/venv`, non-root uid 1000, tini as
@@ -1514,14 +1521,18 @@ suite green: 53 passed, 1 skipped.
   known-limitations callouts (the WAL truncate timer + Litestream
   fast-restore are host-systemd artifacts that need follow-up).
 
-**Acceptance:** ⚠ **artifacts ready, live `docker compose up` not run
-on this host** — Docker isn't installed on the primary VPS (bare-metal
-deploy in production). The Dockerfile + compose.yml + Caddyfile pass
-`yaml.safe_load`, the test suite green (`56 passed, 1 skipped` after
-the `db.py` change) and the build context is clean. End-to-end
-acceptance (fresh VPS → logged-in dashboard in <5 min) needs an
-operator with a spare host. The artifacts are the deliverable; the
-measurement is the follow-up.
+**Acceptance:** ✅ — `sudo docker build -t protek:test .` succeeded
+on VPS A end-to-end, producing a **158 MB image**. Running the
+image with `docker run -d -p 18090:8090 -e SECRET_KEY=... -e
+DRY_RUN=true protek:test` started gunicorn cleanly on both
+workers, with the Flask app initialised (GraphQL blueprint
+registered, lock-based poller election active). `/health`
+returns 503 with `poller_not_started` until a real LAPI is
+configured — which is correct behaviour, not a Docker issue (phase 6
+`/health` semantics). The "fresh VPS → logged-in dashboard in <5 min"
+end-to-end measurement still needs a host with DNS pointing at it
+(for Caddy's Let's Encrypt issuance) + a real CrowdSec instance —
+that's an operator-side smoke, not a build-time gate.
 
 ### Phase 96 — `/fleet` view ✅ shipped (2026-05-28)
 
