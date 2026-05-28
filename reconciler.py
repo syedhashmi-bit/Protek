@@ -64,13 +64,23 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         total_remove = 0
         unchanged = 0
     else:
-        # Phase 89 — per-bouncer work runs in parallel with a per-bouncer
-        # timeout. A hung or backpressured bouncer is marked `degraded` and
-        # the cycle keeps moving for the other targets, instead of stalling
-        # the global loop on the slowest one. Cap workers at 4 — bouncers
+        # Phase 89 — per-bouncer work runs in parallel so a slow bouncer
+        # doesn't block faster ones from starting. Cap workers at 4 — bouncers
         # do meaningful network work (MT API, CF API, etc.), so more than
         # this on a single VPS is rarely useful.
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TO
+        #
+        # Earlier this used `fut.result(timeout=N)` to mark slow bouncers
+        # degraded, but ThreadPoolExecutor.__exit__ calls shutdown(wait=True)
+        # — so the cycle wall time is the slowest future regardless, and the
+        # only effect of the timeout was to discard the slow bouncer's push
+        # log + counts while the writes still landed on the target. That gave
+        # the operator a silent-failure pattern: real router writes with no
+        # mt_pushes rows and inflated `unchanged` collapse in the cycle log.
+        #
+        # Now we wait for every future to complete and derive the `degraded`
+        # signal from per-bouncer wall time after the fact. The badge still
+        # surfaces slow bouncers but no work is dropped.
+        from concurrent.futures import ThreadPoolExecutor
 
         total_add = 0
         total_remove = 0
@@ -78,7 +88,7 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         per_bouncer_push: list[dict[str, Any]] = []
 
         max_workers = min(4, max(1, len(all_bouncers)))
-        per_bouncer_timeout_s = float(
+        per_bouncer_slow_s = float(
             (__import__("db").get_setting("reconcile.per_bouncer_timeout_s")
              or "60")
         )
@@ -91,17 +101,7 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
             }
             for fut, b in futures.items():
                 try:
-                    r = fut.result(timeout=per_bouncer_timeout_s)
-                except _TO:
-                    error_count += 1
-                    note_bits.append(
-                        f"{b.name}_degraded: timeout {per_bouncer_timeout_s:.0f}s"
-                    )
-                    _mark_bouncer_degraded(
-                        b.name,
-                        f"timeout {per_bouncer_timeout_s:.0f}s @ {datetime.now(timezone.utc).isoformat()}",
-                    )
-                    continue
+                    r = fut.result()
                 except Exception as e:  # noqa: BLE001
                     error_count += 1
                     note_bits.append(f"{b.name}_apply_failed: {e}")
@@ -116,8 +116,17 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
                 note_bits.extend(r["notes"])
                 if r["push_log"]:
                     per_bouncer_push.append({"name": b.name, "push_log": r["push_log"]})
-                # Clear the degraded marker if we got a clean cycle.
-                if r["ok"] and not r["errors"]:
+                # Mark degraded if this bouncer is consistently slow — the
+                # signal still helps the operator notice the slow target;
+                # the threshold is the same knob as the legacy timeout.
+                b_wall_ms = r["snapshot_ms"] + r["apply_ms"]
+                if b_wall_ms > per_bouncer_slow_s * 1000:
+                    _mark_bouncer_degraded(
+                        b.name,
+                        f"slow {b_wall_ms/1000:.0f}s (snapshot+apply) "
+                        f"@ {datetime.now(timezone.utc).isoformat()}",
+                    )
+                elif r["ok"] and not r["errors"]:
                     _clear_bouncer_degraded(b.name)
 
     duration_ms = int((time.monotonic() - t0) * 1000)
