@@ -734,13 +734,43 @@ real production wiring, not just unit tests.
 
 ---
 
-### Phase 70 — OAuth / SAML SSO ⚠ OIDC only
+### Phase 70 — OAuth / SAML SSO ✅ both protocols (2026-05-28)
 
 - [x] `oidc.py` — Google / Authentik / Auth0 / Keycloak via OIDC
 - [x] `OIDC_GROUPS_ADMIN` / `OPERATOR` / `VIEWER` claim-to-role mapping
 - [x] `OIDC_ALLOWED_DOMAINS` per-domain restriction
 - [x] Local user table remains as break-glass
-- [ ] SAML 2.0 SP role — deferred; OIDC covers ~all modern IdPs
+- [x] `saml.py` — SAML 2.0 SP for Okta SAML / ADFS / OneLogin /
+  Entra ID enterprise apps. Sibling of `oidc.py` with the same shape
+  (`is_configured`, `status`, role mapping, settings dict).
+- [x] Routes in `app.py`: `/saml/login` (SP-initiated redirect),
+  `/saml/acs` (assertion consumer service — POST), `/saml/metadata`
+  (SP metadata XML for IdP import). CSRF-exempt on the IdP-driven
+  endpoints since the signed assertion replaces CSRF as the
+  authenticator.
+- [x] Shared user provisioning via `oidc.upsert_sso_user` so SAML and
+  OIDC populate the same `users` table with identical semantics.
+- [x] Role mapping mirrors OIDC's algorithm — `SAML_GROUPS_ATTR` +
+  `SAML_GROUPS_ADMIN` / `OPERATOR` / `VIEWER` + `SAML_DEFAULT_ROLE`
+  + `SAML_ALLOWED_DOMAINS`. Documented common IdP attribute names
+  (`memberOf` for ADFS, `groups` for Okta, etc).
+- [x] `docs/SSO.md` — single doc covering both protocols, install
+  recipe for `python3-saml` (the lib has heavy native deps —
+  `libxmlsec1-dev` on Debian, `xmlsec1-devel` on Fedora — so it's
+  optional; routes 503 with a clear hint if missing).
+- [x] `tests/test_saml.py` (17 cases) — role mapping (admin/operator/
+  viewer precedence + default + deny), domain gate, missing-email,
+  scalar-vs-list groups, email attribute config, settings shape
+  matches python3-saml expectations, signed-request mode when SP
+  keypair present.
+
+**Acceptance:** ✅ — 17 unit tests green (no python3-saml install
+needed — the library is only required at route-handler time, not
+for the role mapping or settings construction tests). Live routes
+return 503 cleanly when SAML is unconfigured or the lib isn't
+installed (verified via curl after restart). Live end-to-end test
+against a real IdP is operator-side homework — `docs/SSO.md`
+documents the install + IdP-side setup recipe.
 
 ---
 

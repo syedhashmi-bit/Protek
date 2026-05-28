@@ -813,6 +813,139 @@ def sso_callback():
     return redirect(url_for("dashboard"))
 
 
+# ── SAML SSO (phase 70 — sibling of OIDC) ──────────────────────────────────
+# Routes return 503 if SAML isn't configured (no IdP env vars) OR if
+# `python3-saml` isn't installed. OIDC remains the default for modern
+# IdPs; SAML covers Okta SAML, ADFS, OneLogin, Entra ID enterprise apps.
+
+import saml as _saml  # noqa: E402
+
+
+@app.route("/saml/login")
+@csrf.exempt
+def saml_login():
+    if not _saml.is_configured():
+        return jsonify(error="SAML not configured — set SAML_SP_BASE_URL + SAML_IDP_*"), 503
+    if not _saml.library_available():
+        return jsonify(error="python3-saml not installed — see docs/SSO.md"), 503
+    try:
+        auth = _saml.build_auth(request)
+        return redirect(auth.login())
+    except Exception as e:  # noqa: BLE001
+        log.warning("SAML login failed: %s", e)
+        flash(f"SAML login failed: {e!s}"[:200], "error")
+        return redirect(url_for("login"))
+
+
+@app.route("/saml/acs", methods=["POST"])
+@csrf.exempt  # CSRF doesn't apply — the IdP's signed assertion replaces it.
+def saml_acs():
+    if not _saml.is_configured() or not _saml.library_available():
+        return jsonify(error="SAML not configured"), 503
+    ip = client_ip()
+    try:
+        auth = _saml.build_auth(request)
+        auth.process_response()
+    except Exception as e:  # noqa: BLE001
+        log.warning("SAML response processing failed: %s", e)
+        record_audit(ip, "(saml)", False, "SAML response processing failed")
+        flash(f"SAML login failed: {e!s}"[:200], "error")
+        return redirect(url_for("login"))
+
+    errors = auth.get_errors()
+    if errors:
+        reason = ", ".join(errors)
+        last_error = auth.get_last_error_reason() or ""
+        log.warning("SAML errors: %s (%s)", reason, last_error)
+        record_audit(ip, "(saml)", False, f"SAML validation: {reason}"[:200])
+        flash(f"SAML validation failed: {reason}", "error")
+        return redirect(url_for("login"))
+
+    if not auth.is_authenticated():
+        record_audit(ip, "(saml)", False, "SAML response not authenticated")
+        flash("SAML response not authenticated.", "error")
+        return redirect(url_for("login"))
+
+    # python3-saml normalises attributes to dict[str, list[str]]
+    attrs = auth.get_attributes() or {}
+    # Also expose the NameID — some IdPs put email there instead of an attribute
+    if "nameid" not in {k.lower() for k in attrs}:
+        attrs["nameid"] = [auth.get_nameid() or ""]
+
+    email = _saml.email_from_attributes(attrs)
+    if not email:
+        # Last-ditch — try the NameID
+        nameid = auth.get_nameid() or ""
+        if "@" in nameid:
+            email = nameid.lower().strip()
+    if not email:
+        record_audit(ip, "(saml)", False, "SAML missing email attribute / NameID")
+        flash("SAML failed: no email in assertion or NameID.", "error")
+        return redirect(url_for("login"))
+
+    role = _saml.role_for_attributes(attrs)
+    if role is None:
+        record_audit(ip, email, False, "SAML role mapping denied")
+        try:
+            import siem as _siem
+            _siem.ship("auth.sso_denied",
+                       {"ip": ip, "email": email, "method": "saml",
+                        "reason": "role-deny"}, severity=4)
+        except Exception:  # noqa: BLE001
+            pass
+        flash(f"Your account ({email}) doesn't match any role mapping.", "error")
+        return redirect(url_for("login"))
+
+    try:
+        user = _saml.upsert_sso_user(email, role)
+    except PermissionError as e:
+        record_audit(ip, email, False, f"SAML user disabled: {e}")
+        flash("Your Protek account is disabled.", "error")
+        return redirect(url_for("login"))
+
+    record_audit(ip, email, True, "SAML SSO success")
+    try:
+        import siem as _siem
+        _siem.ship("auth.sso_success",
+                   {"ip": ip, "actor": email, "role": role, "method": "saml"},
+                   severity=6)
+    except Exception:  # noqa: BLE001
+        pass
+
+    session.clear()
+    session["logged_in"] = True
+    session["username"]  = email
+    session["user_id"]   = user["id"]
+    session["role"]      = role
+    session["auth_source"] = "saml"
+    touch_session()
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/saml/metadata")
+def saml_metadata():
+    """SP metadata XML for IdP import. No auth — metadata is public by
+    design (it's how the IdP knows about our SP)."""
+    if not _saml.is_configured():
+        return ("SAML not configured\n", 503,
+                {"Content-Type": "text/plain; charset=utf-8"})
+    if not _saml.library_available():
+        return ("python3-saml not installed — see docs/SSO.md\n", 503,
+                {"Content-Type": "text/plain; charset=utf-8"})
+    try:
+        from onelogin.saml2.settings import OneLogin_Saml2_Settings
+        settings = OneLogin_Saml2_Settings(_saml.build_settings(), sp_validation_only=True)
+        metadata = settings.get_sp_metadata()
+        errors = settings.validate_metadata(metadata)
+        if errors:
+            return (f"metadata validation: {errors}\n", 500,
+                    {"Content-Type": "text/plain; charset=utf-8"})
+    except Exception as e:  # noqa: BLE001
+        return (f"metadata build failed: {e}\n", 500,
+                {"Content-Type": "text/plain; charset=utf-8"})
+    return (metadata, 200, {"Content-Type": "text/xml; charset=utf-8"})
+
+
 @app.route("/logout")
 def logout():
     session.clear()
