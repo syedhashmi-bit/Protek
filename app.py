@@ -2763,6 +2763,60 @@ def _coerce_field(value, kind):
     return value  # default: pass-through string
 
 
+# Phase 94 — RouterOS bootstrap script.
+# Validated against [A-Za-z0-9_-]{1,32} so query-string values can't inject
+# arbitrary RouterOS commands into the rendered .rsc body. Defaults match
+# the convention from CLAUDE.md (`crowdsec` address-list, `protek` user).
+_MT_BOOTSTRAP_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+
+
+def _mt_bootstrap_params():
+    """Read + validate the three query parameters. Returns (params, error).
+    On bad input, error is a string and the caller should 400."""
+    defaults = {
+        "username":  "protek",
+        "group":     "protek-bouncer",
+        "list_name": _envstr("MT_ADDRESS_LIST", "") or "crowdsec",
+    }
+    out = {}
+    for key, default in defaults.items():
+        raw = (request.args.get(key) or "").strip() or default
+        if not _MT_BOOTSTRAP_TOKEN_RE.match(raw):
+            return None, f"invalid {key}: must match [A-Za-z0-9_-]{{1,32}}"
+        out[key] = raw
+    return out, None
+
+
+@app.route("/bouncers/mt-bootstrap")
+@login_required
+def mt_bootstrap_page():
+    """HTML page rendering the RouterOS bootstrap script + copy button +
+    raw download link. Operator-facing companion to the /bouncers/add
+    wizard — they paste the .rsc into RouterOS first, then transcribe the
+    printed credentials into the wizard."""
+    params, err = _mt_bootstrap_params()
+    if err:
+        return (err, 400)
+    script = render_template("mt_bootstrap.rsc", **params)
+    return render_template("mt_bootstrap.html",
+                           script=script, active="bouncers", **params)
+
+
+@app.route("/bouncers/mt-bootstrap.rsc")
+@login_required
+def mt_bootstrap_rsc():
+    """Raw .rsc download — same content as the HTML page's <pre>, served
+    with text/plain so curl + /import pipelines work."""
+    params, err = _mt_bootstrap_params()
+    if err:
+        return (err, 400)
+    script = render_template("mt_bootstrap.rsc", **params)
+    return (script, 200,
+            {"Content-Type": "text/plain; charset=utf-8",
+             "Content-Disposition":
+                 'attachment; filename="protek-mt-bootstrap.rsc"'})
+
+
 @app.route("/bouncers/add", methods=["GET", "POST"])
 @login_required
 @role_required("operator")

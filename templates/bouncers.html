@@ -73,10 +73,17 @@
         Pick an adapter, fill its config, and Protek will start applying the same merged decision set to it on the next reconcile cycle. Operator owns the consuming firewall rule (block/drop); Protek owns only the list contents.
       </div>
     </div>
-    <a href="{{ url_for('bouncers_add') }}" class="btn"
-       style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;text-decoration:none;border-radius:3px;white-space:nowrap">
-      + Guided wizard →
-    </a>
+    <div style="display:flex;gap:10px;align-items:center;white-space:nowrap">
+      <a href="{{ url_for('mt_bootstrap_page') }}"
+         style="font-size:11px;font-family:'Share Tech Mono',monospace;text-transform:uppercase;letter-spacing:.12em;color:var(--cyan);text-decoration:none;border-bottom:1px dashed var(--cyan);padding-bottom:1px"
+         title="One-paste RouterOS script that creates a user with the right perms — drops MT onboarding from ~10 steps to one">
+        ⚡ MT bootstrap .rsc
+      </a>
+      <a href="{{ url_for('bouncers_add') }}" class="btn"
+         style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;text-decoration:none;border-radius:3px">
+        + Guided wizard →
+      </a>
+    </div>
   </div>
 
   {% if request.args.get('advanced') %}

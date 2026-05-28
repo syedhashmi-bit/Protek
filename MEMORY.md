@@ -4,6 +4,76 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-28 (cont. 2) — Phase 94 shipped: RouterOS bootstrap script
+
+Opening shot of **Arc 16 — Deploy + fleet ops** (phases 94–98).
+Adding a second MikroTik to Protek used to take ~10 manual steps with
+implicit RouterOS knowledge (which perms? which group? what user
+name? how do I generate a strong password? what does the address-list
+need to look like?). Phase 94 turns that into one paste.
+
+### What shipped
+
+- **`templates/mt_bootstrap.rsc`** — Jinja-rendered RouterOS script.
+  Idempotent (re-running rotates the password + recreates the group);
+  generates a 24-char password via `:rndstr`; group perms are the
+  *minimum* needed: `api,read,write,test`. Explicitly omits `policy`,
+  `password`, `sensitive`, `web`, `winbox`, `ftp`, `local`, `ssh`,
+  `telnet`, `sniff`, `romon`, `dude`, `reboot`. The MT user can manage
+  exactly the address-list and nothing else.
+- **`/bouncers/mt-bootstrap`** — HTML page with copy-to-clipboard +
+  query-parameter form so the operator can tune username / group /
+  list-name without editing the .rsc by hand.
+- **`/bouncers/mt-bootstrap.rsc`** — raw `text/plain` download for
+  `curl | ssh router '/import'` pipelines.
+- **`/bouncers`** topbar — new `⚡ MT bootstrap .rsc` link next to the
+  Guided wizard button. Surfaces the script exactly where a new MT
+  is about to be added.
+- **Anti-injection guard**: query parameters validated against
+  `[A-Za-z0-9_-]{1,32}` at the route boundary; bad input returns 400
+  before Jinja sees it.
+- **Tests** (`tests/test_mt_bootstrap.py`, 7 cases): endpoint
+  Content-Type, minimum perms substring present + forbidden ones
+  absent, default values render, query params template through, HTML
+  page embeds + copy button present, bad params get 400, both
+  endpoints require login.
+
+### Test fixture lesson worth capturing
+
+Forging the session via `c.session_transaction()` is *not enough* to
+get past `login_required` in this app. Three traps:
+
+1. **`SESSION_COOKIE_SECURE=True` in production config** — the
+   Flask test_client uses HTTP, so the cookie never reaches the
+   server. Override to `False` in the fixture.
+2. **`SESSION_COOKIE_DOMAIN` set for phase 74 cross-app SSO** —
+   forces the test client's `localhost` cookie domain to mismatch.
+   Override to `None`.
+3. **`_upgrade_legacy_session` before_request hook** — `session.clear()`
+   if `role` is set but `user_id` doesn't resolve in the `users`
+   table. Force the fixture to set both `role` + `user_id` so the
+   hook returns early.
+
+All three fixed in `tests/test_mt_bootstrap.py`'s `client` fixture.
+Future Protek route tests should lift that fixture (or factor it into
+a `conftest.py` if a second test file needs it).
+
+### Live verification
+
+`curl -sI http://127.0.0.1:8090/bouncers/mt-bootstrap.rsc` returns 302
+→ /login (correctly gated). Full suite: **56 passed, 1 skipped.**
+
+### Arc 16 roadmap
+
+- Phase 94 ✅ shipped (this session)
+- Phase 95 ⏳ Docker image + compose (planned)
+- Phase 96 ⏳ /fleet view (planned)
+- Phase 97 ⏳ Per-MT routing rules (planned)
+- Phase 98 ⏳ RouterOS REST API adapter (planned — also addresses
+  the ~118s MT snapshot wall-time floor from 2026-05-26 MEMORY note)
+
+---
+
 ## 2026-05-28 (cont.) — Phase 93 shipped: disk + Litestream observability
 
 Followed directly from the morning's ENOSPC incident. The phase 91 SLO

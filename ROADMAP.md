@@ -1338,6 +1338,147 @@ journal scraper be re-used for other systemd services later.
 
 ---
 
+# Arc 16 — Deploy + fleet ops
+
+Arcs 14 + 15 made operating *one* Protek install pleasant and
+trustworthy. This arc closes the **bootstrap friction** for a new MT
+(today: SSH into the router, create a group with the right perms,
+create a user, copy creds, paste into /bouncers — about 10 manual steps
+with implicit knowledge) and the **fleet-operations** gap (today: the
+/bouncers detail-row model scales to 2–3 MTs cleanly but not to 5–10).
+It is the natural prerequisite for the 2.0 tag — "Protek runs many
+MikroTiks" is part of the 2.0 thesis from phase 80, but most of the
+plumbing has been latent rather than tested at fleet scale.
+
+### Phase 94 — RouterOS bootstrap script ✅ shipped (2026-05-28)
+
+- [x] `templates/mt_bootstrap.rsc` — RouterOS script the operator
+  pastes into the MT terminal. Idempotent: detects an existing group
+  / user with the configured name and re-creates them (with a `:put`
+  warning that active sessions will drop). Generates a 24-char random
+  password via `:rndstr` (RouterOS v7+; v6 will print a clear error).
+  Group perms are the minimum needed for address-list ops:
+  `api,read,write,test` — explicitly omits `policy`, `sensitive`,
+  `web`, `winbox`, `ftp`, `local`, `password`, `sniff`, `romon`,
+  `dude`, `reboot`. The MT user can manage the address-list and
+  nothing else.
+- [x] `/bouncers/mt-bootstrap` — HTML page rendering the script with a
+  copy-to-clipboard button, plus a "Download .rsc" link. Query
+  parameters `?username=`, `?group=`, `?list_name=` template the
+  values (validated against `[A-Za-z0-9_-]{1,32}` to prevent
+  injection into the .rsc body). Defaults: `protek` / `protek-bouncer`
+  / value of `MT_ADDRESS_LIST` env or `crowdsec`.
+- [x] `/bouncers/mt-bootstrap.rsc` — same content as the HTML page's
+  `<pre>`, served as `text/plain` so `curl | ssh router 'cli'`
+  pipelines work for operators who prefer terminal-only flows.
+- [x] Link on `/bouncers` ("Adding a MikroTik? Get the bootstrap
+  script →") + link on the MT kind step of `/bouncers/add` —
+  surfaces the script exactly where an operator is about to need it
+  rather than buried in /docs.
+- [x] `tests/test_mt_bootstrap.py` — endpoint returns 200 with
+  expected Content-Type; rendered script contains the minimum perms
+  string; templated values flow through correctly; bad query
+  parameter is rejected with 400.
+
+**Acceptance:** ✅ — endpoint returns the script with the operator's
+configured list name + safe defaults, copy-to-clipboard works, raw
+.rsc download serves with the right Content-Type. Drops "add a new
+MikroTik" from ~10 manual perm-juggling steps to one terminal paste
++ filling the 4 fields the Protek wizard already asks for. Test
+suite green: 53 passed, 1 skipped.
+
+### Phase 95 — Docker image + compose ⏳ planned
+
+- [ ] `Dockerfile` — Python 3.12-slim base, copy app + install deps
+  into a venv layer that's cacheable across rebuilds. `protek.db` +
+  `.env` live on a named volume so the container is stateless.
+- [ ] `compose.yml` — Protek + Caddy reverse proxy (TLS via Let's
+  Encrypt by default, simpler than nginx + certbot for first-run) +
+  optional Litestream sidecar.
+- [ ] First-run: `docker compose up -d` + `docker compose exec protek
+  python scripts/setup_admin.py --username <name>` reproduces today's
+  manual install. Capture the printed TOTP URI + password as the
+  one-time step.
+- [ ] `compose.yml` matches what the systemd unit does — same env
+  shape, same `/health` semantics, same volume paths. So an existing
+  bare-metal Protek can be migrated by copy-pasting `.env` and
+  `protek.db` into the volume.
+- [ ] Multi-arch build (amd64 + arm64) so the same image runs on
+  Hetzner CAX21 + Pi 5 + AWS Graviton without per-host builds.
+
+**Acceptance gate:** fresh VPS goes from `apt install docker` to a
+logged-in /dashboard in <5 min. CrowdSec is a separate container in
+the same compose (host-net mode) or stays on the host — operator's
+choice via a `compose.yml` env toggle.
+
+### Phase 96 — `/fleet` view ⏳ planned
+
+- [ ] Single-page fleet board: one row per bouncer target, columns for
+  sync lag · address-list size · last push success rate · degraded
+  badge (phase 89) · RouterOS version (already in `mt_health()`).
+- [ ] Per-row 24h sparkline of add/remove counts (data already in
+  `mt_pushes` joined to `sync_events`).
+- [ ] Sortable by lag / size / errors so the operator can answer
+  "which MT is slowest?" / "which is biggest?" / "which is dying?"
+  at a glance.
+- [ ] Per-row hover surfaces last 5 errors from `mt_pushes.error`.
+- [ ] `/fleet` is reachable from the topbar but doesn't replace
+  `/bouncers` — the detail-edit-per-bouncer flow stays; this is the
+  at-a-glance overlay.
+
+**Acceptance gate:** with 3+ bouncer targets configured, `/fleet`
+renders in <500 ms, the sparklines populate from `sync_events`/
+`mt_pushes` joins, the sort columns work, and adding a 4th target
+appears in the table on the next render (no cache flush).
+
+### Phase 97 — Per-MT routing rules ⏳ planned
+
+- [ ] Two new columns on `bouncer_targets`: `source_filter` (CSV of
+  federation source names, blank = all) + `scenario_filter` (regex
+  against decision.scenario, blank = all).
+- [ ] `reconciler._run_one_bouncer` applies the filters between the
+  source decision set and the per-bouncer diff. Adds one short helper
+  + a few asserts in the existing test suite; no architectural
+  change.
+- [ ] `/bouncers/edit/<id>` exposes both fields. UI surfaces a count
+  of "X decisions pass this filter" rendered live as the operator
+  types — so they can confirm the filter does what they expect
+  before saving.
+- [ ] Audit row written on each filter change.
+
+**Acceptance gate:** with two MTs configured (`edge-mt`,
+`office-mt`), setting `office-mt.scenario_filter='http-.*'` results
+in `office-mt` receiving only http-family decisions on the next
+reconcile cycle. The other MT continues to receive the full set.
+
+### Phase 98 — RouterOS REST API adapter ⏳ planned
+
+- [ ] New adapter kind `mikrotik_rest` using RouterOS v7's HTTPS REST
+  API. Falls back to binary API when the MT doesn't advertise REST
+  (or the operator pins to binary via an adapter config field).
+- [ ] Targets the MT snapshot wall-time floor identified in MEMORY.md
+  — currently ~118 s on 51k entries via binary API. REST returns
+  larger pages per request, so the 2–3× speedup observed in v7
+  benchmarks should bring the snapshot stage under ~50 s. Removes
+  the cycle wall-time floor that's currently the rate-limiter on
+  reconcile cadence.
+- [ ] `bouncers/mikrotik_rest_adapter.py` matches the same
+  Bouncer protocol as `mikrotik_db_adapter.py` (no reconciler
+  changes needed). `/bouncers/add` kind picker offers both.
+- [ ] Bootstrap script (phase 94) updates to add `rest-api` to the
+  group's policy list when the new adapter kind is chosen.
+- [ ] Tests: stub the REST API on `127.0.0.1` with a fixed page
+  size, exercise the same add/remove/snapshot operations as the
+  binary-API tests in `tests/test_reconcile.py`.
+
+**Acceptance gate:** measured against the current 51k-entry MT, the
+snapshot stage in `sync_events.snapshot_ms` drops to ≤ 60 s sustained
+across 12 cycles. Behavior preservation verified by a side-by-side
+shadow run (snapshot via binary, apply via REST) that produces
+identical `to_add`/`to_remove` diffs.
+
+---
+
 # Anti-roadmap — things we are deliberately NOT building
 
 - A CrowdSec **agent**. Protek does not detect attacks. It reads decisions and remediates them.
