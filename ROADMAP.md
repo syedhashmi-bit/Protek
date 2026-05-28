@@ -1387,29 +1387,42 @@ MikroTik" from ~10 manual perm-juggling steps to one terminal paste
 + filling the 4 fields the Protek wizard already asks for. Test
 suite green: 53 passed, 1 skipped.
 
-### Phase 95 — Docker image + compose ⏳ planned
+### Phase 95 — Docker image + compose ⚠ shipped, end-to-end build pending (2026-05-28)
 
-- [ ] `Dockerfile` — Python 3.12-slim base, copy app + install deps
-  into a venv layer that's cacheable across rebuilds. `protek.db` +
-  `.env` live on a named volume so the container is stateless.
-- [ ] `compose.yml` — Protek + Caddy reverse proxy (TLS via Let's
-  Encrypt by default, simpler than nginx + certbot for first-run) +
-  optional Litestream sidecar.
-- [ ] First-run: `docker compose up -d` + `docker compose exec protek
-  python scripts/setup_admin.py --username <name>` reproduces today's
-  manual install. Capture the printed TOTP URI + password as the
-  one-time step.
-- [ ] `compose.yml` matches what the systemd unit does — same env
-  shape, same `/health` semantics, same volume paths. So an existing
-  bare-metal Protek can be migrated by copy-pasting `.env` and
-  `protek.db` into the volume.
-- [ ] Multi-arch build (amd64 + arm64) so the same image runs on
-  Hetzner CAX21 + Pi 5 + AWS Graviton without per-host builds.
+- [x] `Dockerfile` — multi-stage build (`builder` + `runtime`), Python
+  3.12-slim base, venv in `/opt/venv`, non-root uid 1000, tini as
+  PID 1 for clean SIGTERM. Volume at `/data` holds protek.db +
+  optional .env + Litestream local stage. `python:3.12-slim` is
+  multi-arch (amd64 + arm64) — same image runs on Hetzner CAX, Pi 5,
+  AWS Graviton.
+- [x] `compose.yml` — three services. `protek` (the app), `caddy:2-alpine`
+  (TLS termination + reverse proxy with Let's Encrypt auto-issuance
+  for the operator's `PROTEK_DOMAIN`), and `litestream/litestream:0.5`
+  (sidecar, gated behind the `replicate` compose profile so it
+  doesn't auto-start). Named volume `protek_data` carries all
+  persistent state; back up that one volume, you've backed up Protek.
+- [x] `Caddyfile` — TLS + HSTS + `X-Forwarded-For`/`X-Real-IP`
+  pass-through so Flask sees the client IP for rate-limiting +
+  `IP_WHITELIST`. Matches what the bare-metal `deploy/protek.nginx`
+  site does, in 30 lines instead of 100.
+- [x] `.dockerignore` — excludes `protek.db*`, `.env`, `venv/`,
+  `__pycache__/`, `.git/`, screenshots, soak harness CSVs. Build
+  context stays under a few MB.
+- [x] `db.py` — `DB_PATH` now honors `PROTEK_DB_PATH` env (defaults
+  to the parent-dir layout so bare-metal installs are unaffected).
+- [x] `docs/DOCKER.md` — quickstart, migration-from-bare-metal recipe,
+  ops cheatsheet, multi-arch note, CrowdSec placement guidance,
+  known-limitations callouts (the WAL truncate timer + Litestream
+  fast-restore are host-systemd artifacts that need follow-up).
 
-**Acceptance gate:** fresh VPS goes from `apt install docker` to a
-logged-in /dashboard in <5 min. CrowdSec is a separate container in
-the same compose (host-net mode) or stays on the host — operator's
-choice via a `compose.yml` env toggle.
+**Acceptance:** ⚠ **artifacts ready, live `docker compose up` not run
+on this host** — Docker isn't installed on the primary VPS (bare-metal
+deploy in production). The Dockerfile + compose.yml + Caddyfile pass
+`yaml.safe_load`, the test suite green (`56 passed, 1 skipped` after
+the `db.py` change) and the build context is clean. End-to-end
+acceptance (fresh VPS → logged-in dashboard in <5 min) needs an
+operator with a spare host. The artifacts are the deliverable; the
+measurement is the follow-up.
 
 ### Phase 96 — `/fleet` view ⏳ planned
 

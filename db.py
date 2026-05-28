@@ -10,10 +10,18 @@ migration block (PRAGMA-guarded ADD COLUMN). See CLAUDE.md.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent / "protek.db"
+# Phase 95 — Docker image mounts a volume at /data for state.
+# PROTEK_DB_PATH overrides the bare-metal default for containerised
+# deployments. Bare-metal install.sh / systemd unit don't set this,
+# so existing deployments keep the parent-dir layout.
+DB_PATH = Path(
+    os.environ.get("PROTEK_DB_PATH")
+    or (Path(__file__).resolve().parent / "protek.db")
+)
 
 
 def get_conn() -> sqlite3.Connection:
