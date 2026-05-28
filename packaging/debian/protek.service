@@ -8,10 +8,18 @@ Wants=network-online.target
 Type=simple
 User=protek
 Group=protek
-WorkingDirectory=/var/lib/protek
+# Code lives in /usr/share/protek (FHS for arch-independent data).
+# Mutable state (protek.db, .protek.db-litestream/) lives in
+# /var/lib/protek; the WorkingDirectory is set there because db.py's
+# default DB_PATH resolution is `parent_of_db.py / "protek.db"` —
+# packaged install sets PROTEK_DB_PATH=/var/lib/protek/protek.db in
+# /etc/protek/.env so the override path keeps state out of the
+# read-only code dir.
+WorkingDirectory=/usr/share/protek
 EnvironmentFile=/etc/protek/.env
+Environment=PROTEK_DB_PATH=/var/lib/protek/protek.db
 ExecStart=/usr/lib/protek/venv/bin/gunicorn -w 3 -b 127.0.0.1:8090 \
-    --access-logfile - --error-logfile - app:app
+    --access-logfile - --error-logfile - --chdir /usr/share/protek app:app
 Restart=on-failure
 RestartSec=3s
 

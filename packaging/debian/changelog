@@ -1,3 +1,33 @@
+protek (2.1.0-1) unstable; urgency=medium
+
+  * Arc 14 — Operator UX:
+    - Phase 81 shared wizard primitive
+    - Phase 82 bouncer onboarding redesign (field_schema)
+    - Phase 83 federation onboarding redesign
+    - Phase 84 diagnostic health probe
+    - Phase 85 env-only setups UI
+    - Phase 86 first-run setup wizard
+  * Arc 15 — Production-grade ops:
+    - Phase 87 Litestream restore speedup (fast-restore script)
+    - Phase 88 parallel federation source fetch
+    - Phase 89 parallel per-bouncer apply + degraded marker
+    - Phase 90 multi-day soak harness
+    - Phase 91 SLO sustained-breach alerts
+    - Phase 92 automated DR drill
+    - Phase 93 disk + Litestream observability (df watchdog,
+      journal scraper, auto-rebaseline gate)
+  * Arc 16 — Deploy + fleet ops:
+    - Phase 94 RouterOS bootstrap script (one-paste MT onboarding)
+    - Phase 95 Dockerfile + compose.yml + Caddy (option-B deploy path)
+    - Phase 96 /fleet at-a-glance view
+    - Phase 97 per-MT routing rules (source_filter + scenario_filter)
+    - Phase 98 RouterOS REST API adapter (mikrotik_rest kind)
+  * Phase 33 Grafana board pack JSON (closes deferred half)
+  * Fix MikroTik IPv6 push failures in the DB-driven adapter
+  * Fix /bouncers/add empty render (block content vs block body)
+
+ -- Syed Hashmi <syed@syedhashmi.trade>  Thu, 28 May 2026 03:30:00 +0000
+
 protek (2.0.0-1) unstable; urgency=medium
 
   * Protek 2.0 — full Arc 1 through Arc 13 feature set:

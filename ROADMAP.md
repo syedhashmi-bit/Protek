@@ -744,7 +744,36 @@ real production wiring, not just unit tests.
 
 ---
 
-### Phase 71 — Native packages (.deb / .rpm) ❌ not started
+### Phase 71 — Native packages (.deb / .rpm) ⚠ shipped, build-host not available here (2026-05-28)
+
+- [x] `packaging/debian/` — full debhelper-13 scaffolding (control,
+  changelog updated to 2.1, install glob, rules, postinst, prerm,
+  source/format).
+- [x] `packaging/debian/protek.service` — systemd unit with
+  hardened sandboxing (NoNewPrivileges, ProtectSystem=full,
+  PrivateTmp). `PROTEK_DB_PATH=/var/lib/protek/protek.db` set so the
+  read-only code dir at `/usr/share/protek` stays unmodified.
+- [x] `packaging/rpm/protek.spec` — equivalent RPM spec for
+  Fedora / RHEL / Rocky / Alma. Same noarch shape (postscriptlet
+  builds the venv on install so the host's Python ABI is used, not
+  the build host's).
+- [x] `packaging/build.sh` — one-stop builder, `./packaging/build.sh
+  [deb|rpm]`. Drives `dpkg-buildpackage` or `rpmbuild` end-to-end.
+  Validates host build deps + prints install instructions for each
+  variant.
+- [x] `packaging/README.md` — layout, build deps per distro, install
+  recipes, what the postinst does, why noarch, what's deliberately
+  not in the package (CrowdSec, nginx site, TLS — all
+  deployment-specific).
+
+**Acceptance:** ⚠ **scaffolding complete, live builds not run on this
+host**. Building a .deb requires `debhelper`/`dh-python` and building
+an .rpm requires `rpm-build`/`systemd-rpm-macros`; neither is
+installed on the primary VPS. The artifacts (debian/* + rpm/*.spec +
+build.sh) are syntactically valid; end-to-end build acceptance is
+operator-side homework on a Debian/Ubuntu and Fedora/RHEL host
+respectively. Same situation as phase 95 (Docker — artifacts ready,
+the live `docker compose up` measurement is operator-side).
 
 - `install.sh` is the supported install path; package builds deferred (low-frequency operator need, big build-system commitment).
 
