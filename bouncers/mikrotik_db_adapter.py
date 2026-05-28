@@ -25,11 +25,34 @@ contract as the env-anchored adapter.
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
 
 from mikrotik import MikroTik
 
 from . import register
+
+
+def _is_ipv6(addr: str) -> bool:
+    """True for IPv6 with or without /prefix. Same helper as the legacy
+    `mikrotik_adapter.py` — lifted here so the DB-driven adapter
+    doesn't depend on the legacy module."""
+    try:
+        return ipaddress.ip_network(addr.strip(), strict=False).version == 6
+    except (ValueError, AttributeError):
+        return False
+
+
+def _split_id(prefixed_id: str) -> tuple[str, str]:
+    """('v6:*123',) → ('/ipv6/firewall/address-list', '*123'). Bare ids
+    (no prefix) are treated as v4 for backward compat — the snapshot
+    path in `mikrotik.py` adds the `v4:` / `v6:` prefix to every entry's
+    .id so the remove path knows which resource to call."""
+    if prefixed_id.startswith("v6:"):
+        return "/ipv6/firewall/address-list", prefixed_id[3:]
+    if prefixed_id.startswith("v4:"):
+        return "/ip/firewall/address-list", prefixed_id[3:]
+    return "/ip/firewall/address-list", prefixed_id
 
 
 @register("mikrotik")
@@ -124,6 +147,13 @@ class MikroTikDBAdapter:
             return []
 
     def apply(self, to_add: list[tuple[str, str]], to_remove_ids: list[str]) -> dict[str, Any]:
+        """IPv4 + IPv6 dispatch. RouterOS uses separate resources for the
+        two families (`/ip/firewall/address-list` vs
+        `/ipv6/firewall/address-list`); pushing an IPv6 string at the v4
+        resource produces the `<addr> is not a valid dns name` error
+        observed in 2026-05-26 MEMORY (~200/cycle). Mirrors the
+        established pattern in `mikrotik_adapter.py` (legacy env adapter)
+        — same split, same idempotency handling."""
         applied_add = 0
         applied_remove = 0
         errors = 0
@@ -132,8 +162,20 @@ class MikroTikDBAdapter:
             return {"applied_add": 0, "applied_remove": 0, "errors": 0, "push_log": []}
         self._mt.connect()
         try:
-            res = self._mt._api.get_resource("/ip/firewall/address-list")  # noqa: SLF001
+            res_v4 = self._mt._api.get_resource("/ip/firewall/address-list")  # noqa: SLF001
+            try:
+                res_v6 = self._mt._api.get_resource("/ipv6/firewall/address-list")  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                res_v6 = None  # router has no IPv6 routing config
+
             for addr, comment in to_add:
+                want_v6 = _is_ipv6(addr)
+                res = res_v6 if want_v6 else res_v4
+                if res is None:
+                    errors += 1
+                    push_log.append({"ip": addr, "action": "add", "success": False,
+                                     "error": "ipv6 address-list resource unavailable"})
+                    continue
                 try:
                     res.add(list=self.list_name, address=addr, comment=comment)
                     applied_add += 1
@@ -148,9 +190,17 @@ class MikroTikDBAdapter:
                         errors += 1
                         push_log.append({"ip": addr, "action": "add", "success": False,
                                          "error": str(e)[:300]})
+
             for mt_id in to_remove_ids:
+                path, real_id = _split_id(mt_id)
+                res = res_v6 if path == "/ipv6/firewall/address-list" else res_v4
+                if res is None:
+                    errors += 1
+                    push_log.append({"ip": mt_id, "action": "remove", "success": False,
+                                     "error": "ipv6 address-list resource unavailable"})
+                    continue
                 try:
-                    res.remove(id=mt_id)
+                    res.remove(id=real_id)
                     applied_remove += 1
                     push_log.append({"ip": mt_id, "action": "remove", "success": True})
                 except Exception as e:  # noqa: BLE001
