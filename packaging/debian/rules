@@ -1,8 +1,12 @@
 #!/usr/bin/make -f
 # debian/rules — minimal dh sequencer.
+#
+# Protek ships as a directory tree under /usr/share/protek, not as a
+# pip-installable package. So we don't use --with python3 or pybuild;
+# debian/install handles the file mapping, and debian/postinst builds
+# the venv against the host's python3 ABI at install time.
 
 export DH_VERBOSE = 1
-export PYBUILD_NAME = protek
 
 %:
-	dh $@ --with python3 --buildsystem=pybuild
+	dh $@

@@ -33,9 +33,11 @@ case "$kind" in
       echo "  sudo apt install -y build-essential debhelper dh-python python3-all python3-setuptools devscripts" >&2
       exit 1
     fi
-    # dh expects debian/ at the repo root. Use a symlink that survives
-    # interruption (the trap below removes it on exit).
-    ln -sfn ../packaging/debian debian
+    # dh expects debian/ at the repo root. The symlink target is relative
+    # to the symlink's own location (the repo root), so `packaging/debian`
+    # — not `../packaging/debian` (which would resolve to /var/www/packaging
+    # one directory up). Trap removes it on exit even if the build errors.
+    ln -sfn packaging/debian debian
     trap 'rm -f debian' EXIT
     chmod +x packaging/debian/postinst packaging/debian/prerm packaging/debian/rules
     dpkg-buildpackage -us -uc -b
