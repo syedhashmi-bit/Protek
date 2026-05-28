@@ -4,6 +4,101 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-28 (cont. 3) — Arc 16 complete: phases 95-98 shipped
+
+Continuation of the same session — operator asked to work through to
+phase 98. All four remaining Arc 16 phases landed.
+
+### Phase 95 ⚠ shipped (Docker image + compose)
+
+- `Dockerfile` — multi-stage Python 3.12-slim, non-root uid 1000,
+  tini as PID 1 for clean SIGTERM forwarding, /data volume for state.
+  Multi-arch via the base image (amd64 + arm64 from python:3.12-slim).
+- `compose.yml` — `protek` + `caddy:2-alpine` (Let's Encrypt auto-issuance
+  for `PROTEK_DOMAIN`) + optional `litestream/litestream:0.5` sidecar
+  behind the `replicate` profile.
+- `Caddyfile` — TLS + HSTS + X-Forwarded-* pass-through so the IP-based
+  rate limiter still works behind the proxy.
+- `db.py` — `DB_PATH` now honors `PROTEK_DB_PATH` env (bare-metal default
+  unchanged).
+- `docs/DOCKER.md` — quickstart, migration-from-bare-metal recipe, ops
+  cheatsheet, known limitations (the WAL-truncate timer + Litestream
+  fast-restore are host-systemd artifacts that need rethinking inside
+  a container).
+- **Acceptance:** ⚠ — artifacts ready + YAML validates + 56 tests still
+  green after the db.py change. Docker isn't installed on this VPS so
+  the live `docker compose up` was not run; that's an operator-side
+  measurement on a spare host.
+
+### Phase 96 ✅ shipped (/fleet view)
+
+- `fleet.py` — independently importable aggregation (no Flask dep).
+  Per-target status from live `t.health()` + cached `last_error`
+  (degraded vs offline distinction matches phase 89). 24h hourly
+  bucket chart from `sync_events`.
+- `templates/fleet.html` — KPI strip + SVG bar chart + sortable
+  table (vanilla JS, `data-sort-value` overrides for numeric sort
+  on size + lag).
+- `templates/base.html` — `Fleet` nav link next to `Bouncers`.
+- Decision captured: dropped per-row sparkline. `mt_pushes` has no
+  `bouncer_id` column today so per-bouncer time series would need
+  a schema migration. One global throughput chart at the top covers
+  the trend at much lower complexity.
+- 6 unit tests in `tests/test_fleet.py`.
+
+### Phase 97 ✅ shipped (per-MT routing rules)
+
+- **No schema change** — both filters live in the existing
+  `bouncer_targets.config_json`. Reconciler reads two more optional
+  attrs off the bouncer instance.
+- `reconciler._filter_desired_for_bouncer` — `source_filter` (CSV or
+  list, whitespace-tolerant, filters by `decision.origin_source`) and
+  `scenario_filter` (Python regex via `re.search` with safe fallback —
+  invalid regex logs WARNING + passes through, never crashes the loop).
+- `bouncers/mikrotik_db_adapter.py` — both fields declared in
+  `field_schema` so `/bouncers/add` renders them as labeled inputs.
+- Audit already wired via existing `_audit("bouncer.edit", ...)`.
+- 13 unit tests in `tests/test_per_mt_filters.py` including the
+  acceptance-gate scenario verbatim (`edge-mt` gets everything,
+  `office-mt` gets only `http-*`).
+
+### Phase 98 ⚠ shipped (RouterOS REST API adapter)
+
+- `bouncers/mikrotik_rest_adapter.py` — new kind `mikrotik_rest`.
+  HTTPS REST against `/rest/ip/firewall/address-list`. Same Bouncer
+  protocol contract as the binary adapter so the reconciler is
+  transport-agnostic.
+- Idempotency semantics match the binary adapter: 400-with-`already
+  have such entry` → successful add, 404-on-delete → successful
+  remove.
+- Phase 94 bootstrap script (`templates/mt_bootstrap.rsc`) updated —
+  `:do { ... } on-error={ ... }` block opts the group into `rest-api`
+  policy on v7+ while failing gracefully on v6.
+- Phase 97 filter attrs honored — same getattr-on-instance pattern.
+- 18 unit tests in `tests/test_mikrotik_rest_adapter.py`.
+- **Acceptance:** ⚠ — adapter + tests ready; the live perf measurement
+  of snapshot wall-time vs the ~118 s binary baseline is operator-side
+  homework. `sync_events.snapshot_ms` captures the number automatically
+  once a parallel `mikrotik_rest` target is configured.
+
+### Cumulative session stats
+
+- **Commits** this session: 7 (89-fix → 93 → 94 → 95 → 96 → 97 → 98)
+- **Test count**: from 38 (start of session) → **93 passed, 1 skipped**
+- **New modules**: `disk_watchdog.py`, `fleet.py`,
+  `bouncers/mikrotik_rest_adapter.py`
+- **New test files**: `test_disk_watchdog.py`, `test_mt_bootstrap.py`,
+  `test_fleet.py`, `test_per_mt_filters.py`,
+  `test_mikrotik_rest_adapter.py` (+55 tests in aggregate)
+- **Open items for follow-up**:
+  - VPS B `ltx/1/`+ `ltx/2/` SSH_FX_FAILURE — still latent. Phase 93
+    watchdog will fire when disk crosses 70% again; root cause needs
+    SSH probe to VPS B.
+  - Phase 95 live `docker compose up` measurement (5-min target).
+  - Phase 98 live perf measurement (snapshot speedup vs 118 s baseline).
+
+---
+
 ## 2026-05-28 (cont. 2) — Phase 94 shipped: RouterOS bootstrap script
 
 Opening shot of **Arc 16 — Deploy + fleet ops** (phases 94–98).

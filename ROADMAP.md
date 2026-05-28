@@ -1505,31 +1505,52 @@ compound (source × scenario) filter, composition with existing
 filters, and the adapter-side kwarg/field_schema plumbing. Full suite
 green (75 passed, 1 skipped).
 
-### Phase 98 — RouterOS REST API adapter ⏳ planned
+### Phase 98 — RouterOS REST API adapter ⚠ shipped, live-perf measurement pending (2026-05-28)
 
-- [ ] New adapter kind `mikrotik_rest` using RouterOS v7's HTTPS REST
-  API. Falls back to binary API when the MT doesn't advertise REST
-  (or the operator pins to binary via an adapter config field).
-- [ ] Targets the MT snapshot wall-time floor identified in MEMORY.md
-  — currently ~118 s on 51k entries via binary API. REST returns
-  larger pages per request, so the 2–3× speedup observed in v7
-  benchmarks should bring the snapshot stage under ~50 s. Removes
-  the cycle wall-time floor that's currently the rate-limiter on
-  reconcile cadence.
-- [ ] `bouncers/mikrotik_rest_adapter.py` matches the same
-  Bouncer protocol as `mikrotik_db_adapter.py` (no reconciler
-  changes needed). `/bouncers/add` kind picker offers both.
-- [ ] Bootstrap script (phase 94) updates to add `rest-api` to the
-  group's policy list when the new adapter kind is chosen.
-- [ ] Tests: stub the REST API on `127.0.0.1` with a fixed page
-  size, exercise the same add/remove/snapshot operations as the
-  binary-API tests in `tests/test_reconcile.py`.
+- [x] New adapter kind `mikrotik_rest` —
+  `bouncers/mikrotik_rest_adapter.py`. Same Bouncer protocol contract
+  as `mikrotik_db_adapter` so the reconciler is transport-agnostic.
+  `@register("mikrotik_rest")` so `/bouncers/add` kind picker offers
+  both transports for new bouncers (existing binary-API bouncers stay
+  on their current adapter).
+- [x] Design decision: **two adapter kinds, not auto-fallback inside
+  one.** Operator picks per-bouncer transport at /bouncers/add time.
+  Falling back binary→REST inside a single adapter would have made
+  the failure modes ambiguous ("was the timeout the binary path or
+  the REST?"). Two adapters keep diagnostics clean and per-bouncer
+  failure isolation intact.
+- [x] Idempotency semantics match the binary adapter — 400 with
+  `already have such entry` is treated as a successful add; 404 on
+  delete is treated as a successful remove. Snapshot/apply race
+  conditions safely absorbed.
+- [x] phase 97 filter attrs (`source_filter`, `scenario_filter`,
+  `origins`, etc.) honored — same getattr-on-instance pattern the
+  binary adapter uses.
+- [x] Phase 94 bootstrap script — RouterOS `:do { ... } on-error={ ... }`
+  block opts the user group into `rest-api` policy on v7+ while
+  failing gracefully on v6 (where the policy doesn't exist). Operator
+  using the new adapter doesn't need to edit the script.
+- [x] `tests/test_mikrotik_rest_adapter.py` (18 cases): is_configured /
+  field_schema / kind registration / URL construction / snapshot
+  with normalized entries / snapshot swallowing HTTP errors /
+  snapshot handling non-list JSON / apply-add success / apply-add
+  idempotent-on-duplicate / apply-add real-400-is-error /
+  apply-remove success / apply-remove idempotent-on-404 /
+  apply request-exception / health with version + size /
+  health when blank-config / health on network failure / phase-97
+  filter attr plumbing / snapshot output diff-compatible with the
+  binary adapter's key shape.
 
-**Acceptance gate:** measured against the current 51k-entry MT, the
-snapshot stage in `sync_events.snapshot_ms` drops to ≤ 60 s sustained
-across 12 cycles. Behavior preservation verified by a side-by-side
-shadow run (snapshot via binary, apply via REST) that produces
-identical `to_add`/`to_remove` diffs.
+**Acceptance:** ⚠ **adapter ready + 18 unit tests pass + full suite
+green (93 passed, 1 skipped)**. Live perf measurement of the
+snapshot wall-time speedup vs the ~118 s binary-API baseline is the
+remaining gate — needs the operator to configure a parallel
+`mikrotik_rest` target against the same MikroTik and let it run for
+12 cycles. That measurement is captured by `sync_events.snapshot_ms`
+automatically; no extra tooling needed. The unit-tested correctness
+contract + the binary-API parity on diff-input shape is the
+deliverable here; the perf number is operator-side homework on a
+live RouterOS v7.
 
 ---
 

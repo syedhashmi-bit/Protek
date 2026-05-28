@@ -37,6 +37,16 @@
     policy=api,read,write,test \
     comment="Protek CrowdSec bouncer (managed by '$listname' address-list)"
 
+# Phase 98 — opt-in to the REST API on RouterOS v7. The `rest-api`
+# policy doesn't exist on v6, so we try and swallow the error so v6
+# routers still complete the bootstrap successfully.
+:do {
+    /user group set $groupname policy=api,read,write,test,rest-api
+    :put "[info] rest-api policy enabled (RouterOS v7+ detected)"
+} on-error={
+    :put "[info] rest-api policy unavailable (RouterOS v6) — binary API only"
+}
+
 :local pwd [:rndstr length=24]
 /user add name=$username group=$groupname password=$pwd \
     comment="Protek bouncer — minimum perms; rotate by re-running bootstrap"
