@@ -40,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -48,6 +49,12 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from db import get_conn
 
 MAGIC = b"PROTEK01"
+
+# SQL identifier regex — used to gate column names from imported bundles
+# before they're interpolated into the dynamic INSERT statement. Matches
+# `[A-Za-z_][A-Za-z0-9_]*` — the standard ASCII identifier shape that
+# every column in Protek's schema uses.
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SCRYPT_N = 2 ** 15
 SCRYPT_R = 8
 SCRYPT_P = 1
@@ -159,7 +166,19 @@ def import_bundle(blob: bytes, passphrase: str,
                 # we keep them. The DB will raise UNIQUE violation if collision;
                 # we INSERT OR IGNORE in additive mode, OR INSERT OR REPLACE in
                 # overwrite mode.
+                #
+                # Defense-in-depth: validate every column name from the bundle
+                # against the SQL identifier regex before interpolating into
+                # the INSERT statement. Even though apply_bundle is admin-only
+                # (callers gate on role_required("admin")), a malicious or
+                # corrupted bundle could otherwise craft column names that
+                # rewrite the INSERT's VALUES clause via comment-injection.
+                # The fix rejects any non-identifier column name; the row is
+                # logged as skipped rather than silently mangled.
                 cols = list(row.keys())
+                if not all(_IDENT_RE.match(c) for c in cols):
+                    skipped += 1
+                    continue
                 placeholders = ",".join("?" * len(cols))
                 col_list = ",".join(cols)
                 values = [row[c] for c in cols]

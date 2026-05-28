@@ -318,12 +318,23 @@ class Poller:
         # by default so we don't surprise the operator.
         if self.cycles % 360 == 0:
             try:
-                if (get_setting("dr_drill.reminder_enabled") or "0") == "1":
+                # NB: `get_setting` is not imported at module scope in this
+                # file — early phase-92 shipped this block referencing it as
+                # if it were, but the NameError was silently caught by the
+                # outer except (so the reminder has never actually fired in
+                # production since it shipped). Using `_gs` from the alias at
+                # the top of tick() makes the block live again.
+                if (_gs("dr_drill.reminder_enabled") or "0") == "1":
+                    # `audit_log.created_at` was historically called `ts` in
+                    # an earlier draft; the live schema uses `created_at`.
+                    # SELECT against the wrong column would silently return
+                    # NULL forever, defeating the reminder even after the
+                    # get_setting NameError was fixed.
                     from db import get_conn
                     conn = get_conn()
                     try:
                         row = conn.execute(
-                            "SELECT MAX(ts) AS last FROM audit_log "
+                            "SELECT MAX(created_at) AS last FROM audit_log "
                             "WHERE action = 'dr.drill.completed'"
                         ).fetchone()
                     finally:
@@ -338,7 +349,7 @@ class Poller:
                             days_since = (datetime.now(timezone.utc) - t).days
                         except (ValueError, AttributeError):
                             pass
-                    last_alerted_at = get_setting("dr_drill.last_reminder_at") or ""
+                    last_alerted_at = _gs("dr_drill.last_reminder_at") or ""
                     if days_since >= 90 and last_alerted_at != (last_iso or ""):
                         try:
                             notifications.send(
