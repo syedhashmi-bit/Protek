@@ -383,6 +383,44 @@ class Poller:
             except Exception as e:  # noqa: BLE001
                 log.debug("wal checkpoint swallowed: %s", e)
 
+        # Phase 93 — disk watchdog. Two ENOSPC incidents (2026-05-25 WAL,
+        # 2026-05-28 Litestream LTX stage) both kept /health green while
+        # SQLite went read-only underneath. Sample + edge-triggered warn/
+        # critical notification, mirroring the SLO breach pattern.
+        # Cadence is configurable; default every 6 cycles ≈ 60s.
+        try:
+            disk_every = int(_gs("disk.check_every_cycles") or "6")
+        except (TypeError, ValueError):
+            disk_every = 6
+        if disk_every >= 1 and self.cycles % disk_every == 0:
+            try:
+                import disk_watchdog
+                disk_watchdog.check_and_alert()
+            except Exception as e:  # noqa: BLE001
+                log.debug("disk watchdog swallowed: %s", e)
+
+        # Phase 93 — litestream journal scraper. Errors like
+        # `level=ERROR retention enforcement failed` are invisible to
+        # systemctl is-active + /metrics; surface them as notifications.
+        # Cheap (one short journalctl call); every 30 cycles ≈ 5 min.
+        if self.cycles % 30 == 0:
+            try:
+                import litestream as _ls
+                _ls.scan_journal_errors()
+            except Exception as e:  # noqa: BLE001
+                log.debug("litestream journal scrape swallowed: %s", e)
+
+        # Phase 93 — optional auto-rebaseline at critical. Master-gated
+        # off by default; only acts when usage ≥ critical AND the local
+        # LTX stage dominates /var/www/Protek/. Hourly check (360
+        # cycles ≈ 1h) so we never thrash even if accidentally enabled.
+        if self.cycles % 360 == 0:
+            try:
+                import disk_watchdog
+                disk_watchdog.maybe_auto_rebaseline()
+            except Exception as e:  # noqa: BLE001
+                log.debug("auto-rebaseline check swallowed: %s", e)
+
     def _envstr(self, name: str) -> str:
         return (os.environ.get(name, "") or "").split("#", 1)[0].strip()
 

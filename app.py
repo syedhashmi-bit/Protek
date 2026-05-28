@@ -1195,6 +1195,15 @@ def health_public():
     mt = MikroTik()
     if mt.is_configured() and not _mt_quick_ok():
         issues.append("mt_unreachable")
+    # Phase 93 — disk pressure. Both 2026-05-25 and 2026-05-28 ENOSPC
+    # incidents kept this endpoint green while SQLite went read-only.
+    # Soft-fail: never throw out of /health if the watchdog itself errors.
+    try:
+        import disk_watchdog
+        if disk_watchdog.is_critical():
+            issues.append("disk_critical")
+    except Exception:  # noqa: BLE001
+        pass
     code = 503 if issues else 200
     return jsonify(
         status="degraded" if issues else "ok",
@@ -2109,6 +2118,11 @@ def perf_page():
     import perf
     import slo as _slo
     import ratelimit
+    try:
+        import disk_watchdog
+        disk = disk_watchdog.current()
+    except Exception:  # noqa: BLE001
+        disk = None
     return render_template(
         "perf.html",
         stats=perf.cycle_stats(hours=24),
@@ -2118,6 +2132,7 @@ def perf_page():
         stages=perf.stage_timings(hours=24),
         slo=_slo.summary(window_hours=24),
         buckets=ratelimit.all_status(),
+        disk=disk,
         active="perf",
     )
 

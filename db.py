@@ -454,6 +454,18 @@ EXTRA_TABLES = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_webhook_dlq_sub ON webhook_dlq (sub_id)",
+    # Phase 93 — disk usage samples for the watchdog. Capped at 1440 rows
+    # (≈24 h @ 1 sample/min) via pruning inside disk_watchdog.sample().
+    """
+    CREATE TABLE IF NOT EXISTS disk_samples (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts          TEXT    NOT NULL,
+        used_pct    REAL    NOT NULL,
+        free_bytes  INTEGER NOT NULL,
+        total_bytes INTEGER NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_disk_samples_ts ON disk_samples (ts)",
 ]
 
 

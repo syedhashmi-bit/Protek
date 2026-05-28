@@ -4,6 +4,272 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-28 (cont.) — Phase 93 shipped: disk + Litestream observability
+
+Followed directly from the morning's ENOSPC incident. The phase 91 SLO
+posture is meaningless if disk goes RO underneath it; this phase makes
+disk pressure + Litestream daemon errors first-class signals.
+
+### Code shipped
+
+- **`disk_watchdog.py`** (new, ~270 lines) — `sample()`, `current()`,
+  `is_critical()`, `check_and_alert()` (edge-triggered warn/critical
+  with 5 % hysteresis recovery, mirroring `slo.alert_if_breached`'s
+  state machine), `maybe_auto_rebaseline()` (master-gated, default off).
+- **`litestream.py`** extended — `scan_journal_errors()` reads
+  `journalctl -u litestream` via subprocess, categorises ERROR lines
+  (retention / compaction / upload / ssh / replica / other),
+  per-category 1-hour rate limit via settings keys.
+- **`poller.py`** — three new hooks in `tick()`: `check_and_alert()`
+  every `disk.check_every_cycles` cycles (default 6 ≈ 60s),
+  `scan_journal_errors()` every 30 cycles (~5 min), and
+  `maybe_auto_rebaseline()` every 360 cycles (~1h, mostly a no-op
+  because the master switch is off).
+- **`app.py`** `/health` — appends `disk_critical` to the issues array
+  at ≥ `disk.critical_pct`. Soft-fail wrapper so a watchdog crash
+  never kills the health endpoint.
+- **`app.py`** `/perf` — passes `disk = disk_watchdog.current()` to the
+  template.
+- **`templates/perf.html`** — disk panel: bar with current %, dashed
+  threshold markers, table with free/total/peak/timestamp. Renders
+  only when `disk` is non-None (fault-tolerant on a fresh deploy).
+- **`db.py`** — `disk_samples` table added to `EXTRA_TABLES` + `ts`
+  index. Schema is purely additive; no migration of existing rows.
+- **`tests/test_disk_watchdog.py`** (new, 12 cases) — full suite green
+  (11 passing + 1 manual @pytest.mark.skip for the live tmpfs
+  end-to-end). Plus the existing 38 tests still pass: **49 passed,
+  1 skipped**.
+
+### Live verification
+
+Restarted `protek.service`. `/health` returns 200 with empty `issues`
+(disk at 38.3 %, well below warn 70 %). First live journal scrape
+surfaced **13 retention errors + 24 compaction errors** that had been
+silently accumulating since the morning incident — same SSH_FX_FAILURE
+root cause on VPS B's `ltx/1/` (and now `ltx/2/` for L2 compaction).
+Two notifications fired to the operator's notification channels on the
+first scrape: `litestream retention error` and `litestream other error`
+(the latter re-categorised to `compaction` after the test revealed
+"other" was the wrong bucket).
+
+### Settings the operator can tune (all read with defaults; no row
+inserts needed):
+
+- `disk.warn_pct` (default 70), `disk.critical_pct` (default 90)
+- `disk.check_every_cycles` (default 6)
+- `disk.allow_auto_rebaseline` (default `'0'`; explicit `'1'` opt-in)
+
+### Files dirty in tree
+
+- `app.py`, `db.py`, `litestream.py`, `poller.py`, `templates/perf.html`,
+  `disk_watchdog.py` (new), `tests/test_disk_watchdog.py` (new),
+  `MEMORY.md`, `ROADMAP.md`. Plus the 2026-05-26 pending
+  `reconciler.py` change still uncommitted alongside.
+
+### Still open from the morning's incident
+
+- **VPS B `ltx/1/` SSH_FX_FAILURE** is not fixed. Live local stage was
+  growing at ~38 MB/min after the rebaseline; the new disk watchdog +
+  journal scraper will now scream loudly when it crosses thresholds
+  but the root cause still needs an SSH probe to VPS B. Operator was
+  in a hurry and that step was handed back.
+
+---
+
+## 2026-05-28 — ENOSPC incident #2: Litestream L0 retention failure (new failure mode)
+
+VPS A hit ENOSPC again at ~01:25 UTC, 3 days after the 2026-05-25 incident.
+**Not the same cause.** The WAL truncate timer + checkpoint loop from phase
+64 follow-up was firing perfectly (`protek.db-wal` was 157 KB at discovery).
+The 25 GB this time was in `/var/www/Protek/.protek.db-litestream/` — the
+local LTX staging directory.
+
+### Root cause
+
+Litestream's L0 **retention monitor** (interval=15s, retention=5m) prunes
+local L0 LTX files only after verifying the same txn range exists in L1
+on the replica. The list call against VPS B's `ltx/1/` returns
+`SSH_FX_FAILURE`:
+
+```
+level=ERROR msg="l0 retention enforcement failed" system=store db=protek.db
+  error="fetch l1 files: sftp: \"Failure\" (SSH_FX_FAILURE)"
+```
+
+With L1 unreadable on the remote, retention bails on every cycle and the
+local L0 dir grows unboundedly. Over 3 days (since the 2026-05-25
+litestream rebaseline) it reached **25 GB**, filling `/dev/sda1`.
+
+SQLite went into "attempt to write a readonly database (8)" mode because
+even a metadata update needs free blocks for the WAL frame. Protek's
+gunicorn (which runs as root, not www-data — discovered via lsof) was
+silently failing writes. The `/health` endpoint stayed `ok` throughout
+because it doesn't gate on `df` or on the SQLite write success rate.
+
+### Recovery sequence
+
+1. `apt-get clean` + cache deletes — freed enough sliver for the harness
+   to allocate session-env (otherwise Bash itself stays blocked).
+2. `du -shx /*` to find the culprit (was 30 GB in `/var`, 27 GB in
+   `/var/www/Protek`, 25 GB in `.protek.db-litestream/`).
+3. `systemctl stop litestream` + `rm -rf .protek.db-litestream/` —
+   reclaim. **Note: `mv` aside does NOT free space**, it just renames.
+   Must actually delete to reclaim. (False step taken in this session;
+   `mv` consumed time before the `rm`.)
+4. `systemctl start litestream` — rebaselines from replica (txid.replica
+   ahead of txid.db=0 → fetches latest L0 from VPS B then resumes
+   replication).
+5. Post-restart, `sudo sqlite3 protek.db 'PRAGMA wal_checkpoint(TRUNCATE)'`
+   returned `1|596|0` (busy because litestream reader holds WAL slots;
+   that's the WAL-truncate-timer's job, not the manual checkpoint's).
+
+### Open follow-up — VPS B `ltx/1/`
+
+Local recovery done; **upstream cause unfixed.** Accumulation rate at
+restart was ~38 MB/min → disk refills in 10–15 h if VPS B's L1
+SSH_FX_FAILURE persists. Operator probe to run:
+
+```bash
+ssh -i /etc/litestream/id_ed25519 litestream@<vps-b-wg-ip> \
+  'df -h ~ ; ls -la /home/litestream/protek/ltx/'
+```
+
+Most likely cause: `ltx/1/` doesn't exist on the replica (litestream's L1
+compaction is interval=30s but only kicks in after enough L0 frames
+accumulate; if it never has, the directory was never created, and
+listing it returns SSH_FX_FAILURE). Fix:
+
+```bash
+ssh ... 'mkdir -p /home/litestream/protek/ltx/{0,1,2,3,9} && \
+  chown -R litestream:litestream /home/litestream/protek/ltx'
+```
+
+### Phase 93 candidate (post-recovery work)
+
+The phase 64 acceptance doc covered RPO/RTO but not **local-stage
+unbounded growth on partial-replica-failure**. Both ENOSPC incidents
+share a root cause: Litestream's failure modes aren't observable from
+Protek's `/health`. Proposed:
+
+- `poller.py` adds a `df` check; fires critical notification at >70%
+  disk, forces Litestream rebaseline at >90%.
+- `litestream` journal scraper that flags any `level=ERROR` to the same
+  notification channel as `sync_error`.
+- Acceptance: synthetic test that fills disk to 80% (in a test fixture)
+  and verifies the notification fires.
+
+ROADMAP.md update pending — not committed in this session, operator was
+in a hurry and authorized only the disk fix.
+
+### Files / state changed this session
+
+- **Deleted**: `/var/www/Protek/.protek.db-litestream/` (25 GB,
+  pre-rename stalled stage)
+- **Reconciler.py + MEMORY.md** still dirty from the 2026-05-26 session;
+  unchanged here.
+
+---
+
+## 2026-05-26 (cont. 2) — Phase 89 silent-cancellation fix; MT push logging restored
+
+After the prior session disconnected, picked up by checking live state:
+WAL-truncate self-heal from the earlier session running cleanly (no
+0-byte LTX files on replica, scan-empty). But `/health` reported the
+service ok while every reconcile cycle since 5021 had `errors=1` and
+exactly `add=9259 rm=9759 unch=241` — a static oscillation pattern that
+should have been visible in `/health` but wasn't (the `errors=1` was
+flagged as a soft warning, not enough to flip 503).
+
+### Root cause
+
+Phase 89's `fut.result(timeout=60s)` pattern was discarding MikroTik's
+work, not preventing it. The MT snapshot of ~51k owned entries takes
+~16s in a one-shot CLI test but routinely exceeds 60s inside the
+gunicorn worker under Cloudflare contention. Sequence per cycle:
+
+1. Reconciler submits MT + Cloudflare futures in parallel.
+2. Main loop hits `MT_future.result(timeout=60)` → raises TimeoutError,
+   marks `mikrotik_degraded`, discards the (still-incomplete) result.
+3. `ThreadPoolExecutor.__exit__` calls `shutdown(wait=True)`, so the MT
+   thread *keeps running* — finishes snapshot at ~70s, runs the apply,
+   pushes 200 IPs to RouterOS at ~120s, returns its `push_log`.
+4. But the main thread has already moved on; the future's result is
+   never collected.
+5. Cycle log records: `errors=1, mikrotik_degraded`, only Cloudflare's
+   add/remove counts. Zero `mt_pushes` rows for MT despite real router
+   writes happening.
+
+So the cycle wall time was the slowest future regardless (the timeout
+didn't save any time), and the only effect was to make the slow
+bouncer's work invisible in the audit trail. Worst-of-both-worlds:
+slow + silent.
+
+This silently broke 47 consecutive cycles (5021..5067) over ~2h.
+
+### Fix
+
+`reconciler.py:66-130` rewritten. Instead of `fut.result(timeout=N)`:
+
+```python
+for fut, b in futures.items():
+    try:
+        r = fut.result()  # no timeout — wait for completion
+    except Exception as e:
+        ...continue
+    # fold r into totals unconditionally
+    ...
+    # derive `degraded` from wall time post-hoc
+    b_wall_ms = r["snapshot_ms"] + r["apply_ms"]
+    if b_wall_ms > per_bouncer_slow_s * 1000:
+        _mark_bouncer_degraded(b.name, f"slow {b_wall_ms/1000:.0f}s ...")
+    elif r["ok"] and not r["errors"]:
+        _clear_bouncer_degraded(b.name)
+```
+
+`reconcile.per_bouncer_timeout_s` (renamed conceptually to "slow
+threshold" in code comments) still drives the degraded badge — same
+knob, different semantics. Set to `180` via /settings as part of this
+session in case the operator wants to suppress the degraded badge.
+
+### Verification — first cycle under new code (5067)
+
+```
+#5067 dur=117951ms add=12565 rm=12359 unch=51873 err=0 dry=0
+       notes: mikrotik_batch_capped: 200; Cloudflare_filtered: 9500/54938; ...
+mt_pushes: 200 rows for sync_event 5067, all success=1
+```
+
+Compare to the broken cycles 5021..5066: `unch` was 241-259 (Cloudflare
+only) and is now 51,873 (MT's owned set + Cloudflare's). `errors=0` and
+`mt_pushes` resumed logging. The router has been getting 200 ops/cycle
+the whole time, but it took this fix to make it visible.
+
+### Open follow-up (not blocking)
+
+MT snapshot is the cycle's wall-time floor at ~118s. Sync interval is
+configured at 10s but actual cadence is ~1 cycle/2 min. The MT snapshot
+of 51k entries via RouterOS API just takes that long. Options for a
+future phase:
+- Incremental snapshot — only refetch entries added/removed last cycle,
+  trust the cached snapshot otherwise. Risky for idempotency invariant.
+- RouterOS REST API instead of binary API — known to be 2-3x faster on
+  large lists in v7.x.
+- Cap the MT-owned list aggressively (e.g. only top 10k by recency).
+  Conflicts with the "be a complete bouncer" mission.
+
+Not urgent — the cycle behavior is now correct, just slow.
+
+### Files changed this session
+
+- `reconciler.py` — rewrote the per-bouncer futures loop (see above)
+- `settings` table — added row `reconcile.per_bouncer_timeout_s='180'`
+  via `set_setting()` direct call
+
+Working tree shows reconciler.py modified, not yet committed. Operator
+to review + commit when ready.
+
+---
+
 ## 2026-05-26 (cont.) — Phase 64 chain integrity restored, root cause of recurring L2 corruption identified + fixed
 
 Continuation of the same-day session. Operator authorized the destructive

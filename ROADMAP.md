@@ -1251,6 +1251,93 @@ crossed.
 
 ---
 
+### Phase 93 — Disk + Litestream observability ✅ shipped (2026-05-28)
+
+**Motivation.** Two ENOSPC incidents in 3 days, both with the same shape:
+the failure was externally visible (`df -h` showed 100%) but invisible
+to Protek's `/health`. 2026-05-25 was unbounded WAL growth (fixed via
+the truncate timer); 2026-05-28 was unbounded Litestream local-stage
+growth because the L0 retention monitor errored silently with
+`SSH_FX_FAILURE` against the replica's `ltx/1/` directory. In both
+cases gunicorn kept serving `status: ok` while SQLite tried (and failed)
+to write. The phase 91 SLO posture (sync_success / duration /
+freshness) is meaningless if the disk goes RO underneath it. This phase
+makes disk pressure and Litestream errors first-class signals.
+
+- [x] **Disk watchdog in `disk_watchdog.py`** — `sample()` writes one
+  `disk_samples` row keyed off the FS holding `protek.db` (so ENOSPC
+  on a separate mount doesn't false-positive). FIFO-pruned at 1440
+  rows (≈24 h @ 1 sample/min). Called from `poller.tick()` every N
+  cycles (N = `disk.check_every_cycles`, default 6).
+- [x] **Edge-triggered warn/critical with hysteresis recovery**.
+  `disk.warn_pct` (default 70) + `disk.critical_pct` (default 90).
+  Settings-tracked `disk.warn_alerted` / `disk.critical_alerted`
+  suppress re-alerts within a breach; recovery edge fires once
+  usage drops below threshold-5 % (hysteresis). Notification +
+  SIEM event + audit row per edge.
+- [x] **`/health` gates on disk** — `disk_watchdog.is_critical()`
+  appends `disk_critical` to the issues array; 503 at ≥
+  `disk.critical_pct`. Soft-fail wrapper so a watchdog crash never
+  kills the health endpoint itself.
+- [x] **Litestream journal scraper** in `litestream.scan_journal_errors()`.
+  Reads `journalctl -u litestream --since <cursor>` (cursor in
+  settings, advanced post-scan). Categorises ERROR lines by
+  substring — `retention`, `compaction`, `upload`, `ssh`, `replica`,
+  `other`. Per-category 1-hour rate limit via
+  `litestream.last_err_<category>`. Notification + SIEM event +
+  audit row per category fire.
+- [x] **/perf disk panel** — bar with current %, warn/critical
+  threshold markers, plus a table with free/total, peak (24 h),
+  sample timestamp. Loads the existing `disk_samples` row; falls
+  back to a live `shutil.disk_usage` call on a fresh DB before the
+  first watchdog tick.
+- [x] **Forced rebaseline at critical** — `maybe_auto_rebaseline()`
+  master-gated behind `disk.allow_auto_rebaseline='0'` default off.
+  When enabled AND usage ≥ critical AND `.protek.db-litestream/`
+  accounts for >50 % of `/var/www/Protek/`, stops litestream, rms
+  the local stage, restarts. Pre + post notification + audit row;
+  the operator always knows it fired.
+- [x] **Schema** in `db.py` `EXTRA_TABLES` — `disk_samples (id, ts,
+  used_pct, free_bytes, total_bytes)` + ts index. No existing-row
+  migration needed (additive only).
+- [x] **Tests** in `tests/test_disk_watchdog.py` — 11 cases passing,
+  1 manual @skipped:
+    - Below warn / at warn / at critical / recovery / re-arm edges
+    - Settings-tunable thresholds
+    - `is_critical()` for /health
+    - Journal scraper: 3 sequential retention-failed → exactly one
+      notification (the other two rate-limited)
+    - Categorisation across retention + ssh in one scan → two
+      distinct notifications
+    - No-errors → no notification
+    - Auto-rebaseline master kill-switch off by default
+    - Auto-rebaseline requires stage majority (guards against
+      rebaselining when /var/log is the real culprit)
+    - `@pytest.mark.skip` documents the live tmpfs end-to-end as a
+      manual acceptance gate
+
+**Acceptance:** ✅ — 11 unit tests pass + restart verified live
+against the disk on this host (38.3 % used, well below warn — no
+spurious fires). Live journal scrape on first run surfaced 13
+retention errors + 24 compaction errors that had been silently
+accumulating since the 2026-05-28 incident (same SSH_FX_FAILURE
+root cause on VPS B's `ltx/1/`) — exactly the failure mode this
+phase exists to surface. `/health` continues to return 200 with
+empty `issues`; will return 503 with `disk_critical` once usage
+crosses `disk.critical_pct`. The master kill-switch on
+auto-rebaseline (`disk.allow_auto_rebaseline='0'`) is off by
+default; flipping it to '1' via /settings is the explicit opt-in.
+
+**Why scoped this way.** Could have built a single "monitor everything"
+phase, but the two failure modes have different remediation: disk
+pressure needs operator visibility + optional auto-recovery;
+Litestream errors need *log scraping* because the daemon's own
+`/metrics` endpoint doesn't surface retention-monitor failures
+(verified against v0.5.11 source). Keeping them separate lets the
+journal scraper be re-used for other systemd services later.
+
+---
+
 # Anti-roadmap — things we are deliberately NOT building
 
 - A CrowdSec **agent**. Protek does not detect attacks. It reads decisions and remediates them.

@@ -58,6 +58,59 @@
   </table>
 </div>
 
+{% if disk %}
+<div class="panel" style="margin-top:16px">
+  <h2>Disk pressure (phase 93)</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Filesystem holding <span class="mono">protek.db</span>. Two ENOSPC
+    incidents in May 2026 kept <span class="mono">/health</span> green
+    while SQLite went read-only — this panel + the edge-triggered
+    notifications close that observability gap.
+  </p>
+  {% set warn = disk.warn_pct %}
+  {% set crit = disk.critical_pct %}
+  {% set used = disk.used_pct %}
+  {% set max24 = disk.max_pct_24h %}
+  {% if used >= crit %}
+    {% set band_color = '#ff4d4d' %}{% set band_label = 'critical' %}
+  {% elif used >= warn %}
+    {% set band_color = '#ffb547' %}{% set band_label = 'warn' %}
+  {% else %}
+    {% set band_color = '#00ff9d' %}{% set band_label = 'ok' %}
+  {% endif %}
+  <div style="display:flex;align-items:center;gap:18px;margin-bottom:10px">
+    <div style="flex:1;height:18px;border:1px solid var(--border);border-radius:3px;position:relative;background:#0a1218">
+      <div style="position:absolute;top:0;left:0;height:100%;width:{{ '%.1f'|format(used) }}%;background:{{ band_color }};opacity:0.85"></div>
+      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(warn) }}%;height:22px;border-left:1px dashed #ffb547" title="warn {{ warn }}%"></div>
+      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(crit) }}%;height:22px;border-left:1px dashed #ff4d4d" title="critical {{ crit }}%"></div>
+    </div>
+    <div style="min-width:240px;text-align:right">
+      <span class="mono" style="font-size:18px;color:{{ band_color }}">{{ '%.1f'|format(used) }}%</span>
+      <span class="badge" style="color:{{ band_color }};border-color:{{ band_color }};margin-left:6px">{{ band_label }}</span>
+    </div>
+  </div>
+  <table>
+    <tbody>
+      <tr><td class="muted">Free / Total</td>
+          <td class="mono">{{ '%.1f'|format(disk.free_bytes / 1073741824) }} GB / {{ '%.1f'|format(disk.total_bytes / 1073741824) }} GB</td></tr>
+      <tr><td class="muted">Thresholds</td>
+          <td class="mono">warn {{ warn }}% · critical {{ crit }}%</td></tr>
+      <tr><td class="muted">Peak (last 24h)</td>
+          <td class="mono">{{ '%.1f'|format(max24) }}%</td></tr>
+      <tr><td class="muted">Sampled at</td>
+          <td class="mono">{{ disk.ts }}</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin:10px 0 0;font-size:12px">
+    Override thresholds via <span class="mono">disk.warn_pct</span> /
+    <span class="mono">disk.critical_pct</span> in /settings. The watchdog
+    fires exactly one notification per breach and one on recovery
+    (hysteresis 5%). Auto-rebaseline at critical is OFF by default —
+    enable via <span class="mono">disk.allow_auto_rebaseline=1</span>.
+  </p>
+</div>
+{% endif %}
+
 <div class="panel" style="margin-top:16px">
   <h2>Stage breakdown (last 24h · {{ stages.samples }} instrumented cycles)</h2>
   {% if stages.samples == 0 %}
