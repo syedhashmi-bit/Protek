@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · fleet{% endblock %}
+{% block crumb %}<b>FLEET</b> · Multi-Target Overview{% endblock %}
+{% block body %}
+
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Targets</div><div class="v cyan" style="font-size:30px">{{ kpis.total }}</div></div>
+  <div class="kpi"><div class="k">Online</div><div class="v" style="color:var(--green)">{{ kpis.online }}</div></div>
+  <div class="kpi"><div class="k">Degraded</div><div class="v" style="color:var(--amber)">{{ kpis.degraded }}</div></div>
+  <div class="kpi"><div class="k">Offline</div><div class="v" style="color:var(--red)">{{ kpis.offline }}</div></div>
+  <div class="kpi"><div class="k">Entries (all)</div><div class="v">{{ kpis.total_entries }}</div></div>
+  <div class="kpi"><div class="k">Cycles 24h</div><div class="v muted">{{ kpis.cycles_24h }}</div></div>
+  <div class="kpi"><div class="k">Adds 24h</div><div class="v muted">{{ kpis.adds_24h }}</div></div>
+  <div class="kpi"><div class="k">Cycles w/ errors 24h</div><div class="v" style="color:{% if kpis.errs_24h %}var(--red){% else %}var(--text){% endif %}">{{ kpis.errs_24h }}</div></div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2 style="margin:0 0 8px">Throughput · last 24h</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0">
+    Per-hour add+remove volume across all bouncer targets. Red marks at
+    the top of a bar indicate at least one cycle in that hour reported errors.
+  </p>
+  {% set BAR_W = 16 %}
+  {% set BAR_GAP = 4 %}
+  {% set CHART_H = 80 %}
+  {% set CHART_W = chart.buckets|length * (BAR_W + BAR_GAP) %}
+  <svg width="{{ CHART_W }}" height="{{ CHART_H + 24 }}"
+       style="display:block;font-family:'Share Tech Mono',monospace">
+    {% for b in chart.buckets %}
+      {% set x = loop.index0 * (BAR_W + BAR_GAP) %}
+      {% if chart.max_value > 0 %}
+        {% set h = ((b.adds + b.removes) / chart.max_value * CHART_H) | round(0, 'floor') | int %}
+      {% else %}
+        {% set h = 0 %}
+      {% endif %}
+      <rect x="{{ x }}" y="{{ CHART_H - h }}" width="{{ BAR_W }}" height="{{ h }}"
+            fill="{% if b.errs %}#ff4d4d{% else %}#00ff9d{% endif %}"
+            opacity="0.78">
+        <title>{{ b.label }} · {{ b.adds }} adds · {{ b.removes }} rem · {{ b.cycles }} cycles{% if b.errs %} · ⚠ {{ b.errs }} cycles w/ err{% endif %}</title>
+      </rect>
+      {% if loop.index0 % 6 == 0 %}
+        <text x="{{ x + BAR_W // 2 }}" y="{{ CHART_H + 14 }}" font-size="9"
+              fill="#7c8b9a" text-anchor="middle">{{ b.label }}</text>
+      {% endif %}
+    {% endfor %}
+  </svg>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline">
+    <h2 style="margin:0">Targets ({{ rows|length }})</h2>
+    <a href="{{ url_for('bouncers_page') }}" class="muted"
+       style="font-size:11px;text-decoration:none;border-bottom:1px dashed var(--border);text-transform:uppercase;letter-spacing:.1em">
+      → manage on /bouncers
+    </a>
+  </div>
+  <p class="muted" style="margin:6px 0 12px;font-size:12px;text-transform:none;letter-spacing:0">
+    Click a column header to sort. Hover the error cell for the full message.
+  </p>
+
+  <table id="fleet-table">
+    <thead>
+      <tr>
+        <th data-sort="text">Name</th>
+        <th data-sort="text">Kind</th>
+        <th data-sort="text">Status</th>
+        <th data-sort="num" class="right">Size</th>
+        <th data-sort="text">Mode</th>
+        <th data-sort="num" class="right">Lag</th>
+        <th data-sort="text">RouterOS</th>
+        <th data-sort="text">Recent error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono cyan">
+          {% if r.removable %}
+            <a href="{{ url_for('bouncers_edit', tid=r.id) }}"
+               style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--border)">{{ r.name }}</a>
+          {% else %}
+            {{ r.name }}
+          {% endif %}
+        </td>
+        <td><span class="badge">{{ r.kind }}</span></td>
+        <td>
+          {% if r.status == 'online' %}
+            <span class="badge cs">online</span>
+          {% elif r.status == 'degraded' %}
+            <span class="badge" style="color:var(--amber)" title="{{ r.last_error }}">degraded</span>
+          {% else %}
+            <span class="badge" style="color:var(--red)">offline</span>
+          {% endif %}
+        </td>
+        <td class="mono right" data-sort-value="{{ r.size or 0 }}">
+          {{ r.size if r.size is not none else '—' }}
+        </td>
+        <td>
+          {% if r.dry_run %}
+            <span class="badge" style="color:var(--amber)">DRY</span>
+          {% else %}
+            <span class="badge cs">LIVE</span>
+          {% endif %}
+        </td>
+        <td class="mono right muted" data-sort-value="{{ r.lag_s if r.lag_s is not none else 99999999 }}">
+          {{ r.lag_str }}
+        </td>
+        <td class="mono muted">{{ r.version or '—' }}</td>
+        <td class="mono" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ r.last_error }}">
+          {% if r.error_short %}
+            <span style="color:{% if r.status == 'degraded' %}var(--amber){% else %}var(--red){% endif %}">{{ r.error_short }}</span>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not rows %}
+      <tr><td colspan="8" class="muted" style="text-align:center;padding:18px 0">
+        No bouncer targets configured. <a href="{{ url_for('bouncers_add') }}" style="color:var(--cyan)">Add one →</a>
+      </td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+// Lightweight column sort — no jQuery, no library. Click a header to toggle
+// asc/desc. Cells with `data-sort-value` override the visible text for sort
+// (so the lag column sorts numerically even when "5m" / "1h" / "—" are
+// displayed).
+(function () {
+  var table = document.getElementById('fleet-table');
+  if (!table) return;
+  var headers = table.querySelectorAll('th[data-sort]');
+  headers.forEach(function (th, idx) {
+    th.style.cursor = 'pointer';
+    th.style.userSelect = 'none';
+    th.addEventListener('click', function () {
+      var asc = th.dataset.dir !== 'asc';
+      var kind = th.dataset.sort;
+      var tbody = table.querySelector('tbody');
+      var rows = Array.from(tbody.querySelectorAll('tr')).filter(function (r) {
+        return r.cells.length === headers.length;
+      });
+      rows.sort(function (a, b) {
+        var av = a.cells[idx].dataset.sortValue;
+        var bv = b.cells[idx].dataset.sortValue;
+        if (av === undefined) av = a.cells[idx].textContent.trim();
+        if (bv === undefined) bv = b.cells[idx].textContent.trim();
+        if (kind === 'num') { av = +av; bv = +bv; }
+        if (av < bv) return asc ? -1 : 1;
+        if (av > bv) return asc ? 1 : -1;
+        return 0;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      headers.forEach(function (h) { h.dataset.dir = ''; });
+      th.dataset.dir = asc ? 'asc' : 'desc';
+    });
+  });
+})();
+</script>
+{% endblock %}

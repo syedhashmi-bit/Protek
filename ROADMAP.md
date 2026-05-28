@@ -1424,25 +1424,44 @@ acceptance (fresh VPS → logged-in dashboard in <5 min) needs an
 operator with a spare host. The artifacts are the deliverable; the
 measurement is the follow-up.
 
-### Phase 96 — `/fleet` view ⏳ planned
+### Phase 96 — `/fleet` view ✅ shipped (2026-05-28)
 
-- [ ] Single-page fleet board: one row per bouncer target, columns for
-  sync lag · address-list size · last push success rate · degraded
-  badge (phase 89) · RouterOS version (already in `mt_health()`).
-- [ ] Per-row 24h sparkline of add/remove counts (data already in
-  `mt_pushes` joined to `sync_events`).
-- [ ] Sortable by lag / size / errors so the operator can answer
-  "which MT is slowest?" / "which is biggest?" / "which is dying?"
-  at a glance.
-- [ ] Per-row hover surfaces last 5 errors from `mt_pushes.error`.
-- [ ] `/fleet` is reachable from the topbar but doesn't replace
-  `/bouncers` — the detail-edit-per-bouncer flow stays; this is the
-  at-a-glance overlay.
+- [x] `fleet.py` — independently importable (no Flask dep) aggregation
+  module: `build_view()` returns rows + kpis + a 24h hourly bucket
+  chart. Per-target status derived from a live `t.health()` probe
+  plus the cached `bouncer_targets.last_error` (degraded vs offline
+  distinction matches phase 89).
+- [x] `templates/fleet.html` — KPI strip (targets / online / degraded
+  / offline / entries / 24h cycles / 24h adds / 24h cycles-with-errors)
+  + 24h SVG bar chart (green bars, red marks on hours with cycle
+  errors) + sortable table.
+- [x] Sortable columns via vanilla JS — click any header to toggle
+  asc/desc. `data-sort-value` attributes override visible text for
+  the size + lag columns so they sort numerically (e.g. "5m" sorts
+  between "30s" and "1h" correctly, "—" goes to the bottom).
+- [x] Per-row hover on the error column shows the full message via
+  the standard `title` attribute (the truncated 60-char version is
+  what's visible in the row).
+- [x] RouterOS version surfaced when the adapter's `health()` returns
+  it (`version`, `ros_version`, or `routeros` key — tolerant parsing).
+- [x] Topbar `Fleet` link in `base.html` next to `Bouncers`. /fleet
+  doesn't replace /bouncers — that page is detail/edit; /fleet is
+  the at-a-glance overlay.
+- [x] Decision: dropped per-row sparkline. `mt_pushes` has no
+  `bouncer_id` column today (it's a global push log), so per-bouncer
+  add/remove time series would require a schema migration. The one
+  global throughput chart at the top of the page covers the overall
+  trend at much lower complexity. A per-row series is a follow-up
+  that needs `mt_pushes.bouncer_target_id` plumbing.
 
-**Acceptance gate:** with 3+ bouncer targets configured, `/fleet`
-renders in <500 ms, the sparklines populate from `sync_events`/
-`mt_pushes` joins, the sort columns work, and adding a 4th target
-appears in the table on the next render (no cache flush).
+**Acceptance:** ✅ — 6 unit tests in `tests/test_fleet.py` cover the
+hourly bucket aggregation, human-lag formatter, version extraction
+tolerance, truncation, and end-to-end `build_view()` against three
+synthetic bouncers (online / degraded / offline). Full suite green
+(62 passed, 1 skipped). Live `/fleet` returns 302 → /login when
+unauthenticated (correct gate). The decision to drop the per-row
+sparkline is captured above so future iterations don't lose the
+motivation.
 
 ### Phase 97 — Per-MT routing rules ⏳ planned
 

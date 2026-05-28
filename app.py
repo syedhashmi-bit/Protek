@@ -2763,6 +2763,16 @@ def _coerce_field(value, kind):
     return value  # default: pass-through string
 
 
+# Phase 96 — /fleet at-a-glance view across all bouncer targets.
+# Distinct from /bouncers: that page is detail/edit; /fleet is overview.
+@app.route("/fleet")
+@login_required
+def fleet_page():
+    import fleet as _fleet
+    view = _fleet.build_view()
+    return render_template("fleet.html", active="fleet", **view)
+
+
 # Phase 94 — RouterOS bootstrap script.
 # Validated against [A-Za-z0-9_-]{1,32} so query-string values can't inject
 # arbitrary RouterOS commands into the rendered .rsc body. Defaults match
