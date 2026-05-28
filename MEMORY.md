@@ -4,6 +4,90 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-05-28 (cont. 4) — ENOSPC #3: VPS B replica filled, full rebaseline
+
+Third ENOSPC of the week. Same shape as #1 (2026-05-25, VPS A WAL bloat)
+and #2 (2026-05-28 morning, VPS A Litestream local stage bloat), but on
+the **destination** side this time.
+
+### Root cause
+
+VPS B's `/dev/sda1` hit 100% used around 2026-05-27 00:16 UTC. The
+phase 64 Litestream deployment doesn't monitor destination disk; from
+VPS A's side everything looked healthy (L0 uploads kept arriving) and
+the phase 93 disk watchdog only sees VPS A.
+
+What happened mechanically:
+- VPS B's local copy of the replica grew to 34 GB (mostly L0 staging
+  because L1+ compaction couldn't write — destination disk full).
+- L1 compaction died at 00:16 UTC May 27. ltx/1/, ltx/2/, ltx/3/, ltx/9/
+  on VPS B last-modified timestamps frozen at that moment.
+- VPS A's L0 retention monitor needs L1 files newer than the L0 range
+  to prune locally. With L1 stale, retention errored every 15s.
+- VPS A's local LTX stage ballooned to 11 GB (caught by phase 93's
+  disk_watchdog warn threshold — that part worked).
+
+### Diagnosis path
+
+1. Phase 93 watchdog fired the disk.warn notification (worked as designed).
+2. SFTP'd into VPS B as `litestream` user (sftp-only, no shell) —
+   confirmed all `ltx/{0,1,2,3,9}/` dirs exist with correct perms.
+3. `ssh root@<vps-b-wg-ip> 'df -h'` — VPS B at 100% used.
+4. `du -sh /home/litestream/protek` = 34 GB. Replica IS the disease.
+
+### Recovery (nuclear — full rebaseline)
+
+Tried freeing space on VPS B first via apt-clean + journalctl --vacuum:
+freed 0 bytes (nothing else to clean — replica was 34/36 GB of used).
+
+Full rebaseline:
+1. `systemctl stop litestream` on VPS A.
+2. `rm -rf /var/www/Protek/.protek.db-litestream` on VPS A.
+3. `ssh root@<vps-b-wg-ip> 'rm -rf /home/litestream/protek/*'` on VPS B.
+4. `systemctl start litestream` on VPS A.
+
+First start hung 90s on SIGTERM of the wedged previous process, got
+SIGKILL'd, fresh process started clean. Within 30s: 19 successful L0
+uploads, both sides growing in lockstep ~420 MB. Retention monitor
+fired one transient error on first 15s tick (L1 dir empty during the
+30s gap before first compaction); subsequent cycles clean.
+
+### Cost paid
+
+- PIT recovery window: lost. Was already broken since 2026-05-27 00:16
+  UTC (no L1 covering recent L0 = no efficient PIT anyway), but this
+  rebaseline formalises the loss. Fresh PIT chain rebuilds from now.
+- Replica downtime: ~3 min during the rebaseline restart.
+- Both sides healthy now: VPS A 24 GB free, VPS B 34 GB free.
+
+### Phase 99 candidate
+
+The same architectural gap that drove ENOSPC #1 + #2 (visibility into
+own disk but not the wire's other end) drove #3 too. Phase 93 watches
+VPS A's `/`; phase 99 should:
+
+- Periodic test-write over the SFTP channel (write small marker file,
+  read back, delete) to detect destination-side disk pressure before
+  the daemon's own SSH_FX_FAILURE starts.
+- `litestream.scan_journal_errors` already catches the symptom after
+  the fact; the phase 99 addition catches it ~30 hours earlier (the
+  window between when VPS B started filling and when L1 compaction
+  finally died).
+- Also worth: bound the local LTX stage absolutely (e.g. force a
+  rebaseline at >5 GB even if retention is failing for "good" reasons
+  like temporary network blip) — but only with very loud notification,
+  not silent.
+
+Roadmap entry not added yet; flagged here for the next session.
+
+### Files touched this incident
+
+- None in the repo. All operations were on production systems (VPS A
+  filesystem + VPS B filesystem + systemctl restarts). MEMORY.md
+  updated (this entry).
+
+---
+
 ## 2026-05-28 (cont. 3) — Arc 16 complete: phases 95-98 shipped
 
 Continuation of the same session — operator asked to work through to
