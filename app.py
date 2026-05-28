@@ -2721,7 +2721,8 @@ def _bouncer_kinds_for_wizard():
     """
     import bouncers as bmod
     blurbs = {
-        "mikrotik":       ("MikroTik RouterOS", "Additional RouterOS router via API (multi-router setup). The legacy mikrotik_env adapter still serves the .env-configured primary router."),
+        "mikrotik":       ("MikroTik RouterOS (binary API)", "Additional RouterOS router via the binary API on 8728/8729. Works on RouterOS v6 + v7. Slower snapshot on large lists — pick the REST variant if your router is on v7+."),
+        "mikrotik_rest":  ("MikroTik RouterOS (REST API)",   "RouterOS v7+ HTTPS REST API. 2-3× faster snapshot than the binary API on large address-lists; same Bouncer contract. The bootstrap script (/bouncers/mt-bootstrap) opts the user into `rest-api` policy automatically on v7."),
         "cloudflare":     ("Cloudflare WAF",    "Account-level Rules List, fronted by a WAF Custom Rule the operator wires manually."),
         "pfsense":        ("pfSense",           "Uses the pfsense-pkg-RESTAPI v2 package. PATCHes the whole alias array per cycle and triggers /firewall/apply."),
         "opnsense":       ("OPNsense",          "Built-in REST API, no plugin required. Per-entry add/delete via alias_util."),
