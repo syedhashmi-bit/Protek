@@ -298,13 +298,23 @@ All six MVP phases shipped. The bouncer pulls from CrowdSec, computes the diff, 
 
 # Arc 6 — Observability
 
-## Phase 33 — Prometheus metrics export ⚠ partial
+## Phase 33 — Prometheus metrics export ✅ complete (board pack shipped 2026-05-28)
 
 - [x] `/metrics` endpoint (route registered in app.py)
 - [x] Core metrics emitted: active_decisions, sync_lag_seconds, sync_duration_ms, push_errors_total
-- [ ] Grafana dashboard JSON not shipped in `docs/grafana/` — operator wires their own board
+- [x] `docs/grafana/protek-overview.json` — single-board overview with
+  threshold-coloured KPI strip (poller lag · last reconcile · active
+  decisions · DRY/LIVE · bouncer count · push-error rate), reconcile
+  timing + throughput timeseries, decision breakdown by origin + source,
+  source health, and hygiene panels (whitelist, approvals, logins,
+  geo-cache).
+- [x] `docs/grafana/README.md` — Prometheus scrape config snippet,
+  Grafana UI import recipe, file-provisioning recipe, threshold
+  tuning notes.
 
-**Acceptance:** ⚠ scrape works, board pack deferred.
+**Acceptance:** ✅ board JSON validates (`json.load` clean), thresholds
+match the phase 91 SLO defaults. Operator drops the JSON into Grafana
+provisioning or imports via the UI; auto-refreshes every 30s.
 
 ---
 

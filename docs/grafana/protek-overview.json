@@ -1,0 +1,332 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Protek — CrowdSec → MikroTik bouncer overview. Closes phase 33: pairs with the /metrics endpoint shipped in arc 6 and adds the dashboard pack the roadmap deferred. Panels track reconcile health, decision volume, bouncer state, and source freshness.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Service",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false,
+      "id": 100,
+      "panels": []
+    },
+    {
+      "title": "Poller lag",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 4, "x": 0, "y": 1},
+      "id": 1,
+      "targets": [
+        {"expr": "protek_poller_lag_seconds", "legendFormat": "lag", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 30},
+              {"color": "red", "value": 60}
+            ]
+          },
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background"
+      }
+    },
+    {
+      "title": "Last reconcile",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 4, "x": 4, "y": 1},
+      "id": 2,
+      "targets": [
+        {"expr": "protek_reconcile_duration_seconds", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 30}
+            ]
+          },
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"}
+    },
+    {
+      "title": "Active decisions",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 4, "x": 8, "y": 1},
+      "id": 3,
+      "targets": [
+        {"expr": "protek_active_decisions", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {"mode": "fixed", "fixedColor": "rgb(0, 200, 255)"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "title": "Dry-run",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 4, "x": 12, "y": 1},
+      "id": 4,
+      "targets": [
+        {"expr": "protek_dry_run", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"options": {"0": {"text": "LIVE", "color": "green"},
+                            "1": {"text": "DRY", "color": "yellow"}},
+             "type": "value"}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1}
+          ]}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"}
+    },
+    {
+      "title": "Bouncer targets",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 4, "x": 16, "y": 1},
+      "id": 5,
+      "targets": [
+        {"expr": "sum(protek_bouncer_targets)", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "title": "Push errors (5m rate)",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 4, "x": 20, "y": 1},
+      "id": 6,
+      "targets": [
+        {"expr": "sum(rate(protek_push_errors_total[5m]))", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 0.05},
+            {"color": "red", "value": 0.5}
+          ]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"}
+    },
+    {
+      "title": "Reconcile timing & throughput",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 6},
+      "id": 101,
+      "panels": []
+    },
+    {
+      "title": "Reconcile duration",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 7},
+      "id": 10,
+      "targets": [
+        {"expr": "protek_reconcile_duration_seconds", "legendFormat": "duration", "refId": "A"},
+        {"expr": "protek_poller_interval_seconds", "legendFormat": "configured interval", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "options": {"legend": {"showLegend": true, "placement": "bottom"}}
+    },
+    {
+      "title": "Adds / removes per cycle",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 7},
+      "id": 11,
+      "targets": [
+        {"expr": "protek_reconcile_to_add",    "legendFormat": "to_add",    "refId": "A"},
+        {"expr": "protek_reconcile_to_remove", "legendFormat": "to_remove", "refId": "B"},
+        {"expr": "protek_reconcile_errors",    "legendFormat": "errors",    "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "title": "Cycle rate (per 5 min)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "id": 12,
+      "targets": [
+        {"expr": "rate(protek_poller_cycles_total[5m]) * 300", "legendFormat": "cycles / 5 min", "refId": "A"},
+        {"expr": "rate(protek_sync_error_cycles_total[5m]) * 300", "legendFormat": "error cycles / 5 min", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "title": "Push errors rate (1m)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "id": 13,
+      "targets": [
+        {"expr": "rate(protek_push_errors_total[1m])", "legendFormat": "{{bouncer}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "title": "Decisions",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
+      "id": 102,
+      "panels": []
+    },
+    {
+      "title": "Active decisions",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 20,
+      "targets": [
+        {"expr": "protek_active_decisions", "legendFormat": "total active", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "title": "By origin (top 10)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 21,
+      "targets": [
+        {"expr": "topk(10, protek_active_decisions_by_origin)", "legendFormat": "{{origin}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "title": "By federation source",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "id": 22,
+      "targets": [
+        {"expr": "protek_active_decisions_by_source", "legendFormat": "{{source}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "title": "Source health (1 = ok)",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "id": 23,
+      "targets": [
+        {"expr": "protek_source_health", "legendFormat": "{{source}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"options": {"0": {"text": "DOWN", "color": "red"},
+                            "1": {"text": "OK",   "color": "green"}},
+             "type": "value"}
+          ],
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "green", "value": 1}
+          ]}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": ""}, "colorMode": "background"}
+    },
+    {
+      "title": "Hygiene",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 40},
+      "id": 103,
+      "panels": []
+    },
+    {
+      "title": "Whitelist rules",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 41},
+      "id": 30,
+      "targets": [{"expr": "protek_whitelist_rules", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "title": "Approvals pending",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 41},
+      "id": 31,
+      "targets": [{"expr": "protek_approval_pending", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 5}
+          ]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"}
+    },
+    {
+      "title": "Login attempts (5m rate)",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 41},
+      "id": 32,
+      "targets": [{"expr": "rate(protek_login_attempts_total[5m])", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "ops"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "title": "Geo cache rows",
+      "type": "stat",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 41},
+      "id": 33,
+      "targets": [{"expr": "protek_geo_cache_rows", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["protek", "crowdsec", "bouncer"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Protek — Overview",
+  "uid": "protek-overview",
+  "version": 1,
+  "weekStart": ""
+}
