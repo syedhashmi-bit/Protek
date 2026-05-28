@@ -1604,6 +1604,52 @@ compound (source × scenario) filter, composition with existing
 filters, and the adapter-side kwarg/field_schema plumbing. Full suite
 green (75 passed, 1 skipped).
 
+### Phase 99 — Litestream destination probe ✅ shipped (2026-05-28)
+
+The 2026-05-28 ENOSPC #3 incident exposed an architectural gap that
+phase 93 didn't cover: VPS A's disk watchdog can't see VPS B's disk.
+By the time the daemon's own SSH_FX_FAILURE errors started appearing
+in the journal, VPS B had already been filling for ~30 hours.
+
+- [x] `litestream.probe_replica_destination()` — parses
+  `/etc/litestream.yml`, opens an SFTP session over the same key
+  Litestream uses, runs `df` against the destination path, then
+  round-trips a tiny `.protek-probe-marker` file (write → read →
+  delete) to verify writability. Catches the failure modes that `df`
+  alone wouldn't: reserved-blocks tip-over, quota exceeded,
+  permission revoked, read-only remount.
+- [x] Edge-triggered warn (70 %) + critical (90 %) notifications
+  with per-category 1-hour rate limit. Recovery edge fires once when
+  usage drops back below the threshold and clears the rate-limit
+  key so future re-breaches still fire.
+- [x] Failure-mode categorisation: `space`, `network`, `permission`,
+  `other` — each rate-limited independently so a network blip
+  doesn't suppress a separate space alert in the same hour.
+- [x] Settings (all read with defaults; no migration row inserts):
+  - `litestream.probe_enabled` (default `'1'`)
+  - `litestream.probe_every_cycles` (default 30 cycles ≈ 5 min)
+  - `litestream.probe_warn_pct` (default 70)
+  - `litestream.probe_critical_pct` (default 90)
+- [x] Poller hooks the probe at `cycles % probe_every_cycles == 0`,
+  same cadence as the phase 93 journal scraper. Soft-fail wrapper —
+  a probe crash never kills the cycle.
+- [x] Audit row per fire (action `litestream.probe.<category>`,
+  payload includes severity / used_pct / host / error). Tamper-evident
+  via the existing append-only trigger.
+- [x] Tests: `tests/test_litestream_probe.py` (20 cases) — config
+  parsing (sftp / s3 / missing), df parsing (high/low/garbage),
+  error categorisation across all categories, end-to-end probe
+  (healthy / warn / critical / recovery / disabled / unconfigured /
+  network / space-via-write / per-category isolation).
+
+**Acceptance:** ✅ — 20 unit tests pass + **live probe run against the
+real VPS B succeeded** (`used_pct=6.0`, `rw_ok=true`, no
+notifications fired). Today's incident would have surfaced as a
+`probe.space.warn` notification ~30 hours before L1 compaction died.
+Full suite green: 146 passed, 1 skipped.
+
+---
+
 ### Phase 98 — RouterOS REST API adapter ⚠ shipped, live-perf measurement pending (2026-05-28)
 
 - [x] New adapter kind `mikrotik_rest` —

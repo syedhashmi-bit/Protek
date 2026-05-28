@@ -421,6 +421,25 @@ class Poller:
             except Exception as e:  # noqa: BLE001
                 log.debug("litestream journal scrape swallowed: %s", e)
 
+        # Phase 99 — SFTP destination probe. The 2026-05-28 ENOSPC #3
+        # incident proved that destination disk pressure breaks
+        # replication ~30 hours before the daemon's own SSH_FX_FAILURE
+        # errors start appearing in the journal. This probe runs `df`
+        # + a write/read/delete round-trip over the same SFTP channel
+        # so destination disk-pressure surfaces in real time.
+        # Cadence tunable via `litestream.probe_every_cycles`
+        # (default 30 cycles ≈ 5 min, matching journal scrape).
+        try:
+            probe_every = int(_gs("litestream.probe_every_cycles") or "30")
+        except (TypeError, ValueError):
+            probe_every = 30
+        if probe_every >= 1 and self.cycles % probe_every == 0:
+            try:
+                import litestream as _ls
+                _ls.probe_replica_destination()
+            except Exception as e:  # noqa: BLE001
+                log.debug("litestream destination probe swallowed: %s", e)
+
         # Phase 93 — optional auto-rebaseline at critical. Master-gated
         # off by default; only acts when usage ≥ critical AND the local
         # LTX stage dominates /var/www/Protek/. Hourly check (360
