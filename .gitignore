@@ -47,3 +47,15 @@ logs/
 
 # Local claude state
 .claude/
+
+# Build artifacts from `./packaging/build.sh deb` — these get written
+# into the repo by dpkg-buildpackage and should never be committed.
+.pybuild/
+packaging/debian/.debhelper/
+packaging/debian/debhelper-build-stamp
+packaging/debian/files
+packaging/debian/protek/
+packaging/debian/protek.*.debhelper
+packaging/debian/protek.substvars
+# Repo-root symlink build.sh creates pointing at packaging/debian
+/debian
