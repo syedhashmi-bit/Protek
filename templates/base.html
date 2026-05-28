@@ -267,6 +267,7 @@ label{display:block;font-size:10px;letter-spacing:.18em;color:var(--muted);text-
     <a href="{{ url_for('admin_backup_page') }}" class="{% if active=='admin_backup' %}active{% endif %}">Backup (config)</a>
     <a href="{{ url_for('admin_backup_automation_page') }}" class="{% if active=='admin_backup_auto' %}active{% endif %}">Backup (off-box)</a>
     <a href="{{ url_for('admin_dr_drill_page') }}" class="{% if active=='dr_drill' %}active{% endif %}">DR Drill</a>
+    <a href="{{ url_for('admin_ha') }}" class="{% if active=='admin_ha' %}active{% endif %}">HA</a>
     {% endif %}
   </nav>
   <main class="main">

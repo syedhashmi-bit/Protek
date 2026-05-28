@@ -343,7 +343,7 @@ provisioning or imports via the UI; auto-refreshes every 30s.
 
 ---
 
-## Phase 37 — SLO tracking ⏳ deferred to phase 91
+## Phase 37 — SLO tracking ✅ closed via phase 91 (2026-05-28 housekeeping)
 
 - Targets defined in spec; computation + alerting deferred. Phase 91 is the implementation pass.
 
@@ -662,9 +662,39 @@ is the next Arc 15 priority.
 
 ---
 
-### Phase 65 — Active-passive HA ❌ not started
+### Phase 65 — Active-passive HA ⚠ scaffolding shipped, automation deferred (2026-05-28)
 
-- Single-instance fcntl.flock pattern is in `poller.py` (the "poller already owned by another worker" log line), but the network-lock extension and second-instance failover aren't built. Tracked as v1.3 candidate — small operators typically don't need it; a soak harness (phase 90) is higher priority for one-VPS deployments.
+- [x] `ha.py` — role resolution (DB-override → env → default primary),
+  promote/demote helpers (write audit row + flip `ha.role` setting),
+  heartbeat freshness checks (reuses `poller.last_at`, no new table),
+  status summary for the admin page.
+- [x] `app.py` — boot-time gate: when `ha.role=standby`, the poller +
+  geo + intel + SIEM workers are NOT started. Litestream fills the
+  DB unimpeded; running our own poller would race the replica.
+- [x] `/health` — surfaces `ha_role` so external monitors can
+  distinguish a deliberately-quiet standby from a wedged primary.
+  Standby short-circuits the `poll_stale` check.
+- [x] `/admin/ha` — full status page (role, heartbeat lag,
+  threshold, last role change) + promote/demote form with hostname
+  confirmation (guards against fat-fingered promote on the wrong
+  host) + manual failover runbook inline.
+- [x] `tests/test_ha.py` (13 cases) — role resolution precedence
+  (DB > env > default), invalid-value fall-through, promote/demote +
+  audit row write, round-trip, heartbeat lag computed from
+  `poller.last_at`, threshold floor protection, summary dict shape.
+- **Decision: auto-failover deferred.** A network partition where the
+  primary is alive but unreachable from the standby would produce
+  two primaries racing the MT. Solving that without a real consensus
+  layer (Raft / etcd / Consul) is genuinely hard and worth its own
+  phase. Manual promote is the safe-default for now.
+
+**Acceptance:** ⚠ — manual failover path is shippable and audit-clean
+(13 unit tests pass; full suite green 123 passed, 1 skipped). Live
+end-to-end failover drill requires the operator to spin up VPS B as
+a true Litestream consumer (today VPS B is a backup-only replica per
+phase 64) and exercise the manual promote runbook from
+/admin/ha; that's operator-side homework. Auto-failover is a v1.3
+phase.
 
 ---
 
@@ -716,7 +746,7 @@ real production wiring, not just unit tests.
 
 ---
 
-### Phase 68 — Rate limiting + backpressure ⚠ scaffold shipped, operationalize via phase 89
+### Phase 68 — Rate limiting + backpressure ✅ closed via phase 89 (2026-05-28 housekeeping)
 
 - [x] `ratelimit.py` module with token-bucket primitive
 - [x] Cloudflare adapter integrates `ratelimit.acquire("bouncer.cloudflare")` and `ratelimit.record_429(...)` (`bouncers/cloudflare_adapter.py`)

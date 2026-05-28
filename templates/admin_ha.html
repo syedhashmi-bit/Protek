@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · HA{% endblock %}
+{% block crumb %}<b>ADMIN</b> · High Availability{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2 style="margin:0 0 6px">Active-passive HA (phase 65)</h2>
+  <p class="muted" style="margin:0 0 16px;font-size:12px;text-transform:none;letter-spacing:0">
+    Pairs with phase 64 Litestream replication. The primary VPS runs the
+    poller + writes the heartbeat. The standby reads the
+    Litestream-replicated DB and keeps its poller idle. Promote here
+    when the primary fails; restart Protek on the new primary host so
+    the boot-time role gate picks up the change.
+  </p>
+
+  {% set role_color = 'var(--green)' if summary.is_primary else 'var(--amber)' %}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:14px">
+    <div>
+      <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.12em">Current role</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:28px;color:{{ role_color }};margin-top:4px">
+        {{ summary.role | upper }}
+      </div>
+      <p class="muted" style="font-size:11px;margin:6px 0 0">
+        Resolved from: <span class="mono">ha.role</span> setting =
+        <span class="mono">{{ summary.db_override }}</span>;
+        <span class="mono">HA_ROLE</span> env =
+        <span class="mono">{{ summary.env_role }}</span>.
+      </p>
+    </div>
+
+    <div>
+      <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.12em">Heartbeat</div>
+      {% set lag = summary.heartbeat_lag_seconds %}
+      {% set lag_color = 'var(--green)' if (lag is not none and lag <= summary.heartbeat_stale_threshold) else 'var(--red)' %}
+      <div style="font-family:'Share Tech Mono',monospace;font-size:28px;color:{{ lag_color }};margin-top:4px">
+        {% if lag is none %}—{% else %}{{ lag }}s{% endif %}
+      </div>
+      <p class="muted" style="font-size:11px;margin:6px 0 0">
+        Last cycle: <span class="mono">{{ summary.last_heartbeat_at }}</span>.
+        Stale threshold: <span class="mono">{{ summary.heartbeat_stale_threshold }}s</span>
+        (tune via <span class="mono">ha.heartbeat_stale_sec</span> in /settings).
+        {% if summary.heartbeat_stale %}
+          <span style="color:var(--red);margin-left:8px">⚠ STALE</span>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if summary.is_standby %}
+  <div style="padding:10px 14px;background:rgba(255,180,71,.08);border:1px solid var(--amber);border-radius:3px;margin-bottom:14px;font-size:12px">
+    <b style="color:var(--amber)">STANDBY MODE</b> — the poller is not running on this host.
+    Litestream is filling the local DB from the primary's replica. Promote
+    this host below to take over reconcile + MT writes.
+  </div>
+  {% else %}
+  <div style="padding:10px 14px;background:rgba(0,255,157,.06);border:1px solid var(--green);border-radius:3px;margin-bottom:14px;font-size:12px">
+    <b style="color:var(--green)">PRIMARY MODE</b> — poller is running here, MT writes are owned here.
+    Demote only if you're cutting over to another host.
+  </div>
+  {% endif %}
+
+  <h3 style="margin:18px 0 8px;font-size:13px;letter-spacing:.12em;text-transform:uppercase">Last role change</h3>
+  <table>
+    <tbody>
+      <tr><td class="muted">When</td><td class="mono">{{ summary.last_role_change_at }}</td></tr>
+      <tr><td class="muted">By</td><td class="mono">{{ summary.last_role_change_actor or '—' }}</td></tr>
+      <tr><td class="muted">Reason</td><td class="mono">{{ summary.last_role_change_reason or '—' }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2 style="margin:0 0 8px">{% if summary.is_primary %}Demote to standby{% else %}Promote to primary{% endif %}</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0">
+    {% if summary.is_primary %}
+      Stops this host from owning MT writes. The standby on the other VPS
+      should be promoted (separately, via its own /admin/ha) before this
+      demote — or both hosts will be idle simultaneously.
+    {% else %}
+      Type the hostname of this server to confirm — guards against
+      promoting the wrong host. After save, restart Protek so the boot
+      gate picks up the new role.
+    {% endif %}
+  </p>
+
+  <form method="POST"
+        action="{% if summary.is_primary %}{{ url_for('admin_ha_demote') }}{% else %}{{ url_for('admin_ha_promote') }}{% endif %}"
+        style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label>Confirm hostname</label>
+      <input type="text" name="confirm" required placeholder="e.g. ubuntu-4gb-nbg1-1"
+             style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+    </div>
+    <div>
+      <label>Reason (audit)</label>
+      <input type="text" name="reason" placeholder="primary outage; cut over to standby"
+             style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+    </div>
+    <button type="submit" class="btn"
+            style="grid-column:1 / -1;padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:{% if summary.is_primary %}var(--amber);color:var(--bg-deep);border:1px solid var(--amber){% else %}var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan){% endif %};font-weight:700;border-radius:3px"
+            onclick="return confirm('Are you SURE? This changes which host owns MT writes.')">
+      {% if summary.is_primary %}↓ Demote to standby{% else %}↑ Promote to primary{% endif %}
+    </button>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2 style="margin:0 0 8px">Manual failover runbook</h2>
+  <ol style="margin:0;padding-left:20px;font-size:12px;line-height:1.8;color:var(--muted)">
+    <li><b>Confirm the primary is down</b> — <span class="mono">curl https://&lt;primary&gt;/health</span>
+        returns connection-refused or persistent 503 with <span class="mono">poll_stale</span>.</li>
+    <li><b>Stop Litestream on the standby</b> — <span class="mono">systemctl stop litestream</span> —
+        so it doesn't keep overwriting the DB while you promote.</li>
+    <li><b>Promote here</b> — use the form above. Audit row is written + flag flipped.</li>
+    <li><b>Restart Protek</b> on this host — <span class="mono">systemctl restart protek</span>.
+        The boot-time gate now starts the poller because <span class="mono">ha.role=primary</span>.</li>
+    <li><b>Update DNS</b> if the public hostname needs to point at this host. Caddy/nginx on
+        either host will keep serving its local Protek; the rest is operator policy.</li>
+    <li><b>When the original primary returns</b>, demote it via its own
+        <span class="mono">/admin/ha</span>, restart Protek, then start Litestream
+        pointing at this host as the new source-of-truth. Re-baseline if the
+        chain diverged (see <span class="mono">docs/DR-RUNBOOK.md §3</span>).</li>
+  </ol>
+
+  <p class="muted" style="margin:14px 0 0;font-size:11px">
+    Auto-failover is deliberately not enabled — split-brain protection without
+    a real consensus layer is hard, and a partition where the primary is alive
+    but unreachable from the standby would otherwise produce two primaries
+    racing the MT. This phase ships the scaffolding; automation is 2.1+.
+  </p>
+</div>
+{% endblock %}

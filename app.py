@@ -237,7 +237,18 @@ GEO_TTL_DAYS = max(1, _envint("GEO_CACHE_TTL_DAYS", 7))
 
 intel_worker: intel.IntelWorker | None = None
 
-if _try_acquire_poller_lock():
+# Phase 65 — HA role gate. When the operator promotes a standby to
+# primary the DB-side `ha.role` setting flips and the next process
+# restart picks up the new role here. Standby skips poller/geo/intel
+# entirely — Litestream is filling the DB; running the poller too
+# would race that and double-push at the MT.
+import ha as _ha  # noqa: E402
+
+if _ha.is_standby():
+    log.info("HA role=standby — poller/geo/intel NOT started (Litestream "
+             "is filling the DB; promote via /admin/ha to take over)")
+    poller = None
+elif _try_acquire_poller_lock():
     poller = Poller(interval_sec=SYNC_INTERVAL, dry_run=DRY_RUN, batch_cap=BATCH_CAP)
     poller.start()
     geo_worker = GeoWorker(ttl_days=GEO_TTL_DAYS, interval_sec=30)
@@ -248,7 +259,7 @@ if _try_acquire_poller_lock():
     # three queues across the three gunicorn workers (only one ever ships).
     import siem as _siem
     _siem.get_siem()
-    log.info("poller + geo + intel + siem started (owner pid=%s, interval=%ss, dry_run=%s)",
+    log.info("poller + geo + intel + siem started (owner pid=%s, interval=%ss, dry_run=%s, ha_role=primary)",
              os.getpid(), SYNC_INTERVAL, DRY_RUN)
 else:
     log.info("poller already owned by another worker — skipping in pid=%s", os.getpid())
@@ -672,6 +683,55 @@ def honeypot_refresh():
     except Exception as e:  # noqa: BLE001
         session["honeypot_flash"] = f"Refresh failed: {e}"
     return redirect(url_for("honeypot_page"))
+
+
+# Phase 65 — HA promote / demote workflow.
+@app.route("/admin/ha")
+@login_required
+@role_required("admin")
+def admin_ha():
+    return render_template("admin_ha.html",
+                           summary=_ha.summary(),
+                           active="admin_ha")
+
+
+@app.route("/admin/ha/promote", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_ha_promote():
+    """Flip the DB-side role to 'primary'. Operator must confirm by
+    typing the literal hostname (form value `confirm`) — guards
+    against a fat-finger promote on the wrong host."""
+    expected = (request.form.get("confirm") or "").strip()
+    import socket
+    hostname = socket.gethostname()
+    if expected != hostname:
+        flash(f"Confirm value didn't match hostname ({hostname}). Promotion not applied.",
+              "error")
+        return redirect(url_for("admin_ha"))
+    reason = (request.form.get("reason") or "manual promote via /admin/ha").strip()[:300]
+    result = _ha.promote(actor=session.get("username", "admin"), reason=reason)
+    flash(f"HA promoted: {result['old_role']} → primary. Restart Protek "
+          f"to start the poller (or wait for the next reload).", "info")
+    return redirect(url_for("admin_ha"))
+
+
+@app.route("/admin/ha/demote", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_ha_demote():
+    expected = (request.form.get("confirm") or "").strip()
+    import socket
+    hostname = socket.gethostname()
+    if expected != hostname:
+        flash(f"Confirm value didn't match hostname ({hostname}). Demotion not applied.",
+              "error")
+        return redirect(url_for("admin_ha"))
+    reason = (request.form.get("reason") or "manual demote via /admin/ha").strip()[:300]
+    result = _ha.demote(actor=session.get("username", "admin"), reason=reason)
+    flash(f"HA demoted: {result['old_role']} → standby. Restart Protek "
+          f"to stop the poller (next-cycle apply).", "info")
+    return redirect(url_for("admin_ha"))
 
 
 @app.route("/admin/sso")
@@ -1337,6 +1397,17 @@ def health_public():
             issues.append("disk_critical")
     except Exception:  # noqa: BLE001
         pass
+    # Phase 65 — surface HA role so external monitors can distinguish a
+    # standby (deliberately quiet) from a wedged primary. Standby
+    # short-circuits the poller-staleness check: an idle poller on the
+    # standby is the expected state, not a problem.
+    ha_role = "primary"
+    try:
+        ha_role = _ha.role()
+    except Exception:  # noqa: BLE001
+        pass
+    if ha_role == "standby" and "poll_stale" in issues:
+        issues.remove("poll_stale")
     code = 503 if issues else 200
     return jsonify(
         status="degraded" if issues else "ok",
@@ -1344,6 +1415,7 @@ def health_public():
         service="protek",
         issues=issues,
         dry_run=DRY_RUN,
+        ha_role=ha_role,
     ), code
 
 
