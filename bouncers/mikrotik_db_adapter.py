@@ -65,6 +65,22 @@ class MikroTikDBAdapter:
          "required": False, "placeholder": "30000", "coerce": "int_or_none",
          "help": "Leave blank to push everything. Useful for slower routers that struggle "
                  "with multi-thousand address-lists."},
+        # Phase 97 — per-MT routing rules. Both fields are optional;
+        # leaving them blank preserves today's behavior (this MT gets
+        # the full merged set from all federation sources, all scenarios).
+        {"name": "source_filter", "label": "Source filter (optional)", "type": "text",
+         "required": False, "placeholder": "local,vps-b",
+         "help": "Comma-separated list of federation source names. Only "
+                 "decisions whose origin_source is in this list reach this "
+                 "bouncer. Leave blank for 'all sources'. Use case: a perimeter "
+                 "MT gets the full federated set, an internal MT gets only "
+                 "`local` so it doesn't carry community blocklists."},
+        {"name": "scenario_filter", "label": "Scenario filter (regex, optional)", "type": "text",
+         "required": False, "placeholder": "http-.*",
+         "help": "Python regex applied to each decision's scenario (re.search). "
+                 "Only matches are pushed. Leave blank for 'all scenarios'. "
+                 "Use case: narrow a service-specific MT to its threat profile, "
+                 "e.g. `http-` for an HTTPS edge or `ssh-bf` for an SSH bastion."},
     ]
 
     def __init__(self, name: str = "mikrotik",
@@ -75,6 +91,8 @@ class MikroTikDBAdapter:
                  exclude_origins: list[str] | None = None,
                  max_entries: int | None = None,
                  min_reputation: int | None = None,
+                 source_filter: str | list[str] | None = None,
+                 scenario_filter: str | None = None,
                  **_: Any):
         self.name = name
         self.kind = "mikrotik"
@@ -86,6 +104,9 @@ class MikroTikDBAdapter:
         self.exclude_origins = list(exclude_origins or [])
         self.max_entries = int(max_entries) if max_entries else None
         self.min_reputation = int(min_reputation) if min_reputation else None
+        # Phase 97 — store as-given; the reconciler normalizes CSV vs list.
+        self.source_filter = source_filter or None
+        self.scenario_filter = scenario_filter or None
 
     def is_configured(self) -> bool:
         return self._mt.is_configured()

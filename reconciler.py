@@ -324,6 +324,14 @@ def _filter_desired_for_bouncer(bouncer, desired: list[dict[str, Any]]) -> list[
       max_entries     int; cap total push size. Prioritized by lapi_id DESC
                       (newest first), so the cap keeps the freshest bans
                       and drops the oldest.
+      source_filter   str CSV or list[str] of federation source names; if
+                      non-empty, only push decisions whose `origin_source`
+                      matches one of these. Use case: `edge-mt` gets the
+                      full federated set, `office-mt` gets only `local`
+                      so it doesn't carry community blocklists. (phase 97)
+      scenario_filter str regex (re.search); if non-empty, only push
+                      decisions whose `scenario` matches. Use case:
+                      narrow an internal MT to `http-.*` only. (phase 97)
 
     Returns a NEW list — never mutates the caller's `desired`.
     """
@@ -336,7 +344,10 @@ def _filter_desired_for_bouncer(bouncer, desired: list[dict[str, Any]]) -> list[
     origins_exc = getattr(bouncer, "exclude_origins", None) or []
     max_entries = getattr(bouncer, "max_entries", None)
     min_reputation = getattr(bouncer, "min_reputation", None)
-    if not (origins_inc or origins_exc or max_entries or min_reputation):
+    source_filter = getattr(bouncer, "source_filter", None)
+    scenario_filter = getattr(bouncer, "scenario_filter", None)
+    if not (origins_inc or origins_exc or max_entries or min_reputation
+            or source_filter or scenario_filter):
         return desired
 
     def _origin_ok(o: str) -> bool:
@@ -347,6 +358,29 @@ def _filter_desired_for_bouncer(bouncer, desired: list[dict[str, Any]]) -> list[
         return True
 
     out = [d for d in desired if _origin_ok(d.get("origin") or "")]
+
+    # Phase 97 — source_filter (which federation LAPIs feed this MT).
+    if source_filter:
+        if isinstance(source_filter, str):
+            allowed_sources = {s.strip() for s in source_filter.split(",") if s.strip()}
+        else:
+            allowed_sources = {s.strip() for s in source_filter if isinstance(s, str) and s.strip()}
+        if allowed_sources:
+            out = [d for d in out
+                   if (d.get("origin_source") or "") in allowed_sources]
+
+    # Phase 97 — scenario_filter (regex against decision.scenario).
+    if scenario_filter:
+        import re as _re
+        try:
+            pat = _re.compile(scenario_filter)
+            out = [d for d in out if pat.search(d.get("scenario") or "")]
+        except _re.error:
+            # Invalid regex — log and skip filtering rather than crash the
+            # reconcile loop. Operator sees the un-filtered set; the bad
+            # regex is visible on /bouncers/edit.
+            log.warning("bouncer %s: invalid scenario_filter %r — ignoring",
+                         getattr(bouncer, "name", "?"), scenario_filter)
 
     if min_reputation:
         try:

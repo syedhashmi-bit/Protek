@@ -1463,25 +1463,47 @@ unauthenticated (correct gate). The decision to drop the per-row
 sparkline is captured above so future iterations don't lose the
 motivation.
 
-### Phase 97 — Per-MT routing rules ⏳ planned
+### Phase 97 — Per-MT routing rules ✅ shipped (2026-05-28)
 
-- [ ] Two new columns on `bouncer_targets`: `source_filter` (CSV of
-  federation source names, blank = all) + `scenario_filter` (regex
-  against decision.scenario, blank = all).
-- [ ] `reconciler._run_one_bouncer` applies the filters between the
-  source decision set and the per-bouncer diff. Adds one short helper
-  + a few asserts in the existing test suite; no architectural
-  change.
-- [ ] `/bouncers/edit/<id>` exposes both fields. UI surfaces a count
-  of "X decisions pass this filter" rendered live as the operator
-  types — so they can confirm the filter does what they expect
-  before saving.
-- [ ] Audit row written on each filter change.
+- [x] **No schema change needed** — both filters live in the existing
+  `bouncer_targets.config_json` field that `bouncers.make_bouncer()`
+  splats into the adapter constructor. Same shape as the existing
+  `origins` / `exclude_origins` / `max_entries` filters from earlier
+  phases. Decision honored to keep the filter set additive: the
+  reconciler's `_filter_desired_for_bouncer` now reads two more
+  optional attrs off the bouncer instance, leaving adapter-init
+  signatures unchanged for adapters that don't opt in.
+- [x] `bouncers/mikrotik_db_adapter.py` — accepts `source_filter` and
+  `scenario_filter` kwargs; declares both in `field_schema` so the
+  /bouncers/add wizard renders them as proper labeled inputs (not
+  hidden in the config_json blob). Blank = unchanged behavior.
+- [x] `reconciler._filter_desired_for_bouncer` — three additions:
+  - `source_filter`: accepts CSV string OR list, whitespace-tolerant.
+    Filters by `decision.origin_source` (which federation LAPI the
+    decision came from). Use case: edge MT gets the full federated
+    set, office MT gets only `local`.
+  - `scenario_filter`: Python regex via `re.search` against
+    `decision.scenario`. Invalid regex logs at WARNING and passes
+    the decision through un-filtered — never crashes the reconcile
+    loop.
+  - Both compose with the existing `origins`/`exclude_origins`/
+    `max_entries`/`min_reputation` knobs without regression.
+- [x] Audit on change — already wired in the existing `bouncers_edit`
+  route's `_audit("bouncer.edit", ...)` call. The new fields show up
+  in the redacted diff alongside everything else.
+- [x] Decision: dropped the live "X decisions pass this filter" preview
+  counter. JS-driven preview required a new `/api/bouncers/<id>/filter-preview`
+  endpoint and per-keystroke debounced fetches — meaningful work for
+  small payoff over a static post-save flash message. Sub-phase if
+  it proves to be missed.
 
-**Acceptance gate:** with two MTs configured (`edge-mt`,
-`office-mt`), setting `office-mt.scenario_filter='http-.*'` results
-in `office-mt` receiving only http-family decisions on the next
-reconcile cycle. The other MT continues to receive the full set.
+**Acceptance:** ✅ — 13 unit tests in `tests/test_per_mt_filters.py`
+cover the acceptance-gate scenario verbatim ("edge-mt gets everything,
+office-mt gets only http-* on the next reconcile cycle"), CSV/list
+parsing variants, whitespace tolerance, invalid-regex safety, the
+compound (source × scenario) filter, composition with existing
+filters, and the adapter-side kwarg/field_schema plumbing. Full suite
+green (75 passed, 1 skipped).
 
 ### Phase 98 — RouterOS REST API adapter ⏳ planned
 
