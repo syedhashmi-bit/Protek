@@ -20,8 +20,15 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Base image in the Dockerfile
+  # Base image in the Dockerfile. Python 3.12 is the project standard (venv,
+  # install.sh, packaging all target it) — only take patch updates within the
+  # 3.12.x line, not major/minor jumps to 3.13/3.14.
   - package-ecosystem: docker
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
