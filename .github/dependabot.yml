@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Python deps (requirements.txt + requirements-dev.txt)
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  # GitHub Actions versions (keeps checkout/setup-python current — see the
+  # Node 20 deprecation that prompted this)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Base image in the Dockerfile
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly

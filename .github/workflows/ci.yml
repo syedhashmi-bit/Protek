@@ -55,3 +55,24 @@ jobs:
       # requirements-dev.txt and never ship, so a CVE there shouldn't fail the build.
       - name: Audit production dependencies
         run: pip-audit -r requirements.txt
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build-only smoke: catches Dockerfile / dependency rot. Booting the
+      # container would need seeded secrets (SECRET_KEY, admin hash), so that's
+      # left out to keep CI deterministic.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: protek:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
