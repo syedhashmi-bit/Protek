@@ -52,7 +52,7 @@ either.
    ```
 5. **Restore Protek code**:
    ```bash
-   cd /var/www && git clone https://github.com/syedhashmi/Protek.git Protek
+   cd /var/www && git clone https://github.com/syedhashmi-bit/Protek.git Protek
    cd Protek && python3.12 -m venv venv
    venv/bin/pip install -r requirements.txt
    ```

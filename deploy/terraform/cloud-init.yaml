@@ -39,7 +39,7 @@ write_files:
     content: |
       #!/bin/bash
       set -e
-      cd /var/www && git clone https://github.com/syedhashmi/Protek.git
+      cd /var/www && git clone https://github.com/syedhashmi-bit/Protek.git
       cd Protek && python3.12 -m venv venv
       venv/bin/pip install -r requirements.txt
 
@@ -57,12 +57,12 @@ write_files:
       rm -f /tmp/protek-bouncer-key
 
       # nginx + TLS
-      cp deploy/nginx.conf.example /etc/nginx/sites-available/protek
+      cp deploy/nginx.conf /etc/nginx/sites-available/protek
       ln -sf /etc/nginx/sites-available/protek /etc/nginx/sites-enabled/
       nginx -t && systemctl reload nginx
 
       # systemd
-      cp packaging/debian/protek.service /etc/systemd/system/
+      cp deploy/protek.service /etc/systemd/system/
       systemctl daemon-reload
       systemctl enable --now protek
 

@@ -1,6 +1,6 @@
 [Unit]
 Description=Protek - CrowdSec to MikroTik bouncer + NOC dashboard
-Documentation=https://github.com/syedhashmi/Protek
+Documentation=https://github.com/syedhashmi-bit/Protek
 After=network-online.target crowdsec.service
 Wants=network-online.target
 

@@ -32,11 +32,18 @@
 
 set -euo pipefail
 
-DB=/var/www/Protek/protek.db
+# All paths/destinations are env-overridable so this script is portable and
+# carries no host-specific addresses. Set these in an EnvironmentFile for the
+# systemd unit (see protek-wal-truncate.service), e.g. /etc/protek/wal-truncate.env:
+#   LITESTREAM_SFTP_DEST=litestream@replica-host
+#   LITESTREAM_SFTP_PATH=/home/litestream/protek
+# If LITESTREAM_SFTP_DEST is unset, the local WAL truncate still runs; the
+# remote 0-byte-LTX repair step is skipped.
+DB="${PROTEK_DB:-/var/www/Protek/protek.db}"
 LOG_TAG=protek-wal-truncate
-SFTP_KEY=/etc/litestream/id_ed25519
-SFTP_DEST=litestream@<vps-b-wg-ip>
-SFTP_PATH=/home/litestream/protek
+SFTP_KEY="${LITESTREAM_SFTP_KEY:-/etc/litestream/id_ed25519}"
+SFTP_DEST="${LITESTREAM_SFTP_DEST:-}"
+SFTP_PATH="${LITESTREAM_SFTP_PATH:-/home/litestream/protek}"
 
 logger -t "$LOG_TAG" "starting WAL truncate cycle (WAL was $(stat -c %s "$DB-wal" 2>/dev/null || echo 0) bytes)"
 
@@ -53,7 +60,7 @@ fi
 # delete them. The corruption arises specifically when systemctl stop
 # interrupts an in-flight L2 compaction upload (see header comment).
 # L1 always has the same txn range intact, so deletion is non-destructive.
-if [ -f "$SFTP_KEY" ]; then
+if [ -n "$SFTP_DEST" ] && [ -f "$SFTP_KEY" ]; then
     bad_files=$(sftp -i "$SFTP_KEY" \
                      -o StrictHostKeyChecking=no \
                      -o ConnectTimeout=10 \

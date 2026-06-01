@@ -26,7 +26,7 @@ Release:        1%{?dist}
 Summary:        CrowdSec → MikroTik bouncer with a NOC-style dashboard
 
 License:        MIT
-URL:            https://github.com/syedhashmi/Protek
+URL:            https://github.com/syedhashmi-bit/Protek
 Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 

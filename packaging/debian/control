@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Syed Hashmi <syed@syedhashmi.trade>
 Build-Depends: debhelper-compat (= 13), dh-python, python3-all, python3-setuptools
 Standards-Version: 4.6.2
-Homepage: https://github.com/syedhashmi/Protek
+Homepage: https://github.com/syedhashmi-bit/Protek
 Rules-Requires-Root: no
 
 Package: protek

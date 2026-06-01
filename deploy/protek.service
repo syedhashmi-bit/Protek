@@ -1,0 +1,24 @@
+[Unit]
+# Bare-metal unit for a git-clone install at /var/www/Protek (the layout the
+# README + docs/INSTALL.md quick-start assume). For the Debian/RPM package
+# layout (/usr/share/protek, /var/lib/protek) see packaging/debian/protek.service.
+Description=Protek - CrowdSec to MikroTik bouncer + NOC dashboard
+Documentation=https://github.com/syedhashmi-bit/Protek
+After=network-online.target crowdsec.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# gunicorn runs as root so it can reach the MikroTik API socket and shell out
+# to cscli. Change User=/Group= if you run Protek under a dedicated account.
+User=root
+WorkingDirectory=/var/www/Protek
+Environment=PATH=/var/www/Protek/venv/bin
+EnvironmentFile=/var/www/Protek/.env
+ExecStart=/var/www/Protek/venv/bin/gunicorn -w 3 -b 127.0.0.1:8090 --timeout 60 \
+    --access-logfile - --error-logfile - app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

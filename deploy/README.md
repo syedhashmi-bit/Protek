@@ -9,7 +9,7 @@ via the phase-76 `/peers` feature.
 If you just want one VPS, skip Terraform — follow the README install.sh path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/syedhashmi/Protek/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/syedhashmi-bit/Protek/main/install.sh | sudo bash
 ```
 
 ## Multi-region (this directory)

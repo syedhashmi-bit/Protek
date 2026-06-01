@@ -42,11 +42,15 @@ sudo ./venv/bin/python scripts/setup_admin.py --username admin
 sudo cscli bouncers add protek                # paste into .env as CROWDSEC_BOUNCER_KEY
 
 # 6. systemd
-sudo cp scripts/protek.service /etc/systemd/system/   # see install.sh for the unit shape
+sudo cp deploy/protek.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now protek
 
-# 7. nginx + TLS — example site config in install.sh
+# 7. nginx + TLS
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/protek
+sudo sed -i 's/your.domain/protek.example.com/' /etc/nginx/sites-available/protek
+sudo ln -sf /etc/nginx/sites-available/protek /etc/nginx/sites-enabled/protek
+sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d your.domain
 ```
 
