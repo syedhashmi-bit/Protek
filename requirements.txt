@@ -30,7 +30,7 @@ scikit-learn>=1.8.0,<2.0
 numpy>=2.4.6,<3.0
 
 # Off-box backup (Arc 11 phase 63) — S3-compatible (Backblaze B2 / AWS / MinIO)
-boto3>=1.43.18,<2.0
+boto3>=1.43.19,<2.0
 
 # OIDC SSO (Arc 12 phase 70) — generic OpenID Connect via Authlib
 Authlib>=1.7.2,<2.0
