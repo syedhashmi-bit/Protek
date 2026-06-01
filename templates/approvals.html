@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · approvals{% endblock %}
+{% block crumb %}<b>APPROVALS</b>{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Pending</div><div class="v amber">{{ kpis.pending }}</div></div>
+  <div class="kpi"><div class="k">Approved (24h)</div><div class="v cyan">{{ kpis.approved_24h }}</div></div>
+  <div class="kpi"><div class="k">Rejected (24h)</div><div class="v red">{{ kpis.rejected_24h }}</div></div>
+  <div class="kpi">
+    <div class="k">Queue Mode</div>
+    <div class="v" style="font-size:18px;color:{{ 'var(--amber)' if approval_required else 'var(--green)' }}">
+      {{ 'SEMI-AUTO (queueing)' if approval_required else 'AUTO (bypassing)' }}
+    </div>
+    <div class="d">toggle in /whitelist</div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Pending Decisions ({{ pending|length }})</h2>
+  {% if not approval_required %}
+  <div class="muted" style="font-size:11px;margin-bottom:12px;letter-spacing:.1em;text-transform:uppercase">
+    Queue mode is <b style="color:var(--green)">AUTO</b> — decisions flow straight to MikroTik without queueing. Switch to SEMI-AUTO in /whitelist to start queueing.
+  </div>
+  {% endif %}
+
+  <table>
+    <thead><tr><th>When</th><th>IP</th><th>Scenario</th><th>Origin</th><th>Source</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for p in pending %}
+      <tr>
+        <td class="mono muted">{{ p.created_rel }}</td>
+        <td class="mono"><a href="{{ url_for('attacker_page', ip=p.ip) }}">{{ p.ip }}</a></td>
+        <td><span class="badge {{ p.fam }}">{{ p.scenario or '—' }}</span></td>
+        <td class="muted">{{ p.origin }}</td>
+        <td class="muted">{{ p.origin_source }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('approvals_decide', qid=p.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="decision" value="approved">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--green)">approve</button>
+          </form>
+          <form method="POST" action="{{ url_for('approvals_decide', qid=p.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="decision" value="rejected">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)">reject</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted" style="text-align:center;padding:24px">no pending decisions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recently Decided</h2>
+  <table>
+    <thead><tr><th>When</th><th>IP</th><th>Status</th><th>Decided By</th></tr></thead>
+    <tbody>
+      {% for d in recent_decisions %}
+      <tr>
+        <td class="mono muted">{{ d.decided_rel }}</td>
+        <td class="mono">{{ d.ip }}</td>
+        <td>{% if d.status == 'approved' %}<span class="badge cs">approved</span>{% else %}<span class="badge" style="color:var(--red)">rejected</span>{% endif %}</td>
+        <td class="muted">{{ d.decided_by }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted" style="text-align:center;padding:20px">no recent decisions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

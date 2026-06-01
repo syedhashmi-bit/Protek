@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · MT bootstrap{% endblock %}
+{% block crumb %}<b>BOUNCERS</b> · MikroTik bootstrap script{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2 style="margin:0 0 6px">MikroTik bouncer bootstrap script</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0">
+    Paste this <span class="mono">.rsc</span> into the RouterOS terminal (Winbox → New Terminal,
+    or <span class="mono">/import file=protek-bootstrap.rsc</span>). It creates a dedicated user
+    with the minimum perms needed for address-list operations — no shell, no web, no winbox,
+    no password rotation rights. Re-running rotates the password; the address-list is untouched.
+  </p>
+
+  <form method="GET" action="{{ url_for('mt_bootstrap_page') }}"
+        style="display:grid;grid-template-columns:repeat(3, 1fr) auto;gap:10px;align-items:end;margin-bottom:14px">
+    <div>
+      <label>Username</label>
+      <input name="username" value="{{ username }}" maxlength="32"
+             style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+    </div>
+    <div>
+      <label>Group</label>
+      <input name="group" value="{{ group }}" maxlength="32"
+             style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+    </div>
+    <div>
+      <label>Address list</label>
+      <input name="list_name" value="{{ list_name }}" maxlength="32"
+             style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+    </div>
+    <button type="submit" class="btn ghost" style="padding:8px 14px">Regenerate</button>
+  </form>
+
+  <div style="display:flex;gap:10px;margin-bottom:8px;align-items:center">
+    <button id="copy-btn" class="btn"
+            style="padding:8px 18px;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;border-radius:3px">
+      Copy to clipboard
+    </button>
+    <a href="{{ url_for('mt_bootstrap_rsc', username=username, group=group, list_name=list_name) }}"
+       download="protek-mt-bootstrap.rsc"
+       class="btn ghost" style="padding:8px 14px">
+      Download .rsc
+    </a>
+    <span id="copy-status" class="muted" style="font-size:11px"></span>
+  </div>
+
+  <pre id="rsc-body"
+       style="background:var(--bg-deep);border:1px solid var(--border);padding:14px;border-radius:3px;font-family:'Share Tech Mono',monospace;font-size:12px;overflow:auto;max-height:520px;white-space:pre">{{ script }}</pre>
+
+  <p class="muted" style="font-size:11px;margin-top:14px">
+    After pasting, the RouterOS terminal will print the generated password. Copy it
+    into <a href="{{ url_for('bouncers_add') }}" style="color:var(--cyan)">/bouncers/add → kind: mikrotik</a>
+    along with the host, port (8728 or 8729 SSL), and the address-list name above.
+  </p>
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('copy-btn');
+  var pre = document.getElementById('rsc-body');
+  var status = document.getElementById('copy-status');
+  btn.addEventListener('click', function () {
+    navigator.clipboard.writeText(pre.textContent).then(function () {
+      status.textContent = '✓ copied — paste into RouterOS terminal';
+      status.style.color = 'var(--green)';
+      setTimeout(function () { status.textContent = ''; }, 4000);
+    }, function (err) {
+      status.textContent = 'clipboard denied — select + Ctrl+C';
+      status.style.color = 'var(--amber)';
+    });
+  });
+})();
+</script>
+{% endblock %}

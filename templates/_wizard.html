@@ -1,0 +1,201 @@
+{# templates/_wizard.html — Arc 14 phase 81 — shared wizard primitive.
+
+   Usage in a parent template:
+
+     {% extends "base.html" %}
+     {% from "_wizard.html" import wizard_styles, wizard_steps, wizard_step,
+                                    wizard_nav, wizard_script %}
+
+     {% block head %}{{ wizard_styles() }}{% endblock %}
+
+     {% block content %}
+     {{ wizard_steps(["Source info", "Run on remote", "Paste key", "Test + save"]) }}
+     <form method="POST" action="...">
+       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+       {% call wizard_step(1, "Source info") %}
+         <label>Name</label><input name="name" required>
+         <label>URL</label><input name="url" required>
+       {% endcall %}
+       {% call wizard_step(2, "Run on remote") %}
+         <pre>... bash block ...</pre>
+       {% endcall %}
+       {% call wizard_step(3, "Paste key") %}
+         <label>Bouncer key</label><input name="key" required>
+       {% endcall %}
+       {% call wizard_step(4, "Test + save") %}
+         <button class="btn" data-action="test">Test connection</button>
+         <button class="btn primary" type="submit">Save</button>
+       {% endcall %}
+       {{ wizard_nav() }}
+     </form>
+     {{ wizard_script() }}
+     {% endblock %}
+
+   State is held entirely in form fields. The script shows/hides one step
+   at a time; on submit the whole form is POSTed. No server session, no
+   draft persistence — that's deliberate (matches the existing
+   one-shot-form pattern; refresh resets the wizard).
+
+   Each step's required fields are validated before "Next" advances. If
+   any are missing/invalid, the step's invalid field gets focus and a
+   small error banner appears.
+
+   The CSS reuses the NOC palette already in base.html (cyan/green/amber).
+   No new external dependencies.
+#}
+
+{% macro wizard_styles() %}
+<style>
+.wiz-steps{display:flex;gap:0;list-style:none;padding:0;margin:0 0 20px;
+  background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.wiz-step-pill{flex:1;padding:14px 16px;font-family:'Share Tech Mono',monospace;font-size:11px;
+  letter-spacing:.15em;text-transform:uppercase;color:var(--muted);position:relative;cursor:default;
+  border-right:1px solid var(--border)}
+.wiz-step-pill:last-child{border-right:0}
+.wiz-step-pill .n{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--bg-deep);
+  border:1px solid var(--border);text-align:center;line-height:20px;margin-right:8px;color:var(--muted-low)}
+.wiz-step-pill.active{color:var(--cyan);background:var(--bg-raised)}
+.wiz-step-pill.active .n{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 12px rgba(0,200,255,.4)}
+.wiz-step-pill.done{color:var(--green)}
+.wiz-step-pill.done .n{border-color:var(--green);color:var(--green)}
+.wiz-step-pill.done .n::after{content:"✓";position:absolute;font-size:11px}
+.wiz-step-pill.done .n>span{visibility:hidden}
+
+.wiz-panel{display:none;background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;
+  padding:24px;margin-bottom:16px}
+.wiz-panel.active{display:block}
+.wiz-panel h3{margin:0 0 16px;font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan)}
+.wiz-panel label{display:block;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+  margin:14px 0 4px;font-family:'Share Tech Mono',monospace}
+.wiz-panel label:first-of-type{margin-top:0}
+.wiz-panel input[type=text],.wiz-panel input[type=url],.wiz-panel input[type=password],
+.wiz-panel input[type=number],.wiz-panel select,.wiz-panel textarea{width:100%;background:var(--bg-deep);
+  border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;
+  font-size:13px;border-radius:3px}
+.wiz-panel input:focus,.wiz-panel select:focus,.wiz-panel textarea:focus{border-color:var(--cyan);outline:none;
+  box-shadow:0 0 0 2px rgba(0,200,255,.18)}
+.wiz-panel .help{font-size:11px;color:var(--muted);margin:4px 0 0;line-height:1.5}
+.wiz-panel .help a{color:var(--cyan)}
+.wiz-panel pre{background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;padding:12px;
+  font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--info);overflow-x:auto;line-height:1.6}
+
+.wiz-err{background:rgba(255,56,96,.08);border:1px solid var(--red);border-radius:3px;padding:8px 12px;
+  font-size:12px;color:var(--red);margin-bottom:12px;display:none}
+.wiz-err.show{display:block}
+
+.wiz-nav{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:8px}
+.wiz-nav .btn{padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;border-radius:3px;cursor:pointer;background:var(--bg-raised);border:1px solid var(--border);
+  color:var(--text)}
+.wiz-nav .btn:hover{border-color:var(--cyan);color:var(--cyan)}
+.wiz-nav .btn:disabled{opacity:.35;cursor:not-allowed}
+.wiz-nav .btn.primary{background:var(--cyan);color:var(--bg-deep);border-color:var(--cyan);font-weight:700}
+.wiz-nav .btn.primary:hover{background:var(--green);border-color:var(--green);color:var(--bg-deep)}
+</style>
+{% endmacro %}
+
+{% macro wizard_steps(labels) %}
+<ol class="wiz-steps" id="wiz-steps">
+{% for label in labels %}
+  <li class="wiz-step-pill{% if loop.first %} active{% endif %}" data-step="{{ loop.index }}">
+    <span class="n"><span>{{ loop.index }}</span></span>{{ label }}
+  </li>
+{% endfor %}
+</ol>
+<div class="wiz-err" id="wiz-err"></div>
+{% endmacro %}
+
+{% macro wizard_step(n, title) %}
+<div class="wiz-panel{% if n == 1 %} active{% endif %}" data-step="{{ n }}">
+  <h3>Step {{ n }} · {{ title }}</h3>
+  {{ caller() }}
+</div>
+{% endmacro %}
+
+{% macro wizard_nav() %}
+<div class="wiz-nav">
+  <button type="button" class="btn" id="wiz-prev" disabled>← Back</button>
+  <button type="button" class="btn primary" id="wiz-next">Next →</button>
+</div>
+{% endmacro %}
+
+{% macro wizard_script(submit_step=None) %}
+<script>
+(function(){
+  // The wizard is purely client-side. `current` is the active step number;
+  // `total` is the number of `.wiz-panel` elements; `submit_at` is the step
+  // whose Next button submits the form (defaults to total, i.e. last step).
+  const panels = Array.from(document.querySelectorAll('.wiz-panel'));
+  const pills  = Array.from(document.querySelectorAll('.wiz-step-pill'));
+  const total  = panels.length;
+  const submit_at = {{ submit_step or "total" }};
+  const errBox = document.getElementById('wiz-err');
+  const nextBtn = document.getElementById('wiz-next');
+  const prevBtn = document.getElementById('wiz-prev');
+  let current = 1;
+
+  function show(n){
+    current = n;
+    panels.forEach(p => p.classList.toggle('active', +p.dataset.step === n));
+    pills.forEach(p => {
+      const ps = +p.dataset.step;
+      p.classList.toggle('active', ps === n);
+      p.classList.toggle('done',   ps < n);
+    });
+    prevBtn.disabled = (n === 1);
+    nextBtn.textContent = (n === submit_at) ? 'Save →' : 'Next →';
+    nextBtn.classList.toggle('primary', true);
+    errBox.classList.remove('show');
+    errBox.textContent = '';
+    // Focus the first input in this step for keyboard nav.
+    const inp = panels.find(p => +p.dataset.step === n)
+                      ?.querySelector('input,select,textarea');
+    if (inp) inp.focus();
+  }
+
+  function validateStep(n){
+    // Only require fields visible in the current step.
+    const panel = panels.find(p => +p.dataset.step === n);
+    if (!panel) return true;
+    const required = panel.querySelectorAll('[required]');
+    for (const el of required) {
+      if (!el.checkValidity()) {
+        el.reportValidity();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  prevBtn.addEventListener('click', () => { if (current > 1) show(current - 1); });
+  nextBtn.addEventListener('click', () => {
+    if (!validateStep(current)) return;
+    if (current === submit_at) {
+      // Submit the parent form. (We rely on the form's native action/method.)
+      const form = nextBtn.closest('form');
+      if (form) form.submit();
+      return;
+    }
+    if (current < total) show(current + 1);
+  });
+
+  // Allow the user to click an earlier pill to jump back (forward jumps
+  // require validating intermediate steps — too easy to skip a required field).
+  pills.forEach(p => {
+    p.addEventListener('click', () => {
+      const target = +p.dataset.step;
+      if (target < current) show(target);
+    });
+  });
+
+  // Surface unhandled validation errors at the top of the form.
+  document.querySelector('form')?.addEventListener('invalid', (e) => {
+    e.preventDefault();
+    errBox.textContent = 'Fix the highlighted field before continuing.';
+    errBox.classList.add('show');
+  }, true);
+
+  show(1);
+})();
+</script>
+{% endmacro %}

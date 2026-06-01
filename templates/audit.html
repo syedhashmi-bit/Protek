@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Audit · Protek{% endblock %}
+{% block crumb %}OBSERVABILITY · <b>AUDIT LOG</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Operator actions · last 300</h2>
+  <form method="get" style="display:flex;gap:10px;align-items:end;margin-bottom:12px">
+    <div style="width:280px">
+      <label>Filter by action (substring)</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="e.g. settings, whitelist, bouncer">
+    </div>
+    <button class="btn">Filter</button>
+    {% if q %}<a href="{{ url_for('audit_page') }}" class="btn ghost">clear</a>{% endif %}
+    <span class="spacer" style="flex:1"></span>
+    <span class="muted mono" style="font-size:11px">append-only · never deleted</span>
+  </form>
+
+  <table>
+    <thead><tr>
+      <th>When</th><th>Actor</th><th>IP</th><th>Action</th><th>Target</th><th>Before → After</th><th>Note</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.created_at[:19].replace('T',' ') }}</td>
+        <td>{{ r.actor or '—' }}</td>
+        <td class="mono muted">{{ r.ip or '' }}</td>
+        <td><span class="badge cs">{{ r.action }}</span></td>
+        <td class="mono">{{ r.target or '' }}</td>
+        <td class="mono muted" style="font-size:11px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ r.before_json }} → {{ r.after_json }}">
+          {% if r.before_json or r.after_json %}
+            {{ (r.before_json or '∅')[:60] }} → {{ (r.after_json or '∅')[:60] }}
+          {% else %}—{% endif %}
+        </td>
+        <td class="muted" style="font-size:11px">{{ r.note or '' }}</td>
+      </tr>
+      {% else %}
+        <tr><td colspan="7" class="muted">No audit records yet. Operator actions land here.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

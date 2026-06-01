@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · dashboard{% endblock %}
+{% block crumb %}<b>DASHBOARD</b>{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+.leaflet-container{background:#06101c}
+.protek-glow{filter:drop-shadow(0 0 4px #00c8ff) drop-shadow(0 0 6px rgba(0,200,255,.5))}
+.marker-cluster-small{background:rgba(0,200,255,.18);color:#cfe8ff}
+.marker-cluster-small div{background:rgba(0,200,255,.32)}
+.marker-cluster-medium{background:rgba(0,255,157,.18)}
+.marker-cluster-medium div{background:rgba(0,255,157,.32)}
+.marker-cluster-large{background:rgba(255,56,96,.18)}
+.marker-cluster-large div{background:rgba(255,56,96,.32)}
+.poll-bar{position:relative;height:2px;background:var(--bg-deep);overflow:hidden;border-radius:1px}
+.poll-bar > i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--cyan),var(--green));
+  width:0%;transition:width .15s linear}
+.feed-row.new{animation:slideflash .6s ease}
+@keyframes slideflash{
+  from{transform:translateX(-12px);background:rgba(0,200,255,.12)}
+  to{transform:translateX(0);background:transparent}
+}
+.sync-toast{position:fixed;right:24px;bottom:24px;background:var(--bg-panel);border:1px solid var(--cyan);
+  border-radius:4px;padding:10px 14px;font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--cyan);
+  z-index:50;box-shadow:0 0 14px rgba(0,200,255,.18);opacity:0;pointer-events:none;transform:translateY(8px);
+  transition:opacity .2s, transform .2s}
+.sync-toast.show{opacity:1;transform:translateY(0)}
+.sync-toast.err{border-color:var(--red);color:var(--red);box-shadow:0 0 14px rgba(255,56,96,.18)}
+.spark{height:32px;width:100%;display:block}
+</style>
+{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi">
+    <div class="k">LAPI Active</div>
+    <div class="v" id="kpi-lapi">{{ kpis.lapi_active }}</div>
+    <svg class="spark" id="spark-lapi" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline fill="none" stroke="#00ff9d" stroke-width="1.2"/></svg>
+  </div>
+  <div class="kpi">
+    <div class="k">MT List Size</div>
+    <div class="v cyan" id="kpi-mt">{{ kpis.mt_list_size }}</div>
+    <div class="d">{{ kpis.mt_list_name }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Sync Lag</div>
+    <div class="v amber" id="kpi-poll">{{ kpis.last_poll_rel }}</div>
+    <div class="d">{{ kpis.cycles }} cycles · {{ kpis.recon_duration }}ms</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Scenarios 24h</div>
+    <div class="v" id="kpi-scen">{{ kpis.scenarios_24h }}</div>
+    <div class="d">unique</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Attackers 24h</div>
+    <div class="v" id="kpi-attk">{{ kpis.attackers_24h }}</div>
+    <div class="d">unique IPs</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Top Scenario</div>
+    <div class="v cyan" style="font-size:14px;line-height:1.4;word-break:break-all">{{ kpis.top_scenario or '—' }}</div>
+    <div class="d">{{ kpis.top_scenario_count }} fires</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-top:16px">
+  <div class="panel">
+    <h2 style="display:flex;justify-content:space-between;align-items:center">
+      Live Attack Feed
+      <span class="muted mono" id="feed-poll" style="text-transform:none;letter-spacing:0;font-size:10px">polling every 5s</span>
+    </h2>
+    <div class="poll-bar"><i id="poll-bar-fill"></i></div>
+    <table>
+      <thead><tr><th>When</th><th>IP / Range</th><th>Geo</th><th>Scenario</th><th>Origin</th><th class="right">Duration</th></tr></thead>
+      <tbody id="feed">
+        {% for d in recent %}
+        <tr data-key="{{ d.key }}">
+          <td class="mono muted">{{ d.first_seen_rel }}</td>
+          <td class="mono">{{ d.value }}</td>
+          <td><span class="muted mono">{{ d.country or '—' }}</span></td>
+          <td><span class="badge {{ d.fam }}">{{ d.scenario or '—' }}</span></td>
+          <td class="muted">{{ d.origin }}</td>
+          <td class="mono right">{{ d.duration }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted" style="text-align:center;padding:24px">awaiting first poll…</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+    <h2 style="padding:16px 16px 0">World Map</h2>
+    <div id="map" style="flex:1;min-height:380px;position:relative"></div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+  <div class="panel">
+    <h2>Top Scenarios (active)</h2>
+    <div id="top-scen">
+      {% for s in top_scenarios %}
+      <div style="display:grid;grid-template-columns:1fr 60px;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
+        <div><span class="badge {{ s.fam }}">{{ s.scenario or '—' }}</span></div>
+        <div class="mono right" style="text-align:right;color:var(--green)">{{ s.n }}</div>
+      </div>
+      {% else %}
+      <div class="muted" style="text-align:center;padding:14px">no scenarios firing</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Sync Activity (24h)</h2>
+    <svg id="sync-spark" viewBox="0 0 600 100" preserveAspectRatio="none" style="width:100%;height:120px"></svg>
+    <div class="muted mono" style="font-size:11px;margin-top:6px">
+      adds · removes — sparkline = adds per ~48-min bucket
+    </div>
+  </div>
+</div>
+
+<div class="sync-toast" id="sync-toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const POLL_MS = 5000;
+const ACTIVE_HISTORY = [];   // for the lapi sparkline
+let mapInst = null, clusterLayer = null, knownMapKeys = new Set();
+let lastFeedKeys = new Set();
+let lastSyncId = {{ kpis.last_sync_event_id or 0 }};
+
+// ── World map ──────────────────────────────────────────────────────────────
+function initMap(){
+  mapInst = L.map('map', {
+    preferCanvas: true, worldCopyJump: true, attributionControl: true,
+    zoomControl: true,
+  }).setView([22, 10], 2);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    subdomains: 'abcd', maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  }).addTo(mapInst);
+  mapInst.createPane('glow');
+  mapInst.getPane('glow').classList.add('protek-glow');
+  clusterLayer = L.markerClusterGroup({
+    chunkedLoading: true, chunkInterval: 200,
+    showCoverageOnHover: false, disableClusteringAtZoom: 7, maxClusterRadius: 50,
+  });
+  mapInst.addLayer(clusterLayer);
+}
+async function refreshMap(){
+  try{
+    const r = await fetch('{{ url_for("api_geo_points") }}?limit=1000', {cache:'no-store'});
+    if(!r.ok) return;
+    const j = await r.json();
+    const newMarkers = [];
+    for(const p of j.items){
+      const key = `${p.ip}:${p.lat}:${p.lon}`;
+      if(knownMapKeys.has(key)) continue;
+      knownMapKeys.add(key);
+      const m = L.circleMarker([p.lat, p.lon], {
+        radius:4.5, color:'#00c8ff', weight:1.5, fillColor:'#00c8ff', fillOpacity:.85, pane:'glow'
+      }).bindPopup(`<b>${escapeHtml(p.ip)}</b><br>${escapeHtml(p.city||p.country||'—')}<br>${escapeHtml(p.scenario||'')}<br><span style="color:#7d94ad">${escapeHtml(p.as_org||p.asn||'')}</span>`);
+      newMarkers.push(m);
+    }
+    if(newMarkers.length) clusterLayer.addLayers(newMarkers);
+  }catch(e){}
+}
+
+// ── Live feed ─────────────────────────────────────────────────────────────
+async function refreshFeed(){
+  try{
+    const r = await fetch('{{ url_for("api_decisions") }}?limit=20', {cache:'no-store'});
+    if(!r.ok) return;
+    const j = await r.json();
+    const tbody = document.getElementById('feed');
+    if(!j.items || !j.items.length) return;
+    const newKeys = new Set();
+    const html = j.items.map(d => {
+      const key = `${d.value}|${d.scenario}|${d.first_seen_rel}`;
+      newKeys.add(key);
+      const isNew = !lastFeedKeys.has(key) && lastFeedKeys.size > 0;
+      return `
+      <tr data-key="${key}" class="feed-row ${isNew?'new':''}">
+        <td class="mono muted">${escapeHtml(d.first_seen_rel)}</td>
+        <td class="mono">${escapeHtml(d.value)}</td>
+        <td><span class="muted mono">${escapeHtml(d.country || '—')}</span></td>
+        <td><span class="badge ${d.fam}">${escapeHtml(d.scenario || '—')}</span></td>
+        <td class="muted">${escapeHtml(d.origin || '')}</td>
+        <td class="mono right">${escapeHtml(d.duration || '')}</td>
+      </tr>`;
+    }).join('');
+    tbody.innerHTML = html;
+    lastFeedKeys = newKeys;
+    document.getElementById('kpi-lapi').textContent = j.active_total;
+    pushSparkValue('spark-lapi', j.active_total);
+  }catch(e){}
+}
+
+// ── Lapi sparkline ─────────────────────────────────────────────────────────
+function pushSparkValue(svgId, v){
+  ACTIVE_HISTORY.push(Number(v) || 0);
+  if(ACTIVE_HISTORY.length > 30) ACTIVE_HISTORY.shift();
+  const min = Math.min(...ACTIVE_HISTORY), max = Math.max(...ACTIVE_HISTORY);
+  const span = Math.max(1, max - min);
+  const w = 100, h = 30;
+  const step = w / Math.max(1, ACTIVE_HISTORY.length - 1);
+  const pts = ACTIVE_HISTORY.map((y,i) => `${(i*step).toFixed(1)},${(h - ((y-min)/span)*h).toFixed(1)}`).join(' ');
+  const poly = document.querySelector(`#${svgId} polyline`);
+  if(poly) poly.setAttribute('points', pts);
+}
+
+// ── Sync activity sparkline ────────────────────────────────────────────────
+async function refreshSyncSpark(){
+  try{
+    const r = await fetch('{{ url_for("api_scenarios") }}', {cache:'no-store'});
+    if(!r.ok) return;
+    const j = await r.json();
+    const buckets = j.sync_buckets || [];
+    const svg = document.getElementById('sync-spark');
+    svg.innerHTML = '';
+    if(!buckets.length) return;
+    const maxv = Math.max(...buckets.map(b => Math.max(b.adds, b.rems)), 1);
+    const w = 600, h = 100;
+    const bw = w / Math.max(buckets.length, 1);
+    buckets.forEach((b, i) => {
+      const ah = (b.adds / maxv) * h;
+      const rh = (b.rems / maxv) * h;
+      svg.insertAdjacentHTML('beforeend',
+        `<rect x="${i*bw+1}" y="${h-ah}" width="${bw-2}" height="${ah}" fill="#00ff9d" opacity=".8"/>` +
+        `<rect x="${i*bw+1+bw/2}" y="${h-rh}" width="${bw/2-1}" height="${rh}" fill="#ff3860" opacity=".7"/>`);
+    });
+  }catch(e){}
+}
+
+// ── Sync toast ─────────────────────────────────────────────────────────────
+async function refreshSyncToast(){
+  try{
+    const r = await fetch('{{ url_for("api_sync_events") }}?limit=1', {cache:'no-store'});
+    if(!r.ok) return;
+    const j = await r.json();
+    if(!j.items || !j.items.length) return;
+    const ev = j.items[0];
+    if(ev.id <= lastSyncId) return;
+    lastSyncId = ev.id;
+    const t = document.getElementById('sync-toast');
+    const mode = ev.dry_run ? 'DRY' : 'LIVE';
+    t.textContent = `↻ +${ev.added} −${ev.removed} · ${ev.duration_ms}ms · ${mode}`;
+    t.classList.toggle('err', ev.errors > 0);
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1500);
+  }catch(e){}
+}
+
+// ── Polling progress bar ───────────────────────────────────────────────────
+let pollStart = Date.now();
+function tickPollBar(){
+  const elapsed = Date.now() - pollStart;
+  const pct = Math.min(100, (elapsed / POLL_MS) * 100);
+  const el = document.getElementById('poll-bar-fill');
+  if(el) el.style.width = pct.toFixed(0) + '%';
+  if(pct >= 100){
+    pollStart = Date.now();
+    el.style.width = '0%';
+  }
+}
+function escapeHtml(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+initMap();
+refreshFeed(); refreshMap(); refreshSyncSpark();
+setInterval(() => { refreshFeed(); refreshMap(); refreshSyncToast(); pollStart = Date.now(); }, POLL_MS);
+setInterval(refreshSyncSpark, 60000);
+setInterval(tickPollBar, 100);
+</script>
+{% endblock %}

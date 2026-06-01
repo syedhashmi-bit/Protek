@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · crowdsec{% endblock %}
+{% block crumb %}<b>CROWDSEC</b> · LAPI Explorer{% endblock %}
+{% block head %}
+<style>
+.endpoint{display:grid;grid-template-columns:60px 1fr 110px 90px;gap:10px;align-items:center;
+  padding:8px 0;border-bottom:1px solid var(--border);font-family:'Share Tech Mono',monospace;font-size:13px}
+.endpoint .m{color:var(--cyan);font-weight:700;font-size:11px;letter-spacing:.1em}
+.endpoint .p{color:var(--text)}
+.endpoint .a{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.12em;text-align:right}
+.endpoint .b{text-align:right}
+pre.json{background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;padding:12px;
+  max-height:480px;overflow:auto;color:var(--green);font-size:12px;font-family:'Share Tech Mono',monospace;
+  white-space:pre-wrap;word-break:break-all}
+.k-status{display:inline-flex;align-items:center;gap:6px}
+.k-status::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.k-status.bad::before{background:var(--red);box-shadow:0 0 8px var(--red)}
+.k-status.bad{color:var(--red)}
+</style>
+{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi">
+    <div class="k">LAPI Endpoint</div>
+    <div class="v cyan" style="font-size:14px;word-break:break-all">{{ lapi_url }}</div>
+    <div class="d k-status {{ '' if lapi_ok else 'bad' }}">{{ 'reachable' if lapi_ok else 'unreachable' }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Active Decisions</div>
+    <div class="v">{{ summary.decisions }}</div>
+    <div class="d">via bouncer key</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Bouncers</div>
+    <div class="v cyan" style="font-size:18px">{{ summary.bouncers }}</div>
+    <div class="d">{% if summary.has_machine %}+ machine creds{% else %}bouncer key only{% endif %}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Prometheus</div>
+    <div class="v" style="font-size:14px">127.0.0.1:6060</div>
+    <div class="d">/metrics</div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>LAPI Endpoints (auth-proxied through Protek session)</h2>
+  <p class="muted" style="font-size:12px;margin:0 0 12px">
+    Every link below is gated by your Protek login. Protek appends the bouncer key on the server side —
+    your browser never sees it. <b>Read-only.</b> Writes still go through <code class="mono">cscli</code> on the VPS.
+  </p>
+
+  {% for ep in endpoints %}
+  <div class="endpoint">
+    <div class="m">{{ ep.method }}</div>
+    <div class="p">
+      <a href="{{ url_for('crowdsec_proxy', path=ep.path) }}{% if ep.qs %}?{{ ep.qs }}{% endif %}" target="_blank">{{ ep.path }}{% if ep.qs %}?{{ ep.qs }}{% endif %}</a>
+      <div class="muted" style="font-size:11px;margin-top:2px;text-transform:none;letter-spacing:0">{{ ep.desc }}</div>
+    </div>
+    <div class="a">{{ ep.auth }}</div>
+    <div class="b"><a class="btn ghost" style="font-size:10px;padding:3px 8px" href="{{ url_for('crowdsec_proxy', path=ep.path) }}{% if ep.qs %}?{{ ep.qs }}{% endif %}" target="_blank">open ↗</a></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Quick Peek — Active Decisions</h2>
+  {% if sample_json %}
+  <pre class="json">{{ sample_json }}</pre>
+  {% else %}
+  <div class="muted">LAPI unreachable — see error above.</div>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>cscli commands (run on VPS shell)</h2>
+  <pre class="json" style="color:var(--cyan)">
+cscli decisions list                       # current active bans
+cscli alerts list                          # scenarios firing
+cscli alerts inspect &lt;id&gt;                  # drill into one
+cscli bouncers list                        # registered bouncers
+cscli machines list                        # agent credentials
+cscli metrics                              # full metric dump
+cscli decisions add --ip 1.2.3.4 --duration 1h --reason "manual"
+cscli decisions delete --ip 1.2.3.4
+cscli hub list                             # installed collections
+cscli console enroll &lt;signup-token&gt;        # optional CrowdSec Console
+</pre>
+</div>
+{% endblock %}

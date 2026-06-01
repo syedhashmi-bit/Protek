@@ -1,0 +1,35 @@
+# Caddy config for the Protek docker-compose stack — phase 95.
+#
+# PROTEK_DOMAIN is substituted from the compose environment. Caddy
+# automatically issues a Let's Encrypt cert for it on first request,
+# handles renewals, and redirects HTTP → HTTPS. No certbot dance.
+#
+# For local dev (PROTEK_DOMAIN=localhost), Caddy serves a self-signed
+# internal cert — your browser will warn but the flow still works.
+
+{$PROTEK_DOMAIN} {
+    # Trust the X-Forwarded-* headers Caddy adds so Flask sees the
+    # client's real IP for rate-limiting + IP_WHITELIST gating.
+    reverse_proxy protek:8090 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Security headers — matches what the nginx site sets on bare-metal
+    # deploys (see deploy/protek.nginx).
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "no-referrer-when-downgrade"
+        # Server header strip — don't advertise Caddy version
+        -Server
+    }
+
+    encode gzip zstd
+    log {
+        output stdout
+        format console
+    }
+}

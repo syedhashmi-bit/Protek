@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · alerts{% endblock %}
+{% block crumb %}<b>ALERTS</b>{% endblock %}
+{% block body %}
+{% if not has_machine_creds %}
+<div class="panel" style="border-left:3px solid var(--amber)">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="font-size:32px;color:var(--amber);font-family:'Share Tech Mono',monospace">!</div>
+    <div>
+      <div style="font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin-bottom:4px">Machine credentials required</div>
+      <div class="muted" style="font-size:13px">
+        The CrowdSec <code class="mono">/v1/alerts</code> endpoint requires a <b>machine</b> credential, not a bouncer key.
+        Protek currently only authenticates with a bouncer key, which can read decisions but not alerts.
+        Run <code class="mono">cscli machines add protek-machine</code> and add the resulting credentials to <code class="mono">.env</code> to enable this page.
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Recent Alerts</h2>
+  <table>
+    <thead><tr><th>When</th><th>Source IP</th><th>Country</th><th>ASN</th><th>Scenario</th><th class="right">Events</th></tr></thead>
+    <tbody>
+      {% for a in rows %}
+      <tr>
+        <td class="mono muted">{{ a.created_rel }}</td>
+        <td class="mono">{{ a.source_ip }}</td>
+        <td>{{ a.source_country or '—' }}</td>
+        <td class="muted">{{ a.source_asn or '—' }}</td>
+        <td><span class="badge {{ a.fam }}">{{ a.scenario or '—' }}</span></td>
+        <td class="mono right">{{ a.events_count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted" style="text-align:center;padding:30px">no alerts recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

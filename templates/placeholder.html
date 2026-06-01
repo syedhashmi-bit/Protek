@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTEK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #06101c;
+    --bg-panel: #0a1626;
+    --bg-raised: #102236;
+    --border: #1b3050;
+    --cyan: #00c8ff;
+    --green: #00ff9d;
+    --red: #ff3860;
+    --amber: #ffb547;
+    --text: #d6e4f0;
+    --muted: #7d94ad;
+    --muted-low: #4a627e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg-deep);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    overflow: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse at top, rgba(0, 200, 255, 0.06), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(0, 200, 255, 0.02) 0 1px, transparent 1px 3px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .wrap {
+    position: relative; z-index: 1;
+    height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .brand {
+    font-weight: 700;
+    font-size: 56px;
+    letter-spacing: 0.18em;
+    color: var(--cyan);
+    text-shadow: 0 0 24px rgba(0, 200, 255, 0.35);
+  }
+  .sub {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+  .panel {
+    margin-top: 36px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 28px;
+    min-width: 480px;
+    max-width: 720px;
+  }
+  .panel-title {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--muted); }
+  .row .v { color: var(--green); }
+  .row .v.cyan { color: var(--cyan); }
+  .row .v.amber { color: var(--amber); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .pill::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+  }
+  .pill.warn::before { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .pill.warn { color: var(--amber); }
+  .footer {
+    margin-top: 24px;
+    font-size: 11px;
+    color: var(--muted-low);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .blink { animation: blink 1.6s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.35; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">PROTEK</div>
+    <div class="sub">crowdsec → mikrotik bouncer · noc</div>
+
+    <div class="panel">
+      <div class="panel-title">System</div>
+      <div class="row"><span class="k">phase</span><span class="v">0 — scaffolding</span></div>
+      <div class="row"><span class="k">service</span><span class="v cyan">protek.service</span></div>
+      <div class="row"><span class="k">bind</span><span class="v cyan">127.0.0.1:8090</span></div>
+      <div class="row"><span class="k">domain</span><span class="v cyan">protek.syedhashmi.trade</span></div>
+      <div class="row"><span class="k">status</span><span class="pill blink">online</span></div>
+      <div class="row"><span class="k">next</span><span class="v amber">phase 1 — lapi client + login + totp</span></div>
+    </div>
+
+    <div class="footer">awaiting lapi client &middot; awaiting mikrotik adapter &middot; awaiting reconcile loop</div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Honeypot · PROTEK{% endblock %}
+{% block crumb %}<b>HONEYPOT</b> · Routing settings{% endblock %}
+
+{% block body %}
+<div style="max-width:800px">
+
+<div class="panel">
+  <h2>Honeypot routing (phase 61)</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0;line-height:1.6">
+    Protek doesn't run a honeypot — operator owns that. What this page configures
+    is the criteria for tagging high-reputation attackers as honeypot-bound. A
+    CF Worker, nginx auth_request, or similar can subscribe to
+    <span class="mono cyan">/api/v1/honeypot/targets</span> and route those IPs
+    to the honeypot URL instead of blocking outright. Captured behavior posts
+    back to <span class="mono">/api/external/honeypot/callback</span> and feeds
+    the IP's reputation breakdown via tags.
+  </p>
+
+  {% if flash_msg %}
+  <div style="background:rgba(0,255,157,.08);border:1px solid var(--green);border-radius:3px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--green)">
+    {{ flash_msg }}
+  </div>
+  {% endif %}
+
+  <div class="kpi-row" style="margin-bottom:14px">
+    <div class="kpi">
+      <div class="kpi-label">Status</div>
+      <div class="kpi-value" style="color:{% if cfg.enabled %}var(--green){% else %}var(--muted){% endif %}">
+        {% if cfg.enabled %}ENABLED{% else %}OFF{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Current targets</div>
+      <div class="kpi-value mono">{{ cfg.target_count }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Threshold</div>
+      <div class="kpi-value mono">≥ {{ cfg.min_reputation }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Cap</div>
+      <div class="kpi-value mono">{{ cfg.max_targets }}</div>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('honeypot_save') }}" style="display:grid;gap:14px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" name="enabled" value="1" {% if cfg.enabled %}checked{% endif %}>
+        <span style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--text)">
+          Enable honeypot tagging
+        </span>
+      </label>
+      <p class="muted" style="font-size:11px;margin:4px 0 0;padding-left:24px;line-height:1.6">
+        When off, the poller skips honeypot.refresh_targets() and no IPs are tagged.
+        Operator's CF Worker / nginx will see an empty list at <span class="mono">/api/v1/honeypot/targets</span>.
+      </p>
+    </div>
+
+    <div>
+      <label style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-family:'Share Tech Mono',monospace;margin-bottom:4px">
+        Honeypot URL (documentation only)
+      </label>
+      <input type="url" name="url" value="{{ cfg.url }}"
+             placeholder="https://honeypot.example.com/landing"
+             style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+      <p class="muted" style="font-size:11px;margin:4px 0 0;line-height:1.6">
+        Stored for reference. Protek never redirects traffic itself — that's the
+        consumer's job. Documenting the URL here helps when handing off to a
+        teammate or auditing the setup.
+      </p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-family:'Share Tech Mono',monospace;margin-bottom:4px">
+          Min reputation
+        </label>
+        <input type="number" name="min_reputation" value="{{ cfg.min_reputation }}" min="0" max="100" step="1"
+               style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+        <p class="muted" style="font-size:11px;margin:4px 0 0;line-height:1.6">
+          0–100. IPs scoring at or above this enter the tag set. Default 80 = the
+          phase-58 reputation tier that auto-bans. Lower this to also route the
+          50–80 "queue for approval" tier into the honeypot for observation.
+        </p>
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-family:'Share Tech Mono',monospace;margin-bottom:4px">
+          Max targets
+        </label>
+        <input type="number" name="max_targets" value="{{ cfg.max_targets }}" min="0" step="100"
+               style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+        <p class="muted" style="font-size:11px;margin:4px 0 0;line-height:1.6">
+          Cap on the size of the published list. Default 1000. Useful so a noisy
+          community-blocklist subscription doesn't push tens of thousands of IPs
+          through the honeypot routing layer.
+        </p>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
+      <button type="submit" class="btn"
+              style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;border-radius:3px;cursor:pointer">
+        Save
+      </button>
+      <button formaction="{{ url_for('honeypot_refresh') }}" type="submit" class="btn sec"
+              style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--bg-raised);color:var(--cyan);border:1px solid var(--cyan);border-radius:3px;cursor:pointer">
+        ↻ Refresh targets now
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:14px">
+  <h2>Current targets <span class="muted" style="font-size:11px;font-family:'Share Tech Mono',monospace">(first {{ targets|length }})</span></h2>
+  {% if targets %}
+  <pre class="mono" style="background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;padding:12px;font-size:11px;max-height:300px;overflow-y:auto;color:var(--info)">{% for ip in targets %}{{ ip }}
+{% endfor %}</pre>
+  {% else %}
+  <div class="muted" style="font-size:12px">
+    No targets currently flagged. {% if not cfg.enabled %}Enable above to begin tagging.
+    {% else %}No active decisions meet the reputation threshold yet.{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:14px">
+  <h2>Consumer wiring</h2>
+  <p class="muted" style="margin:0 0 10px;font-size:12px;text-transform:none;letter-spacing:0;line-height:1.6">
+    The consumer (CF Worker, nginx, etc.) fetches the target list and routes
+    matching requests to the honeypot URL. Bearer token from
+    <a href="{{ url_for('admin_tokens') }}">/admin/tokens</a> with
+    <span class="mono">read</span> scope.
+  </p>
+<pre class="mono" style="background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;padding:12px;font-size:11px;color:var(--info)">
+# Fetch the active honeypot target set
+curl -H "Authorization: Bearer &lt;token&gt;" {{ request.host_url }}api/v1/honeypot/targets
+
+# Report behavior back to Protek (operator's honeypot makes this call)
+curl -H "Authorization: Bearer &lt;token&gt;" \
+     -H "Content-Type: application/json" \
+     -d '{"ip":"1.2.3.4","action":"credential-probe","detail":"..."}' \
+     {{ request.host_url }}api/external/honeypot/callback</pre>
+</div>
+
+</div>
+{% endblock %}

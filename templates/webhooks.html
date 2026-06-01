@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Webhooks · Protek{% endblock %}
+{% block crumb %}INTEGRATIONS · <b>WEBHOOKS</b>{% endblock %}
+{% block body %}
+
+{% if new_sub %}
+<div class="panel" style="border-color:var(--cyan)">
+  <h2 style="color:var(--cyan)">New webhook — capture HMAC secret NOW</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Use this secret on the receiver to verify the <span class="mono">X-Protek-Signature</span>
+    header. Recompute as <span class="mono">sha256(secret, f"{timestamp}.{raw_body}")</span>
+    and compare with <span class="mono">hmac.compare_digest</span>.
+  </p>
+  <table>
+    <tr><td style="width:140px"><label>Name</label></td>
+        <td class="mono">{{ new_sub.name }}</td></tr>
+    <tr><td><label>URL</label></td>
+        <td class="mono">{{ new_sub.url }}</td></tr>
+    <tr><td><label>Event mask</label></td>
+        <td class="mono">{{ new_sub.event_mask }}</td></tr>
+    <tr><td><label>HMAC secret</label></td>
+        <td class="mono" style="word-break:break-all;color:var(--cyan)">{{ new_sub.hmac_secret }}</td></tr>
+  </table>
+</div>
+{% endif %}
+
+{% if has_role('operator') %}
+<div class="panel" style="margin-top:16px">
+  <h2>Add subscriber</h2>
+  <form method="post" action="{{ url_for('webhooks_add') }}"
+        style="display:flex;gap:10px;align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="width:200px"><label>Name</label>
+      <input type="text" name="name" required placeholder="splunk-prod"></div>
+    <div style="flex:1"><label>URL</label>
+      <input type="text" name="url" required placeholder="https://hooks.example.com/protek"></div>
+    <div style="width:240px"><label>Event mask</label>
+      <input type="text" name="event_mask" value="*" placeholder="* or decision.*,auth.failure"></div>
+    <button class="btn" type="submit">Add</button>
+  </form>
+  <p class="muted" style="margin:12px 0 0;font-size:11px">
+    Masks are comma-separated globs. Examples: <span class="mono">*</span> (all),
+    <span class="mono">decision.*</span> (created/deleted), <span class="mono">auth.failure,alert.firing</span> (specific events).
+  </p>
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:16px">
+  <h2>Subscribers · {{ subs|length }}</h2>
+  <table>
+    <thead><tr>
+      <th>#</th><th>Name</th><th>URL</th><th>Mask</th><th>State</th>
+      <th>Last OK</th><th>Consec fails</th><th>Last error</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for s in subs %}
+      <tr>
+        <td class="mono muted">{{ s.id }}</td>
+        <td>{{ s.name }}</td>
+        <td class="mono" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.url }}</td>
+        <td class="mono muted">{{ s.event_mask }}</td>
+        <td>{% if s.enabled %}<span class="badge cs">active</span>{% else %}<span class="badge">disabled</span>{% endif %}</td>
+        <td class="mono muted">{{ s.last_ok_at[:19].replace('T',' ') if s.last_ok_at else 'never' }}</td>
+        <td class="mono right {{ 'red' if s.consec_failures > 3 else '' }}">{{ s.consec_failures }}</td>
+        <td class="muted" style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.last_error }}</td>
+        <td>
+          {% if has_role('operator') %}
+            <form method="post" action="{{ url_for('webhooks_toggle', sid=s.id) }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="enabled" value="{{ '0' if s.enabled else '1' }}">
+              <button class="btn ghost" type="submit" style="font-size:10px">{{ 'disable' if s.enabled else 'enable' }}</button>
+            </form>
+            <form method="post" action="{{ url_for('webhooks_delete', sid=s.id) }}" style="display:inline"
+                  onsubmit="return confirm('Delete subscriber {{ s.name }}?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn ghost" type="submit" style="color:var(--red);font-size:10px">delete</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+        <tr><td colspan="9" class="muted">No subscribers yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Dead-letter queue · {{ dlq|length }} recent</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Deliveries that failed all 3 retry attempts. Replay sends them once more (synchronously);
+    if successful, the DLQ row is removed.
+  </p>
+  <table>
+    <thead><tr><th>When</th><th>Subscriber</th><th>Event</th><th>Attempts</th><th>Last error</th><th></th></tr></thead>
+    <tbody>
+      {% for d in dlq %}
+      <tr>
+        <td class="mono muted">{{ d.first_seen_at[:19].replace('T',' ') }}</td>
+        <td>{{ d.sub_name or '(deleted #' ~ d.sub_id ~ ')' }}</td>
+        <td><span class="badge cs">{{ d.event_type }}</span></td>
+        <td class="mono right">{{ d.attempts }}</td>
+        <td class="muted" style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ d.last_error }}</td>
+        <td>
+          {% if has_role('operator') and d.sub_name %}
+            <form method="post" action="{{ url_for('webhooks_dlq_replay', eid=d.id) }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn ghost" type="submit" style="color:var(--cyan);font-size:10px">replay</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">DLQ is empty. Healthy.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

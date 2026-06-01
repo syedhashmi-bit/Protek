@@ -1,0 +1,12 @@
+[Unit]
+Description=Protek SQLite WAL truncate cycle (bounds Litestream-blocked WAL growth)
+After=protek.service litestream.service
+ConditionPathExists=/var/www/Protek/protek.db
+
+[Service]
+Type=oneshot
+# Optional: set LITESTREAM_SFTP_DEST / _PATH / _KEY and PROTEK_DB here so the
+# script stays free of host-specific addresses. The leading '-' makes the file
+# optional — without it, the local WAL truncate still runs.
+EnvironmentFile=-/etc/protek/wal-truncate.env
+ExecStart=/usr/local/bin/protek-wal-truncate.sh

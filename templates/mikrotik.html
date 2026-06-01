@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · mikrotik{% endblock %}
+{% block crumb %}<b>MIKROTIK</b></b>{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi">
+    <div class="k">Status</div>
+    <div class="v" style="font-size:18px;color:{{ 'var(--green)' if mt.ok else 'var(--red)' }}">{{ 'ONLINE' if mt.ok else 'OFFLINE' }}</div>
+    <div class="d">{{ mt.name or '—' }}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Host</div>
+    <div class="v cyan" style="font-size:16px">{{ mt.host or '—' }}</div>
+    <div class="d">port {{ mt.port }}{% if mt.use_ssl %} · ssl{% endif %}</div>
+  </div>
+  <div class="kpi">
+    <div class="k">RouterOS</div>
+    <div class="v" style="font-size:16px">{{ mt.version or '—' }}</div>
+    <div class="d">live version</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Address List</div>
+    <div class="v cyan" style="font-size:16px">{{ list_name }}</div>
+    <div class="d">{{ list_total }} total · {{ owned_total }} owned</div>
+  </div>
+  <div class="kpi">
+    <div class="k">LAPI Active</div>
+    <div class="v">{{ lapi_active }}</div>
+    <div class="d">to be reconciled in phase 3</div>
+  </div>
+  <div class="kpi">
+    <div class="k">Diff Preview</div>
+    <div class="v amber" style="font-size:22px">+{{ to_add }} / −{{ to_remove }}</div>
+    <div class="d">phase-2 estimate (no writes)</div>
+  </div>
+</div>
+
+{% if not mt.configured %}
+<div class="panel" style="margin-top:16px;border-left:3px solid var(--amber)">
+  <h2 style="color:var(--amber)">Not Configured</h2>
+  <div class="muted">Set <code class="mono">MT_HOST</code>, <code class="mono">MT_USERNAME</code>, <code class="mono">MT_PASSWORD</code> in <code class="mono">.env</code>, then restart the service. Reconciler is computing a virtual diff in the meantime — see the sync history below.</div>
+</div>
+{% elif not mt.ok %}
+<div class="panel" style="margin-top:16px;border-left:3px solid var(--red)">
+  <h2 style="color:var(--red)">Connection Error</h2>
+  <div class="mono" style="color:var(--red);word-break:break-word">{{ mt.error }}</div>
+</div>
+{% endif %}
+
+{% if initial_sync %}
+<div class="panel" style="margin-top:16px;border-left:3px solid var(--cyan)">
+  <h2 style="color:var(--cyan)">Initial Sync In Progress</h2>
+  <div class="mono">
+    {{ owned_total }} / {{ lapi_active }} entries applied ·
+    <span class="muted">batch cap {{ batch_cap }}/cycle · ETA {{ initial_eta }}</span>
+  </div>
+  <div style="margin-top:10px;height:6px;background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;overflow:hidden">
+    <div style="height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));width:{{ initial_pct }}%"></div>
+  </div>
+</div>
+{% endif %}
+
+<div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+  <button class="btn" id="force-sync-btn" onclick="forceSync()">Force Sync Now</button>
+  <div class="muted" id="force-sync-status" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+    last cycle: {{ recon.last_at_rel }} · diff: +{{ recon.to_add }} / −{{ recon.to_remove }} · {{ recon.duration_ms }}ms{% if recon.dry_run %} · DRY-RUN{% endif %}
+  </div>
+</div>
+<script>
+async function forceSync(){
+  const btn = document.getElementById('force-sync-btn');
+  const status = document.getElementById('force-sync-status');
+  btn.disabled = true;
+  status.textContent = 'cycling…';
+  try{
+    const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
+    const r = await fetch('{{ url_for("api_sync_run") }}', {method:'POST', headers:{'X-CSRFToken': csrf}});
+    const j = await r.json();
+    const mode = j.dry_run ? 'DRY-RUN' : 'LIVE';
+    status.textContent = `done · +${j.to_add} / −${j.to_remove} · ${j.duration_ms}ms · ${mode}` + (j.notes?` · ${j.notes}`:'');
+    setTimeout(() => window.location.reload(), 600);
+  }catch(e){
+    status.textContent = `error: ${e}`;
+  }finally{
+    btn.disabled = false;
+  }
+}
+</script>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Sync History</h2>
+  <table>
+    <thead><tr><th>When</th><th>Source</th><th class="right">Added</th><th class="right">Removed</th><th class="right">Unchanged</th><th class="right">Errors</th><th class="right">Duration</th><th>Mode</th><th>Notes</th></tr></thead>
+    <tbody id="sync-history">
+      {% for e in events %}
+      <tr>
+        <td class="mono muted">{{ e.started_rel }}</td>
+        <td>{{ e.source }}</td>
+        <td class="mono right">{{ e.added }}</td>
+        <td class="mono right">{{ e.removed }}</td>
+        <td class="mono right muted">{{ e.unchanged }}</td>
+        <td class="mono right" style="color:{{ 'var(--red)' if e.errors else 'var(--muted)' }}">{{ e.errors }}</td>
+        <td class="mono right muted">{{ e.duration_ms }}ms</td>
+        <td>{% if e.dry_run %}<span class="badge" style="color:var(--amber)">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>
+        <td class="muted mono" style="font-size:11px">{{ e.notes }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="muted" style="text-align:center;padding:24px">no cycles recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Address-List · {{ list_name }} (Protek-owned)</h2>
+  <table>
+    <thead><tr><th>Address</th><th>Comment</th><th>Disabled</th><th class="right">Created</th></tr></thead>
+    <tbody>
+      {% for e in owned_entries %}
+      <tr>
+        <td class="mono">{{ e.address }}</td>
+        <td class="mono muted" style="word-break:break-word">{{ e.comment }}</td>
+        <td>{% if e.disabled == 'true' %}<span class="badge" style="color:var(--amber)">yes</span>{% else %}<span class="badge cs">no</span>{% endif %}</td>
+        <td class="mono right muted">{{ e.creation_time or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted" style="text-align:center;padding:24px">{% if mt.ok %}no Protek-owned entries yet — phase 3+ will populate.{% else %}—{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if foreign_total %}
+  <div class="muted" style="font-size:11px;letter-spacing:.15em;margin-top:10px;text-transform:uppercase">
+    + {{ foreign_total }} foreign entries (other tooling) — Protek never touches these
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,110 @@
+# Protek — docker-compose deployment, Arc 16 phase 95.
+#
+# Quickstart:
+#   docker compose up -d
+#   docker compose exec protek python scripts/setup_admin.py --username admin
+#   (capture the printed password + TOTP otpauth URI — one-time)
+#   open https://protek.example.com/ → log in.
+#
+# Migration from bare-metal:
+#   docker compose down
+#   docker volume create protek_data
+#   docker run --rm -v protek_data:/data -v /var/www/Protek:/src alpine \
+#       sh -c 'cp /src/protek.db /data/ && cp /src/.env /data/.env'
+#   docker compose up -d
+#
+# Services:
+#   protek      — gunicorn app + reconcile thread (the same binary as
+#                 the bare-metal install).
+#   caddy       — TLS termination + reverse proxy. Configure your
+#                 domain via PROTEK_DOMAIN in the host's .env file
+#                 (the one in this directory, not the volume-mounted
+#                 Protek .env).
+#   litestream  — optional WAL replication sidecar. Enabled via the
+#                 `--profile replicate` flag on docker compose up.
+#                 Reads the same protek.db via the shared volume.
+#
+# Network: protek + caddy share an internal network (`web`). Only
+# caddy publishes ports to the host. Litestream is on the same network
+# so it can hit a remote replica via WG/SSH if those tunnels live on
+# the host network — adjust per your topology.
+
+services:
+  protek:
+    image: protek:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protek
+    restart: unless-stopped
+    env_file:
+      # Host-side .env in this directory. Values like SECRET_KEY,
+      # APP_PASSWORD_HASH, TOTP_SECRET, MT_HOST, etc. flow into the
+      # container as process env. Created by setup_admin.py on first run.
+      - ./.env
+    environment:
+      # Container-only overrides — these take precedence over .env so
+      # the volume location is consistent regardless of what bare-metal
+      # values the operator copied over.
+      PROTEK_DB_PATH: /data/protek.db
+      COOKIE_INSECURE: "0"
+    volumes:
+      - protek_data:/data
+    networks:
+      - web
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: protek-caddy
+    restart: unless-stopped
+    environment:
+      # `PROTEK_DOMAIN=protek.example.com` in your .env. Caddy auto-issues
+      # a Let's Encrypt cert for it on first request.
+      PROTEK_DOMAIN: ${PROTEK_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      protek:
+        condition: service_healthy
+
+  # Litestream sidecar — runs `litestream replicate` against the shared
+  # volume. Off by default; enable with `docker compose --profile replicate up`.
+  # Operator must drop a litestream.yml into the volume first (see
+  # docs/litestream/litestream-sftp.yml.example for a starter).
+  litestream:
+    image: litestream/litestream:0.5
+    container_name: protek-litestream
+    restart: unless-stopped
+    profiles: ["replicate"]
+    command: ["replicate", "-config", "/data/litestream.yml"]
+    volumes:
+      - protek_data:/data
+    depends_on:
+      protek:
+        condition: service_healthy
+
+volumes:
+  # protek.db, .env (optional), litestream.yml, .protek.db-litestream/.
+  # Backup this single volume to back up everything Protek.
+  protek_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  web:
+    driver: bridge

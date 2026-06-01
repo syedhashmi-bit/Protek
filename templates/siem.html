@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}SIEM · Protek{% endblock %}
+{% block crumb %}OBSERVABILITY · <b>SIEM FORWARDING</b>{% endblock %}
+{% block body %}
+
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Journal rows</div>
+    <div class="v">{{ '{:,}'.format(total) }}</div>
+    <div class="d">capped at ~10k</div></div>
+  <div class="kpi"><div class="k">Shipped OK</div>
+    <div class="v cyan">{{ '{:,}'.format(shipped) }}</div>
+    <div class="d">{{ '%.1f'|format((shipped*100/total) if total else 0) }}%</div></div>
+  <div class="kpi"><div class="k">In-memory queue</div>
+    <div class="v">{{ stats.queued }}</div>
+    <div class="d">cap {{ stats.queue_max }} · dropped {{ stats.dropped_overflow }}</div></div>
+  <div class="kpi"><div class="k">Forwarders</div>
+    <div class="v {{ 'cyan' if stats.configured else 'amber' }}">
+      {{ 'ARMED' if stats.configured else 'NONE' }}
+    </div>
+    <div class="d">syslog: {{ forwarders.syslog or 'unset' }}{% if forwarders.syslog %} ({{ forwarders.syslog_proto }}/{{ forwarders.syslog_port }}){% endif %}</div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Forwarder configuration</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Configured via <span class="mono">.env</span> — restart Protek after edits.
+    Set <span class="mono">SYSLOG_HOST</span> for RFC 5424 syslog forwarding,
+    <span class="mono">SIEM_WEBHOOK_URL</span> for JSON-over-HTTP (Splunk HEC compatible).
+  </p>
+  <table>
+    <thead><tr><th>Sink</th><th>Endpoint</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Syslog</td>
+        <td class="mono">
+          {% if forwarders.syslog %}
+            {{ forwarders.syslog_proto }}://{{ forwarders.syslog }}:{{ forwarders.syslog_port }}
+          {% else %}
+            <span class="muted">unset</span>
+          {% endif %}
+        </td>
+        <td>{% if forwarders.syslog %}<span class="badge cs">armed</span>{% else %}<span class="badge">idle</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <td>Webhook</td>
+        <td class="mono">
+          {% if forwarders.webhook %}{{ forwarders.webhook }}{% else %}<span class="muted">unset</span>{% endif %}
+        </td>
+        <td>{% if forwarders.webhook %}<span class="badge cs">armed</span>{% else %}<span class="badge">idle</span>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Replay</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Re-enqueue the last N journaled events (regardless of prior ship state). Useful after
+    re-pointing the syslog host or when you want a slice of recent activity in a fresh log.
+  </p>
+  <form id="replay-form" style="display:flex;gap:10px;align-items:end">
+    <div style="width:160px">
+      <label>Events to replay</label>
+      <input type="number" name="n" value="200" min="1" max="10000">
+    </div>
+    <button class="btn" type="submit">Replay</button>
+    <span id="replay-result" class="muted mono" style="font-size:12px"></span>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recent journal · 200</h2>
+  <table>
+    <thead><tr>
+      <th>Time</th><th>Event</th><th>Severity</th><th>Shipped</th><th>Error</th><th>Payload</th>
+    </tr></thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td class="mono">{{ r.created_at[:19].replace('T',' ') }}</td>
+        <td><span class="badge cs">{{ r.event_type }}</span></td>
+        <td>{{ r.severity }}</td>
+        <td>
+          {% if r.shipped_at %}
+            <span class="mono">{{ r.shipped_at[11:19] }}</span>
+          {% else %}
+            <span class="muted">pending</span>
+          {% endif %}
+        </td>
+        <td style="color:var(--red)">{{ (r.ship_error or '')[:80] }}</td>
+        <td class="mono muted" style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ r.payload_json }}">{{ r.payload_json[:120] }}</td>
+      </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No journaled events yet. Wait for the next sync delta or a login attempt.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+document.getElementById('replay-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = new FormData(e.target);
+  const r = await fetch('{{ url_for("api_siem_replay") }}', {
+    method:'POST',
+    headers:{'X-CSRFToken': document.querySelector('meta[name=csrf-token]').content},
+    body:data,
+  });
+  const j = await r.json();
+  document.getElementById('replay-result').textContent = `replayed ${j.replayed} events`;
+  setTimeout(() => location.reload(), 600);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+# Glob covers all top-level Python modules — no drift as new ones land.
+*.py                       usr/share/protek/
+bouncers/                  usr/share/protek/
+templates/                 usr/share/protek/
+static/                    usr/share/protek/
+scripts/                   usr/share/protek/
+docs/                      usr/share/protek/
+requirements.txt           usr/share/protek/
+.env.example               usr/share/protek/env.example

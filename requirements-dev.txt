@@ -1,0 +1,8 @@
+# Development & CI dependencies — NOT installed in production.
+#   pip install -r requirements-dev.txt   (pulls in requirements.txt too)
+-r requirements.txt
+
+pytest>=9.0.3,<10.0
+pytest-mock>=3.15.1,<4.0
+pip-audit>=2.10.0,<3.0
+ruff>=0.15,<1.0
