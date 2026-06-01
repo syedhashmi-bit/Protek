@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/syedhashmi-bit/Protek/actions/workflows/ci.yml"><img src="https://github.com/syedhashmi-bit/Protek/actions/workflows/ci.yml/badge.svg" /></a>
   <img src="https://img.shields.io/badge/Python-3.12%2B-blue?logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/Flask-3.x-black?logo=flask&logoColor=white" />
   <img src="https://img.shields.io/badge/CrowdSec-LAPI-orange" />
@@ -396,7 +397,9 @@ Auth:       bcrypt + pyotp TOTP, Flask sessions, rate limiting, optional IP whit
 Notify:     Discord webhook · Telegram bot · SMTP MIME — all 8–10 s timeouts, SSRF guards
 Resilience: Off-box backup (S3 / B2 / MinIO) + Litestream WAL replication + synthetic self-test
 Deploy:     gunicorn + systemd + nginx; certbot for TLS. Matches the pipsqueeze/traverse pattern.
-Tests:      pytest, 38+ unit tests; reconcile + synthetic covered without needing CrowdSec/MikroTik
+Tests:      pytest (190+ tests) — reconcile + synthetic + an import-smoke over every module, all
+            green without needing CrowdSec/MikroTik. ruff (pyflakes) lint + pip-audit supply-chain
+            scan. GitHub Actions CI runs tests · lint · pip-audit · docker build on every push/PR.
 ```
 
 ---
@@ -428,6 +431,14 @@ Tests:      pytest, 38+ unit tests; reconcile + synthetic covered without needin
 Protek is single-operator self-hosted by design — there's no SaaS, no multi-tenant mode, no hosted version. But adapters, scenarios, integrations, and docs PRs are welcome.
 
 For new bouncer adapters: use the plugin SDK (Arc 12 phase 69). A cookiecutter template + the `Bouncer` protocol are documented in [`docs/plugins/README.md`](docs/plugins/README.md). Drop your adapter in `~/.config/protek/adapters/` and it appears in `/bouncers` without forking.
+
+Before opening a PR, run the same checks CI does:
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .        # pyflakes lint (F) + syntax (E9) — config in pyproject.toml
+pytest -q           # full suite incl. the per-module import-smoke
+```
 
 For roadmap discussion: open an issue tagged `roadmap`. Arc 14 (Operator UX) and Arc 15 (Production-grade ops) are the current focus.
 
