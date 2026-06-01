@@ -14,7 +14,7 @@
 # runs on Hetzner CAX (arm64), Pi 5, AWS Graviton, and the typical x86
 # cloud VPS without per-arch builds.
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -31,7 +31,7 @@ RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # Non-root user. UID 1000 matches the default first non-system user on
 # Ubuntu, so a bind-mounted ./data from an Ubuntu host has matching
