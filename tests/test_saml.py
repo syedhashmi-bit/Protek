@@ -7,7 +7,6 @@ library, and those are guarded behind `library_available()` 503s.
 """
 from __future__ import annotations
 
-import pytest
 
 
 # ── role mapping ──────────────────────────────────────────────────────────

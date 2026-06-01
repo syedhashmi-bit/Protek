@@ -10,7 +10,6 @@ Tests for `_filter_desired_for_bouncer`'s new `source_filter` and
 """
 from __future__ import annotations
 
-import pytest
 
 
 def _decisions():

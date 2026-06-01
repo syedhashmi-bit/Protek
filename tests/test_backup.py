@@ -1,9 +1,6 @@
 """Arc 11 phase 63 — backup envelope round-trip + safe-extract."""
 from __future__ import annotations
 
-import io
-import os
-import tarfile
 from pathlib import Path
 
 import pytest

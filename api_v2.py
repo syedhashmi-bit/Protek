@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 from flask import Blueprint, jsonify, request
 
@@ -91,7 +90,6 @@ def _proxy_v1_to_v2(app) -> None:
     under /api/v2. Idempotent — guards against double-registration on
     gunicorn worker reboots.
     """
-    from api_v1 import bp as v1_bp
 
     # Collect (rule, view_func, methods) tuples from v1's blueprint.
     # Flask blueprints store deferred functions; the easiest path is to

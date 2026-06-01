@@ -515,7 +515,6 @@ class Poller:
         # Phase 88 — wall-clock time per source. Reported back via record_pull
         # so /federation can surface "this source took 4.5s" before it
         # noticeably bogs the global cycle.
-        import time
         t0 = time.monotonic()
         client = LAPIClient(url=src.url, api_key=src.api_key, name=src.name)
         result: dict[str, Any] = {"name": src.name, "ok": False, "error": "",

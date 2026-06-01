@@ -25,7 +25,6 @@ import socket
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from queue import Empty, Queue
 from typing import Any
 
 import requests

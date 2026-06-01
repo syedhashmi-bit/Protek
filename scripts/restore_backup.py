@@ -23,7 +23,6 @@ import hashlib
 import io
 import json
 import os
-import sys
 import tarfile
 from pathlib import Path
 

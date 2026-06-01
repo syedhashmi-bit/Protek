@@ -16,7 +16,6 @@ import ipaddress
 from typing import Any
 
 from mikrotik import MikroTik, address_list_name
-from reconcile import is_owned
 
 from . import register
 

@@ -23,7 +23,6 @@ never crash the reconcile thread.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import smtplib
@@ -35,7 +34,7 @@ from typing import Any
 
 import requests
 
-from db import get_conn, get_setting
+from db import get_setting
 
 log = logging.getLogger("protek.notify")
 

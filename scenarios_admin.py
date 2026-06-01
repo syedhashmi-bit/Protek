@@ -312,7 +312,7 @@ def record_whitelist_hit(ip: str, whitelist_id: int, scenario: str = "") -> None
     # whitelists on every cycle, so without dedup the same hit would fire
     # 6+ notifications/minute.
     try:
-        recent = conn = get_conn()
+        conn = get_conn()
         try:
             n = conn.execute(
                 "SELECT COUNT(*) FROM whitelist_hits "

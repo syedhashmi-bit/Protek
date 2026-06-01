@@ -26,7 +26,6 @@ CTI dossier" — REST would take ~50 calls; GraphQL does it in one.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Optional
 

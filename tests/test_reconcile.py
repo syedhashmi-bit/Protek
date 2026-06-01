@@ -3,9 +3,8 @@ correct. Pure-function design lets us cover every branch without LAPI or MT."""
 
 from __future__ import annotations
 
-import pytest
 
-from reconcile import (OWNER_PREFIX, ReconcileDiff, decode_comment,
+from reconcile import (OWNER_PREFIX, decode_comment,
                        encode_comment, is_owned, reconcile)
 
 

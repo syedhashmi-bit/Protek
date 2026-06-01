@@ -22,6 +22,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from flask import (Flask, abort, flash, jsonify, redirect, render_template,
@@ -32,7 +33,6 @@ ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 
 # Import after env is loaded so module-level os.environ.get() reads pick it up.
-import auth  # noqa: E402
 from auth import (client_ip, ip_allowed, is_locked, login_required,
                   record_audit, record_failure, clear_failures, touch_session,
                   verify_password, verify_totp_for, record_user_login,
@@ -1934,7 +1934,6 @@ def admin_dr_drill_run(check):
 @login_required
 @role_required("admin")
 def admin_dr_drill_complete():
-    import json as _json
     checks = {
         "restore_to_scratch": request.form.get("restore_to_scratch") == "1",
         "restore_test_ok":    request.form.get("restore_test_ok") == "1",
@@ -2604,7 +2603,6 @@ def api_sync_events():
 @login_required
 def bouncers_page():
     import bouncers as bmod
-    import json as _json
     targets = bmod.load_all_targets()
     # Pull DB rows too so we can show their id + dry_run / last_sync_at
     conn = get_conn()
@@ -2668,7 +2666,6 @@ def _onboarding_steps() -> list[dict]:
     Returns: [{id, title, why, action_href, action_label, status, detail}]
     where status ∈ {'done', 'skipped', 'pending'}.
     """
-    import crowdsec
     skipped = set(
         (get_setting("onboarding.skipped") or "").split(",")
     ) - {""}
@@ -3403,7 +3400,7 @@ def decisions_bulk():
         elif action == "whitelist":
             import scenarios_admin as sa
             for ip in ips:
-                res = sa.add_whitelist("ip", ip, note=f"bulk whitelist via /decisions", expires_at=None)
+                res = sa.add_whitelist("ip", ip, note="bulk whitelist via /decisions", expires_at=None)
                 if res.get("ok"):
                     affected += 1
             # Also soft-delete the active decisions for those IPs so they
@@ -3787,7 +3784,7 @@ def approvals_decide(qid: int):
         finally:
             conn.close()
         if row:
-            sa.add_whitelist("ip", row["ip"], note=f"auto: rejected from approval queue", expires_at=None)
+            sa.add_whitelist("ip", row["ip"], note="auto: rejected from approval queue", expires_at=None)
     flash(f"decision recorded: {decision}", "info")
     _audit(f"approval.{decision}", target=f"qid={qid}")
     return redirect(url_for("approvals_page"))

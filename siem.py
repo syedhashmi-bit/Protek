@@ -34,7 +34,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import queue
 import socket
 import threading
 from collections import deque
@@ -43,7 +42,7 @@ from typing import Any, Protocol
 
 import requests
 
-from db import get_conn, get_setting
+from db import get_conn
 
 log = logging.getLogger("protek.siem")
 

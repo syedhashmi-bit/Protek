@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from db import get_conn
-from mikrotik import MikroTik, address_list_name, entry_id
-from reconcile import OWNER_PREFIX, ReconcileDiff, reconcile
+from mikrotik import MikroTik
+from reconcile import ReconcileDiff, reconcile
 import bouncers as bouncers_mod
 
 log = logging.getLogger("protek.reconciler")
@@ -150,7 +150,6 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         if dry_run:
             # Per-bouncer summary into mt_pushes (sampled to batch_cap to avoid spam)
             for b in all_bouncers:
-                _, sampled_adds = (None, [])
                 conn.execute(
                     "INSERT INTO mt_pushes (sync_event_id, ip, action, success, error) "
                     "VALUES (?, ?, 'note', 1, ?)",

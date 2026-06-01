@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Any
 
-from flask import abort, g, jsonify, request
+from flask import g, jsonify, request
 
 from db import get_conn
 

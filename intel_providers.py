@@ -19,10 +19,8 @@ per lookup (matches the existing intel cache TTL).
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import socket
 from datetime import datetime, timedelta, timezone
 from typing import Any
 

@@ -1,0 +1,21 @@
+# Protek — tool configuration.
+# Python 3.12 is the project standard (venv, install.sh, .deb packaging).
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["venv", ".venv", "build", "dist", "debian"]
+
+[tool.ruff.lint]
+# Scope: pyflakes (F) catches the real bugs — undefined names, unused imports,
+# redefinitions, bad f-strings. E9 catches syntax/tokenization errors. We
+# deliberately skip the stylistic E rules (E701/E702/E401/E402) to avoid
+# churning terse one-liners and intentional conditional imports across a
+# mature 70-module codebase.
+select = ["F", "E9"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+# Soak harness is a long-running manual tool, not a unit test.
+norecursedirs = ["tests/soak"]

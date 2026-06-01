@@ -220,16 +220,6 @@ def render() -> str:
             [(int(sync_err_rows), None)],
         )
 
-        # Push errors per bouncer (mt_pushes is the push log)
-        push_rows = conn.execute(
-            """
-            SELECT COALESCE(error, '') AS bouncer_tag, COUNT(*) AS n
-            FROM mt_pushes
-            WHERE success = 0
-            GROUP BY error
-            LIMIT 20
-            """
-        ).fetchall()
         push_total = conn.execute(
             "SELECT COUNT(*) AS n FROM mt_pushes WHERE success = 0"
         ).fetchone()["n"]

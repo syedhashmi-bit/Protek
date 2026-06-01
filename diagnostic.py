@@ -110,7 +110,7 @@ def diagnose_url(url: str, *, api_key: str | None = None,
         with socket.create_connection((host, port), timeout=timeout):
             out.append(_step("TCP", "ok",
                              detail=f"connected to {host}:{port}", ms=_ms(t0)))
-    except (TimeoutError, socket.timeout) as e:
+    except (TimeoutError, socket.timeout):
         out.append(_step("TCP", "fail",
                          detail=f"timeout after {timeout}s",
                          hint=f"firewall is silently dropping TCP {port} from this host, "

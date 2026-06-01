@@ -19,7 +19,6 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable
 
 from crowdsec import LAPIClient
 from db import get_conn

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from db import get_conn, get_setting

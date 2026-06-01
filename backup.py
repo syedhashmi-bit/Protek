@@ -36,13 +36,11 @@ fail closed.
 
 from __future__ import annotations
 
-import gzip
 import hashlib
 import io
 import json
 import logging
 import os
-import shutil
 import sqlite3
 import tarfile
 import tempfile

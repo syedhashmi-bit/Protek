@@ -222,7 +222,6 @@ def _record_finish(tid: int, status: str, *, results: dict[str, Any],
 def run_test() -> dict[str, Any]:
     """Inject synth decision → reconcile → verify presence → cleanup →
     reconcile → verify absence. Returns the test row dict."""
-    import reconciler  # local import to dodge cycles
     tid = _record_start()
     t0 = time.monotonic()
     lapi_id = _next_lapi_id()

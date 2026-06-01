@@ -28,7 +28,6 @@ harm than good.
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 from datetime import datetime
@@ -487,7 +486,7 @@ def _fire_probe_recovery(category: str, out: dict[str, Any]) -> None:
                   (f"Litestream destination probe recovered "
                    f"(`{category}`). Host: {out.get('host', '?')}. "
                    f"Currently at {out.get('used_pct', 0):.1f}% used."),
-                  subject=f"[Protek] litestream destination recovered")
+                  subject="[Protek] litestream destination recovered")
     except Exception:  # noqa: BLE001
         pass
     set_setting(f"litestream.last_err_probe_{category}", "")
