@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Edit bouncer · Protek{% endblock %}
+{% block crumb %}BOUNCERS · <b>EDIT</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Edit target — {{ target.name }} <span class="muted" style="font-size:11px;letter-spacing:0;text-transform:none">({{ target.kind }})</span></h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Changes apply on the next reconcile cycle (~10s). Sync history + last-error state are
+    preserved across edits. Secret fields (api_token / api_secret / password / hmac_secret)
+    are write-only — blank in the JSON below = keep current.
+  </p>
+
+  {% if masked_summary %}
+  <div class="panel" style="background:var(--bg-deep);margin-bottom:14px">
+    <h2 style="font-size:11px">Currently-set secrets (won't change unless retyped)</h2>
+    <table class="keep-table">
+      <tbody>
+      {% for k, v in masked_summary.items() %}
+        <tr><td class="mono muted" style="width:160px">{{ k }}</td>
+            <td class="mono">{{ v }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('bouncers_edit', tid=target.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="display:grid;grid-template-columns:1fr 120px;gap:10px;margin-bottom:14px">
+      <div>
+        <label>Name</label>
+        <input type="text" name="name" value="{{ target.name }}" required pattern="[a-zA-Z0-9_-]+">
+      </div>
+      <div>
+        <label>Dry Run</label>
+        <select name="dry_run"
+                style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);
+                       padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+          <option value="1" {% if target.dry_run %}selected{% endif %}>yes</option>
+          <option value="0" {% if not target.dry_run %}selected{% endif %}>no</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <label>Config (JSON)</label>
+      <textarea name="config_json" rows="12"
+        style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);
+               padding:10px;font-family:'Share Tech Mono',monospace;font-size:12px;border-radius:3px">{{ display_cfg }}</textarea>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <a class="btn ghost" href="{{ url_for('bouncers_page') }}">Cancel</a>
+      <button class="btn" type="submit">Save (health probe first)</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

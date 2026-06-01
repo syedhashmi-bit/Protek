@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Intel feed · Publish · Protek{% endblock %}
+{% block crumb %}INTEL · <b>PUBLISH</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Publish Protek's intel as a signed feed (phase 78)</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    When enabled, your locally-detected decisions are exposed as a public
+    Ed25519-signed JSON feed at
+    <a href="{{ url_for('intel_feed_signed') }}" target="_blank"><span class="mono">/feed/banned-ips.signed.json</span></a>.
+    Other Protek operators can subscribe to it (add as a CrowdSec source on their
+    end) and verify each fetch with the public key at
+    <a href="{{ url_for('intel_feed_pubkey') }}" target="_blank"><span class="mono">/feed/pubkey</span></a>.
+    Community-blocklist passthroughs (origin <span class="mono">lists:*</span>) are excluded by default —
+    you republish your own intel, not other people's.
+  </p>
+
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">Publishing</div>
+      <div class="kpi-value" style="color:{% if status.enabled %}var(--green){% else %}var(--muted){% endif %}">
+        {% if status.enabled %}ON{% else %}OFF{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Issuer</div>
+      <div class="kpi-value mono" style="font-size:14px">{{ status.issuer }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Sequence</div>
+      <div class="kpi-value mono">{{ status.sequence }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Key fingerprint</div>
+      <div class="kpi-value mono" style="font-size:12px">
+        {{ status.fingerprint or '—' }}
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+    <form method="post" action="{{ url_for('intel_publish_toggle') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="enabled" value="{% if status.enabled %}0{% else %}1{% endif %}">
+      <button class="btn" type="submit">
+        {% if status.enabled %}Disable publishing{% else %}Enable publishing{% endif %}
+      </button>
+    </form>
+    {% if status.enabled %}
+    <form method="post" action="{{ url_for('intel_publish_rotate') }}"
+          onsubmit="return confirm('Rotate signing key? All subscribers must fetch the new pubkey.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn sec" type="submit" style="color:var(--amber)">Rotate signing key</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Filter</h2>
+  <form method="post" action="{{ url_for('intel_publish_save') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div>
+        <label>Issuer ID (shown to subscribers)</label>
+        <input type="text" name="issuer" value="{{ status.issuer }}" style="width:100%">
+      </div>
+      <div>
+        <label>Whitelist scenarios (comma-sep, empty = all)</label>
+        <input type="text" name="scenarios" value="{{ status.scenarios | join(', ') }}"
+               placeholder="ssh-bf, http-cve-probing" style="width:100%">
+      </div>
+      <div>
+        <label>Excluded origin prefixes (comma-sep)</label>
+        <input type="text" name="exclude_origins" value="{{ status.exclude_origins | join(', ') }}"
+               placeholder="lists:, capi:" style="width:100%">
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn" type="submit">Save filter</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Public key</h2>
+  {% if status.pub_key_b64 %}
+  <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:11px;overflow:auto">algorithm:    ed25519
+issuer:       {{ status.issuer }}
+fingerprint:  {{ status.fingerprint }}
+public_key:   {{ status.pub_key_b64 }}</pre>
+  <p class="muted" style="font-size:12px">
+    Subscribers verify each feed fetch with this key. The pinned fingerprint
+    above (first 16 hex of sha256(pubkey)) is the easiest thing for a subscriber to
+    cache and re-check on every fetch.
+  </p>
+  {% else %}
+  <div class="muted" style="font-size:12px">Enable publishing to generate the signing keypair.</div>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Subscriber example</h2>
+  <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:11px;overflow:auto">import base64, json
+import requests
+from nacl.signing import VerifyKey                   # `pip install pynacl`
+
+PUB_B64 = "{{ status.pub_key_b64 or '<paste from /feed/pubkey>' }}"
+verifier = VerifyKey(base64.b64decode(PUB_B64))
+
+r = requests.get("https://protek.example.com/feed/banned-ips.signed.json"
+                 "?subscriber=my-other-protek").json()
+canonical = json.dumps(r["body"], sort_keys=True, separators=(",", ":")).encode()
+verifier.verify(canonical, base64.b64decode(r["signature"]))
+print("verified seq=" + str(r["body"]["sequence"]),
+      "count=" + str(r["body"]["count"]))</pre>
+</div>
+
+{% endblock %}

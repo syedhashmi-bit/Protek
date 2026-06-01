@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · bouncers{% endblock %}
+{% block crumb %}<b>BOUNCERS</b> · Multi-Target{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Targets</div><div class="v cyan" style="font-size:30px">{{ kpis.total }}</div></div>
+  <div class="kpi"><div class="k">Online</div><div class="v">{{ kpis.online }}</div></div>
+  <div class="kpi"><div class="k">Errors</div><div class="v red">{{ kpis.errors }}</div></div>
+  <div class="kpi"><div class="k">Total Entries (across all targets)</div><div class="v">{{ kpis.total_entries }}</div></div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Active Targets</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th class="right">Size</th><th>Mode</th><th>Last Sync</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for t in targets %}
+      <tr>
+        <td class="mono cyan">{{ t.name }}</td>
+        <td><span class="badge">{{ t.kind }}</span></td>
+        <td>
+          {% if t.ok %}
+            <span class="badge cs">online</span>
+          {% elif t.error and t.error.startswith('degraded:') %}
+            {# Phase 89 — bouncer hit its per-cycle timeout but the global #}
+            {# loop kept moving for other targets. Re-attempts every cycle. #}
+            <span class="badge" style="color:var(--amber)" title="{{ t.error }}">degraded</span>
+          {% else %}
+            <span class="badge" style="color:var(--red)">{{ t.error or 'offline' }}</span>
+          {% endif %}
+        </td>
+        <td class="mono right">{{ t.size if t.size is not none else '—' }}</td>
+        <td>{% if t.dry_run %}<span class="badge" style="color:var(--amber)">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>
+        <td class="mono muted">{{ t.last_sync_rel }}</td>
+        <td>
+          {% if t.removable %}
+          {% if t.dry_run %}
+          <form method="POST" action="{{ url_for('bouncers_promote', tid=t.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--green)"
+                    onclick="return confirm('Promote {{ t.name }} ({{ t.kind }}) to LIVE? It will start writing to the target on the next reconcile cycle.')">
+              ↑ promote
+            </button>
+          </form>
+          {% endif %}
+          <a class="btn ghost" href="{{ url_for('bouncers_edit', tid=t.id) }}"
+             style="padding:2px 8px;font-size:10px;color:var(--cyan)">edit</a>
+          <form method="POST" action="{{ url_for('bouncers_delete', tid=t.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove target?')">remove</button>
+          </form>
+          {% else %}
+          <span class="muted" style="font-size:10px">env-managed</span>
+          {% if t.kind == 'mikrotik_env' and migration_banner %}
+          <a href="{{ url_for('bouncers_add') }}" style="font-size:10px;color:var(--amber);margin-left:6px;text-decoration:underline">migrate →</a>
+          {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% if t.error and not t.ok %}
+      <tr><td colspan="7" class="mono" style="color:var(--red);font-size:11px;padding:4px 16px">↳ {{ t.error }}</td></tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:20px">
+    <div>
+      <h2 style="margin:0 0 4px">Add Target</h2>
+      <div class="muted" style="font-size:12px;text-transform:none;letter-spacing:0">
+        Pick an adapter, fill its config, and Protek will start applying the same merged decision set to it on the next reconcile cycle. Operator owns the consuming firewall rule (block/drop); Protek owns only the list contents.
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;white-space:nowrap">
+      <a href="{{ url_for('mt_bootstrap_page') }}"
+         style="font-size:11px;font-family:'Share Tech Mono',monospace;text-transform:uppercase;letter-spacing:.12em;color:var(--cyan);text-decoration:none;border-bottom:1px dashed var(--cyan);padding-bottom:1px"
+         title="One-paste RouterOS script that creates a user with the right perms — drops MT onboarding from ~10 steps to one">
+        ⚡ MT bootstrap .rsc
+      </a>
+      <a href="{{ url_for('bouncers_add') }}" class="btn"
+         style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;text-decoration:none;border-radius:3px">
+        + Guided wizard →
+      </a>
+    </div>
+  </div>
+
+  {% if request.args.get('advanced') %}
+  <div style="margin-top:12px;padding:8px 12px;background:rgba(255,180,71,0.08);border:1px solid var(--amber);border-radius:3px;font-size:11px;color:var(--amber)">
+    Advanced one-shot form below. The <a href="{{ url_for('bouncers_add') }}" style="color:var(--amber);text-decoration:underline">guided wizard</a> is recommended for new bouncers — structured fields, inline help, health-probe-on-save.
+  </div>
+  {% endif %}
+
+  <form method="POST" action="{{ url_for('bouncers_add') }}" style="display:grid;grid-template-columns:160px 200px 1fr 80px;gap:10px;align-items:end;margin-top:14px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label>Kind</label>
+      <select name="kind" id="kind" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px" onchange="showFields(this.value)">
+        <option value="mikrotik">MikroTik (additional router)</option>
+        <option value="iptables_ipset">iptables + ipset (local)</option>
+        <option value="cloudflare">Cloudflare WAF list</option>
+        <option value="pfsense">pfSense (pfsense-pkg-RESTAPI)</option>
+        <option value="opnsense">OPNsense (built-in API)</option>
+      </select>
+    </div>
+    <div><label>Name</label><input type="text" name="name" placeholder="cf-main" required pattern="[a-zA-Z0-9_-]+"></div>
+    <div>
+      <label>Config (JSON, adapter-specific)</label>
+      <input type="text" name="config_json" placeholder='{"account_id":"...","api_token":"...","list_name":"protek_bans"}' required>
+    </div>
+    <div>
+      <label>Dry Run</label>
+      <select name="dry_run" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+        <option value="1">yes</option><option value="0">no</option>
+      </select>
+    </div>
+    <div></div><div></div>
+    <div></div>
+    <button class="btn" type="submit">Add</button>
+  </form>
+
+  <div class="panel" style="margin-top:14px;background:var(--bg-deep)">
+    <h2 style="font-size:11px">Config shapes</h2>
+    <pre class="mono" style="color:var(--green);font-size:11px;white-space:pre-wrap">
+mikrotik        →  {"host":"10.0.0.1", "username":"protek-api", "password":"&lt;...&gt;",
+                    "port":8728, "use_ssl":false,
+                    "address_list":"crowdsec"}
+                   # additional router beyond the .env-anchored one.
+                   # operator owns the firewall drop rule on the router.
+                   # optional filters: "max_entries":30000, "exclude_origins":["lists:*"]
+
+iptables_ipset  →  {} (no config — uses default set names protek-bans / protek-bans6)
+                   optional: {"set_v4":"my-set","set_v6":"my-set6","max_v4":200000}
+
+cloudflare      →  {"account_id":"&lt;cf-acct-id&gt;", "api_token":"&lt;scoped-token&gt;",
+                    "list_name":"protek_bans"}    # auto-creates list
+                   optional filters: "max_entries":9500, "exclude_origins":["lists:firehol_cruzit_web_attacks"]
+
+pfsense         →  {"base_url":"https://pf.example.com",
+                    "api_key":"&lt;X-API-Key&gt;",
+                    "alias_name":"protek_bans",
+                    "verify_tls": false}
+
+opnsense        →  {"base_url":"https://opn.example.com",
+                    "api_key":"&lt;key&gt;", "api_secret":"&lt;secret&gt;",
+                    "alias_name":"protek_bans",
+                    "verify_tls": false}
+
+ALL ADAPTERS support optional per-bouncer filter knobs:
+  "origins":         ["crowdsec", "lists:firehol_greensnow"]  (whitelist)
+  "exclude_origins": ["lists:*"]                              (blacklist)
+  "max_entries":     9500                                     (newest-first cap)
+</pre>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Third-party plugin adapters (phase 69)</h2>
+  <p class="muted" style="margin:0 0 10px;font-size:12px">
+    Drop Python files into <span class="mono">{{ plugin_dir }}</span> to add new
+    bouncer kinds without forking Protek. See
+    <a href="https://github.com/syedhashmi-bit/Protek/blob/main/docs/plugins/README.md" target="_blank">docs/plugins/README.md</a>
+    for the contract.
+  </p>
+  {% if plugins %}
+  <table>
+    <thead>
+      <tr><th>Kind</th><th>Author</th><th>Version</th><th>Required config keys</th><th>Path</th></tr>
+    </thead>
+    <tbody>
+      {% for p in plugins %}
+      <tr>
+        <td class="mono">{{ p.kind }}</td>
+        <td class="mono" style="font-size:11px">{{ p.author or '—' }}</td>
+        <td class="mono">{{ p.version or '—' }}</td>
+        <td class="mono" style="font-size:11px">{{ p.required | join(', ') or '—' }}</td>
+        <td class="mono" style="font-size:11px">{{ p.path }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px">No third-party plugins loaded. Built-in adapters above remain available.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}PROTEK · intel{% endblock %}
+{% block crumb %}<b>INTEL</b>{% endblock %}
+{% block head %}
+<style>
+.intel-heat{display:grid;gap:1px;font-family:'Share Tech Mono',monospace;font-size:11px}
+.intel-heat .c{aspect-ratio:1.6;background:var(--bg-deep);text-align:center;line-height:30px;color:var(--muted)}
+.intel-heat .c.lvl-1{background:rgba(0,200,255,.18);color:#cfe8ff}
+.intel-heat .c.lvl-2{background:rgba(0,200,255,.36);color:#fff}
+.intel-heat .c.lvl-3{background:rgba(0,200,255,.56);color:#fff}
+.intel-heat .c.lvl-4{background:rgba(0,255,157,.55);color:#06101c}
+.intel-heat .c.lvl-5{background:rgba(255,181,71,.7);color:#06101c}
+.intel-heat .c.lvl-6{background:rgba(255,56,96,.78);color:#fff}
+.intel-heat .lbl{background:var(--bg-panel);color:var(--muted);padding:4px 8px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.intel-heat .hr{background:var(--bg-panel);text-align:center;color:var(--muted-low);font-size:10px;padding:2px 0}
+</style>
+{% endblock %}
+{% block body %}
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Countries (24h)</div><div class="v">{{ kpis.countries }}</div></div>
+  <div class="kpi"><div class="k">ASNs (24h)</div><div class="v">{{ kpis.asns }}</div></div>
+  <div class="kpi"><div class="k">Top Country</div><div class="v cyan" style="font-size:22px">{{ kpis.top_country or '—' }}</div></div>
+  <div class="kpi"><div class="k">Top ASN</div><div class="v cyan" style="font-size:16px;word-break:break-all">{{ kpis.top_asn or '—' }}</div><div class="d">{{ kpis.top_asn_org or '' }}</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-top:16px">
+  <div class="panel">
+    <h2>Top Attacking ASNs (24h)</h2>
+    <table>
+      <thead><tr><th>ASN</th><th>Organization</th><th class="right">Bans</th><th class="right">Unique IPs</th></tr></thead>
+      <tbody>
+        {% for r in top_asn_rows %}
+        <tr>
+          <td class="mono cyan">{{ r.asn or '—' }}</td>
+          <td class="muted" style="word-break:break-word">{{ r.as_org or '—' }}</td>
+          <td class="mono right">{{ r.bans }}</td>
+          <td class="mono right">{{ r.uniq }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted" style="text-align:center;padding:24px">ASN enrichment pending — intel worker fills these in.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Top Attacking Countries (24h)</h2>
+    <table>
+      <thead><tr><th>Country</th><th class="right">Bans</th><th class="right">Unique IPs</th></tr></thead>
+      <tbody>
+        {% for r in top_country_rows %}
+        <tr>
+          <td><span class="mono cyan">{{ r.cc or '—' }}</span> <span class="muted">{{ r.country or '' }}</span></td>
+          <td class="mono right">{{ r.bans }}</td>
+          <td class="mono right">{{ r.uniq }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted" style="text-align:center;padding:24px">geo enrichment pending.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Heatmap — Country × Hour-of-Day (last 7d, UTC)</h2>
+  <div class="intel-heat" style="grid-template-columns:80px repeat(24,minmax(22px,1fr))">
+    <div class="lbl">·</div>
+    {% for h in range(24) %}<div class="hr">{{ '%02d'|format(h) }}</div>{% endfor %}
+    {% for row in heat_country %}
+      <div class="lbl">{{ row.cc }}</div>
+      {% for h in range(24) %}
+        {% set v = row.cells[h] %}
+        <div class="c {% if v %}lvl-{{ row.levels[h] }}{% endif %}" title="{{ row.cc }} {{ '%02d'|format(h) }}:00 · {{ v }} hits">{{ v if v else '' }}</div>
+      {% endfor %}
+    {% else %}
+      <div class="lbl muted">awaiting geo</div>
+      {% for h in range(24) %}<div class="c"></div>{% endfor %}
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Heatmap — ASN × Scenario (top 12 each, 7d)</h2>
+  <div class="intel-heat" style="grid-template-columns:220px repeat({{ heat_scens|length }},minmax(80px,1fr))">
+    <div class="lbl">·</div>
+    {% for s in heat_scens %}<div class="hr" style="white-space:normal">{{ s }}</div>{% endfor %}
+    {% for row in heat_asn %}
+      <div class="lbl" style="word-break:break-word">{{ row.asn }} · <span class="muted">{{ row.as_org or '—' }}</span></div>
+      {% for v, lvl in row.row %}
+        <div class="c {% if v %}lvl-{{ lvl }}{% endif %}" title="{{ row.asn }} · {{ v }}">{{ v if v else '' }}</div>
+      {% endfor %}
+    {% else %}
+      <div class="lbl muted">awaiting enrichment</div>
+      {% for s in heat_scens %}<div class="c"></div>{% endfor %}
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Phase 85 — intel provider cards: status + test buttons. Keys still
+     live in .env (no UI write path yet), but the operator can verify
+     wiring without shelling into the VPS. -->
+<div class="panel" style="margin-top:16px">
+  <h2>Intel providers</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0">
+    Each provider's API key lives in <span class="mono">.env</span> (read at boot).
+    The Test button probes the live API with a benign IP (1.1.1.1) so you can
+    verify the key works without waiting for a real attacker lookup.
+  </p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+    {% set providers = [
+      {'key': 'abuseipdb',  'name': 'AbuseIPDB',        'env_var': 'ABUSEIPDB_API_KEY',  'free_tier': '1 000 lookups / day', 'docs': 'https://www.abuseipdb.com/account/api'},
+      {'key': 'otx',        'name': 'AlienVault OTX',   'env_var': '(no key required)',  'free_tier': 'unlimited general lookups', 'docs': 'https://otx.alienvault.com/api'},
+      {'key': 'proxycheck', 'name': 'ProxyCheck.io',    'env_var': 'PROXYCHECK_API_KEY', 'free_tier': '1 000 lookups / day', 'docs': 'https://proxycheck.io/'},
+      {'key': 'spamhaus',   'name': 'Spamhaus DROP',    'env_var': '(bulk download)',    'free_tier': 'unlimited (cached)', 'docs': 'https://www.spamhaus.org/drop/'},
+      {'key': 'tor',        'name': 'Tor exit list',    'env_var': '(bulk download)',    'free_tier': 'unlimited (cached)', 'docs': 'https://check.torproject.org/torbulkexitlist'},
+    ] %}
+    {% for p in providers %}
+    <div style="background:var(--bg-deep);border:1px solid var(--border);border-radius:4px;padding:14px" data-provider="{{ p.key }}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <h3 style="margin:0;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan)">{{ p.name }}</h3>
+        <span class="badge" data-status="badge">unknown</span>
+      </div>
+      <div class="muted" style="margin-top:8px;font-size:11px;line-height:1.6">
+        env var: <span class="mono">{{ p.env_var }}</span><br>
+        quota: {{ p.free_tier }} ·
+        <a href="{{ p.docs }}" target="_blank" rel="noopener" style="color:var(--info)">docs ↗</a>
+      </div>
+      <div style="margin-top:10px">
+        <button type="button" class="btn sec intel-test-btn" data-provider="{{ p.key }}"
+                style="padding:4px 12px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:var(--bg-raised);border:1px solid var(--cyan);color:var(--cyan)">
+          ↻ test
+        </button>
+      </div>
+      <div class="intel-test-result" style="display:none;margin-top:8px;font-family:'Share Tech Mono',monospace;font-size:11px"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+// Phase 85 — intel provider test buttons. Each posts to
+// /api/intel/test/<provider> and renders the JSON inline.
+document.querySelectorAll('.intel-test-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const provider = btn.dataset.provider;
+    const card     = btn.closest('[data-provider]');
+    const badge    = card.querySelector('[data-status="badge"]');
+    const out      = card.querySelector('.intel-test-result');
+    out.style.display = 'block';
+    badge.textContent = '…';
+    badge.style.color = 'var(--info)';
+    out.innerHTML = '<span style="color:var(--info)">probing…</span>';
+    try {
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const r = await fetch(`/api/intel/test/${provider}`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+        body: '{}',
+      });
+      const data = await r.json();
+      if (data.ok) {
+        badge.textContent = 'ok';
+        badge.style.color = 'var(--green)';
+        out.innerHTML = `<span style="color:var(--green)">✓</span> live — ${
+          (data.abuse_confidence !== undefined && `score: ${data.abuse_confidence}`) ||
+          (data.pulse_count    !== undefined && `pulses: ${data.pulse_count}`) ||
+          (data.status_code   !== undefined && `HTTP ${data.status_code}`) || 'API reachable'}`;
+      } else {
+        badge.textContent = 'fail';
+        badge.style.color = 'var(--red)';
+        out.innerHTML = `<span style="color:var(--red)">✗</span> ${data.error || 'failed'}`;
+      }
+    } catch (e) {
+      badge.textContent = 'err';
+      badge.style.color = 'var(--red)';
+      out.innerHTML = `<span style="color:var(--red)">✗ ${e}</span>`;
+    }
+  });
+});
+</script>
+{% endblock %}

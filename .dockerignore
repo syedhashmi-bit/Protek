@@ -1,0 +1,52 @@
+# Files NOT to copy into the build context.
+# Keeps the image lean + avoids leaking host secrets through layer cache.
+
+# Local state (must live on the volume, not in the image)
+protek.db
+protek.db-shm
+protek.db-wal
+.protek.db-litestream/
+.protek.db-litestream.*
+.env
+.env.local
+
+# Local venv (image builds its own)
+venv/
+.venv/
+
+# Caches
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Local logs / dumps
+*.log
+docs/screenshots/
+tests/soak/*.csv
+tests/soak/*.json
+
+# Lock file used by the bare-metal poller-owner election
+.poller.lock

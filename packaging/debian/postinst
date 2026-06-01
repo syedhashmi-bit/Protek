@@ -1,0 +1,50 @@
+#!/bin/sh
+# postinst — creates the protek system user, deploys default .env, links nginx.
+set -e
+
+case "$1" in
+configure)
+    # 1. Create unprivileged user
+    if ! getent passwd protek >/dev/null; then
+        adduser --system --group --home /var/lib/protek \
+                --no-create-home --shell /usr/sbin/nologin protek
+    fi
+
+    # 2. Create dirs
+    install -d -o protek -g protek -m 0750 /var/lib/protek
+    install -d -o protek -g protek -m 0750 /var/log/protek
+    install -d -o root   -g protek -m 0750 /etc/protek
+
+    # 3. Seed .env if missing
+    if [ ! -f /etc/protek/.env ]; then
+        if [ -f /usr/share/protek/env.example ]; then
+            cp /usr/share/protek/env.example /etc/protek/.env
+            chmod 0640 /etc/protek/.env
+            chown root:protek /etc/protek/.env
+            echo "*** /etc/protek/.env created from template — RUN setup_admin BEFORE STARTING:"
+            echo "***   sudo -u protek /usr/lib/protek/venv/bin/python /usr/share/protek/scripts/setup_admin.py --username admin"
+        fi
+    fi
+
+    # 4. Build the venv if not already present (idempotent)
+    if [ ! -f /usr/lib/protek/venv/bin/python ]; then
+        python3 -m venv /usr/lib/protek/venv
+        /usr/lib/protek/venv/bin/pip install --no-cache-dir -U pip setuptools wheel
+        /usr/lib/protek/venv/bin/pip install --no-cache-dir -r /usr/share/protek/requirements.txt
+    fi
+
+    # 5. nginx + systemd
+    if [ -d /etc/nginx/sites-available ] && [ ! -f /etc/nginx/sites-available/protek ]; then
+        cp /usr/share/protek/nginx.conf.example /etc/nginx/sites-available/protek
+        echo "*** nginx site at /etc/nginx/sites-available/protek — enable + reload manually."
+    fi
+
+    systemctl daemon-reload || true
+    systemctl enable protek.service || true
+    echo "*** Run \`systemctl start protek\` once /etc/protek/.env is configured."
+    ;;
+*) ;;
+esac
+
+#DEBHELPER#
+exit 0

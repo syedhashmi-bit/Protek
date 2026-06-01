@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% block title %}Backup Automation · Protek{% endblock %}
+{% block crumb %}ADMIN · <b>BACKUP AUTOMATION</b>{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>Off-box backup status</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Nightly full-DB snapshot of <span class="mono">protek.db</span> plus
+    <span class="mono">.env</span> and any custom scenarios under
+    <span class="mono">/etc/crowdsec/scenarios/</span>. Encrypted with
+    AES-256-GCM, key derived via scrypt from <span class="mono">BACKUP_PASSPHRASE</span>.
+    Lose the passphrase = lose the backup. Distinct from
+    <a href="{{ url_for('admin_backup_page') }}">/admin/backup</a> which is
+    a passphrase-protected config-only bundle for manual VPS migration.
+  </p>
+
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">Automation</div>
+      <div class="kpi-value" style="color:{% if status.enabled %}var(--green){% else %}var(--muted){% endif %}">
+        {% if status.enabled %}ENABLED{% else %}OFF{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Backend</div>
+      <div class="kpi-value mono" style="color:{% if status.backend_ready or not status.enabled %}var(--cyan){% else %}var(--red){% endif %}">
+        {{ status.backend }}
+      </div>
+      {% if status.enabled and not status.backend_ready %}
+      <div class="kpi-sub" style="color:var(--red);font-size:11px">
+        {{ status.backend_error }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Passphrase</div>
+      <div class="kpi-value" style="color:{% if status.passphrase_set %}var(--green){% else %}var(--red){% endif %}">
+        {% if status.passphrase_set %}SET{% else %}MISSING{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Last successful</div>
+      <div class="kpi-value mono" style="font-size:14px">
+        {% if status.latest %}{{ status.latest.completed_at[:19].replace('T',' ') }}{% else %}—{% endif %}
+      </div>
+      {% if status.latest %}
+      <div class="kpi-sub muted" style="font-size:11px">
+        {{ '{:,}'.format(status.latest.size_bytes or 0) }} bytes · {{ status.latest.kind }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Restore-test</div>
+      <div class="kpi-value" style="color:{% if status.last_test_ok %}var(--green){% elif status.last_test_at %}var(--red){% else %}var(--muted){% endif %}">
+        {% if status.last_test_ok %}OK{% elif status.last_test_at %}FAIL{% else %}—{% endif %}
+      </div>
+      {% if status.last_test_at %}
+      <div class="kpi-sub muted" style="font-size:11px">
+        {{ status.last_test_at[:19].replace('T',' ') }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if not status.passphrase_set %}
+<div class="panel" style="margin-top:16px;border-color:var(--red)">
+  <h2 style="color:var(--red)">BACKUP_PASSPHRASE missing</h2>
+  <p class="muted" style="margin:0 0 8px;font-size:12px">
+    Automation will fail until <span class="mono">BACKUP_PASSPHRASE</span> is set
+    in <span class="mono">.env</span>. Pick a long random passphrase (≥12 chars)
+    and store it somewhere safe — losing it makes the bundles unreadable.
+  </p>
+  <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:12px;overflow:auto">echo "BACKUP_PASSPHRASE=$(openssl rand -base64 32)" >> /var/www/Protek/.env
+systemctl restart protek</pre>
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:16px">
+  <h2>Configuration</h2>
+  <form method="post" action="{{ url_for('admin_backup_automation_settings') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal">
+        <input type="checkbox" name="enabled" value="1" {% if status.enabled %}checked{% endif %}>
+        <span>Automation enabled</span>
+      </label>
+      <div>
+        <label>Backend</label>
+        <select name="backend" style="width:100%">
+          <option value="local" {% if status.backend == 'local' %}selected{% endif %}>local (filesystem)</option>
+          <option value="s3"    {% if status.backend == 's3'    %}selected{% endif %}>s3 (Backblaze B2 / AWS / MinIO)</option>
+        </select>
+      </div>
+      <div>
+        <label>Local path (used when backend = local)</label>
+        <input type="text" name="local_path" value="{{ status.local_path }}" placeholder="/var/backups/protek" style="width:100%">
+      </div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1">
+          <label>Daily retention</label>
+          <input type="number" name="daily_keep" value="{{ status.daily_keep }}" min="1" max="365" style="width:100%">
+        </div>
+        <div style="flex:1">
+          <label>Monthly retention</label>
+          <input type="number" name="monthly_keep" value="{{ status.monthly_keep }}" min="1" max="120" style="width:100%">
+        </div>
+      </div>
+    </div>
+    <button class="btn" type="submit">Save settings</button>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>S3 / B2 credentials (read from .env)</h2>
+  <p class="muted" style="margin:0 0 10px;font-size:12px">
+    For Backblaze B2: set <span class="mono">BACKUP_S3_ENDPOINT</span> to your
+    bucket's S3 endpoint (e.g. <span class="mono">https://s3.us-west-002.backblazeb2.com</span>),
+    region to the matching value (e.g. <span class="mono">us-west-002</span>), and use
+    the bucket-scoped Application Key ID + Application Key as
+    <span class="mono">BACKUP_S3_KEY</span> / <span class="mono">BACKUP_S3_SECRET</span>.
+    For AWS S3: omit the endpoint, set the region, use IAM access keys.
+  </p>
+  <table>
+    <thead><tr><th>Variable</th><th>Status / value</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">BACKUP_S3_BUCKET</td>
+          <td class="mono">{{ status.s3.bucket or '—' }}</td></tr>
+      <tr><td class="mono">BACKUP_S3_ENDPOINT</td>
+          <td class="mono">{{ status.s3.endpoint }}</td></tr>
+      <tr><td class="mono">BACKUP_S3_REGION</td>
+          <td class="mono">{{ status.s3.region }}</td></tr>
+      <tr><td class="mono">BACKUP_S3_KEY</td>
+          <td>{% if status.s3.key_set %}<span style="color:var(--green)">SET</span>{% else %}<span style="color:var(--red)">MISSING</span>{% endif %}</td></tr>
+      <tr><td class="mono">BACKUP_S3_SECRET</td>
+          <td>{% if status.s3.secret_set %}<span style="color:var(--green)">SET</span>{% else %}<span style="color:var(--red)">MISSING</span>{% endif %}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Litestream WAL replication
+    <span class="badge" style="background:{% if litestream.health == 'ok' %}var(--green){% elif litestream.health == 'lagging' %}var(--amber){% elif litestream.health == 'not-installed' %}var(--muted){% else %}var(--red){% endif %};color:var(--bg-deep);margin-left:8px">
+      {{ litestream.health }}
+    </span>
+  </h2>
+  <p class="muted" style="margin:0 0 10px;font-size:12px">
+    Near-real-time SQLite WAL replication to S3/B2 (RPO &lt; 60s, RTO &lt; 5 min).
+    Complements the daily bundle from <span class="mono">backup.py</span> — bundle handles
+    "VPS gone, restore from yesterday"; Litestream handles "VPS gone, lose at most 1 min of data".
+    Runs as a separate <span class="mono">litestream.service</span> systemd unit.
+  </p>
+  <table>
+    <tbody>
+      <tr><td>Binary</td>
+        <td class="mono">{% if litestream.installed %}{{ litestream.binary }}{% else %}<span style="color:var(--red)">not installed</span>{% endif %}</td></tr>
+      <tr><td>Config file</td>
+        <td class="mono">{{ litestream.config_path }} —
+          {% if litestream.config_exists %}<span style="color:var(--green)">present</span>{% else %}<span style="color:var(--red)">missing</span>{% endif %}</td></tr>
+      <tr><td>Systemd unit</td>
+        <td class="mono">{{ litestream.unit_path }} —
+          {% if litestream.unit_active %}<span style="color:var(--green)">active</span>
+          {% elif litestream.unit_exists %}<span style="color:var(--amber)">installed but {{ litestream.unit_status or 'inactive' }}</span>
+          {% else %}<span style="color:var(--red)">missing</span>{% endif %}
+        </td></tr>
+      <tr><td>Last snapshot</td>
+        <td class="mono">
+          {% if litestream.last_snapshot %}
+          {{ litestream.last_snapshot[:19].replace('T',' ') }}
+          {% if litestream.snapshot_age_s is not none %}
+            ({{ litestream.snapshot_age_s }}s ago)
+          {% endif %}
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td></tr>
+    </tbody>
+  </table>
+  {% if not litestream.installed %}
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;color:var(--cyan)">▸ How to install Litestream</summary>
+    <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:12px;overflow:auto;margin-top:8px"># amd64 (most x86 VPS)
+curl -L https://github.com/benbjohnson/litestream/releases/latest/download/litestream-linux-amd64.tar.gz \
+  | tar -xz -C /usr/local/bin litestream
+
+# arm64 (Hetzner CAX, AWS Graviton, etc.)
+curl -L https://github.com/benbjohnson/litestream/releases/latest/download/litestream-linux-arm64.tar.gz \
+  | tar -xz -C /usr/local/bin litestream
+
+# Copy scaffolds Protek ships:
+cp {{ litestream.sample_config }} /etc/litestream.yml
+cp {{ litestream.sample_unit }} /etc/systemd/system/litestream.service
+
+# Edit /etc/litestream.yml — paste your B2 bucket / keys (same values as
+# the BACKUP_S3_* env vars).
+
+systemctl daemon-reload
+systemctl enable --now litestream
+journalctl -u litestream -f</pre>
+  </details>
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;color:var(--cyan)">▸ Restore from Litestream</summary>
+    <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:12px;overflow:auto;margin-top:8px">systemctl stop protek litestream
+litestream restore -o /var/www/Protek/protek.db /var/www/Protek/protek.db
+systemctl start litestream protek</pre>
+  </details>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Manual actions</h2>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <form method="post" action="{{ url_for('admin_backup_automation_run') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="kind" value="manual">
+      <button class="btn" type="submit"
+              onclick="return confirm('Run a full backup now? May take 5–60s depending on DB size.')">
+        Run backup now
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('admin_backup_automation_test') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn" type="submit">Run restore-test now</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recent runs</h2>
+  {% if runs %}
+  <table>
+    <thead>
+      <tr>
+        <th>Started</th><th>Kind</th><th>Status</th>
+        <th class="right">Size</th><th>Backend</th><th>Destination</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="mono" style="font-size:12px">{{ r.started_at[:19].replace('T',' ') }}</td>
+        <td><span class="badge">{{ r.kind }}</span></td>
+        <td>
+          {% if r.status == 'ok' %}
+          <span style="color:var(--green)">OK</span>
+          {% elif r.status == 'failed' %}
+          <span style="color:var(--red)" title="{{ r.error }}">FAILED</span>
+          {% else %}
+          <span class="muted">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        <td class="mono right">{{ '{:,}'.format(r.size_bytes or 0) }}</td>
+        <td class="mono">{{ r.backend or '—' }}</td>
+        <td class="mono" style="font-size:11px;word-break:break-all">{{ r.dest or r.error }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px">No backup runs yet.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

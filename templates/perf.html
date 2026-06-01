@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}Performance · Protek{% endblock %}
+{% block crumb %}OBSERVABILITY · <b>PERFORMANCE</b>{% endblock %}
+{% block body %}
+
+<div class="grid kpi-strip">
+  <div class="kpi"><div class="k">Cycles (24h)</div>
+    <div class="v">{{ '{:,}'.format(stats.count) }}</div>
+    <div class="d">{{ stats.errors }} with errors</div></div>
+  <div class="kpi"><div class="k">p50 latency</div>
+    <div class="v cyan">{{ stats.p50_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">half of cycles ≤ this</div></div>
+  <div class="kpi"><div class="k">p95 latency</div>
+    <div class="v {{ 'amber' if stats.p95_ms > 5000 else 'cyan' }}">
+      {{ stats.p95_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">slowest 5% tip-over</div></div>
+  <div class="kpi"><div class="k">p99 latency</div>
+    <div class="v {{ 'red' if stats.p99_ms > 10000 else 'amber' if stats.p99_ms > 5000 else 'cyan' }}">
+      {{ stats.p99_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">worst-case sentinel</div></div>
+  <div class="kpi"><div class="k">Max (24h)</div>
+    <div class="v">{{ stats.max_ms }}<span class="muted" style="font-size:14px"> ms</span></div>
+    <div class="d">avg {{ stats.avg_ms }} ms</div></div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>SLO compliance (last 24h)</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Burn rate = observed-error-rate ÷ allowed-error-rate. >14.4 = fast-burn (SRE workbook).
+    A duration SLO's burn shows how far p95 sits vs the target (1.0 = at target, &gt;2.0 = double).
+  </p>
+  <table>
+    <thead><tr><th>SLO</th><th>Observed</th><th>Target</th><th>Status</th><th class="right">Burn rate</th><th class="right">Samples</th></tr></thead>
+    <tbody>
+      {% for r in slo.slos %}
+      <tr>
+        <td>
+          <div>{{ r.title }}</div>
+          <div class="muted" style="font-size:11px">{{ r.description }}</div>
+        </td>
+        <td class="mono">{{ r.value_str }}</td>
+        <td class="mono muted">{{ r.target_str }}</td>
+        <td>
+          {% if r.compliant %}
+            <span class="badge cs">compliant</span>
+          {% else %}
+            <span class="badge" style="color:var(--red);border-color:var(--red)">breach</span>
+          {% endif %}
+        </td>
+        <td class="mono right" style="color:{% if r.burn_alert %}var(--red){% elif r.burn_rate > 1 %}var(--amber){% else %}var(--text){% endif %}">
+          {{ '%.2f'|format(r.burn_rate) }}
+          {% if r.burn_alert %}<span class="badge" style="color:var(--red);border-color:var(--red);margin-left:6px">fast-burn</span>{% endif %}
+        </td>
+        <td class="mono right muted">{{ r.samples }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if disk %}
+<div class="panel" style="margin-top:16px">
+  <h2>Disk pressure (phase 93)</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px">
+    Filesystem holding <span class="mono">protek.db</span>. Two ENOSPC
+    incidents in May 2026 kept <span class="mono">/health</span> green
+    while SQLite went read-only — this panel + the edge-triggered
+    notifications close that observability gap.
+  </p>
+  {% set warn = disk.warn_pct %}
+  {% set crit = disk.critical_pct %}
+  {% set used = disk.used_pct %}
+  {% set max24 = disk.max_pct_24h %}
+  {% if used >= crit %}
+    {% set band_color = '#ff4d4d' %}{% set band_label = 'critical' %}
+  {% elif used >= warn %}
+    {% set band_color = '#ffb547' %}{% set band_label = 'warn' %}
+  {% else %}
+    {% set band_color = '#00ff9d' %}{% set band_label = 'ok' %}
+  {% endif %}
+  <div style="display:flex;align-items:center;gap:18px;margin-bottom:10px">
+    <div style="flex:1;height:18px;border:1px solid var(--border);border-radius:3px;position:relative;background:#0a1218">
+      <div style="position:absolute;top:0;left:0;height:100%;width:{{ '%.1f'|format(used) }}%;background:{{ band_color }};opacity:0.85"></div>
+      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(warn) }}%;height:22px;border-left:1px dashed #ffb547" title="warn {{ warn }}%"></div>
+      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(crit) }}%;height:22px;border-left:1px dashed #ff4d4d" title="critical {{ crit }}%"></div>
+    </div>
+    <div style="min-width:240px;text-align:right">
+      <span class="mono" style="font-size:18px;color:{{ band_color }}">{{ '%.1f'|format(used) }}%</span>
+      <span class="badge" style="color:{{ band_color }};border-color:{{ band_color }};margin-left:6px">{{ band_label }}</span>
+    </div>
+  </div>
+  <table>
+    <tbody>
+      <tr><td class="muted">Free / Total</td>
+          <td class="mono">{{ '%.1f'|format(disk.free_bytes / 1073741824) }} GB / {{ '%.1f'|format(disk.total_bytes / 1073741824) }} GB</td></tr>
+      <tr><td class="muted">Thresholds</td>
+          <td class="mono">warn {{ warn }}% · critical {{ crit }}%</td></tr>
+      <tr><td class="muted">Peak (last 24h)</td>
+          <td class="mono">{{ '%.1f'|format(max24) }}%</td></tr>
+      <tr><td class="muted">Sampled at</td>
+          <td class="mono">{{ disk.ts }}</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin:10px 0 0;font-size:12px">
+    Override thresholds via <span class="mono">disk.warn_pct</span> /
+    <span class="mono">disk.critical_pct</span> in /settings. The watchdog
+    fires exactly one notification per breach and one on recovery
+    (hysteresis 5%). Auto-rebaseline at critical is OFF by default —
+    enable via <span class="mono">disk.allow_auto_rebaseline=1</span>.
+  </p>
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:16px">
+  <h2>Stage breakdown (last 24h · {{ stages.samples }} instrumented cycles)</h2>
+  {% if stages.samples == 0 %}
+    <p class="muted" style="margin:0;font-size:12px">
+      No instrumented cycles yet — stage timing was added in phase 55 and only fills as new cycles run.
+      Check back in a few minutes.
+    </p>
+  {% else %}
+    <p class="muted" style="margin:0 0 12px;font-size:12px">
+      Where each cycle spends its time, on average. <span class="mono">lapi_fetch</span> = DB pull + whitelist match ·
+      <span class="mono">snapshot</span> = reading the current address-list from each bouncer ·
+      <span class="mono">diff</span> = pure-Python reconcile compute ·
+      <span class="mono">apply</span> = pushing add/remove ops to each bouncer.
+    </p>
+    <div style="display:flex;height:24px;border:1px solid var(--border);border-radius:3px;overflow:hidden;margin-bottom:14px">
+      {% set colors = {'lapi_fetch_ms':'#00c8ff','snapshot_ms':'#ffb547','diff_ms':'#00ff9d','apply_ms':'#d97aff'} %}
+      {% for s in stages.stages %}
+        {% if s.share_pct > 0 %}
+        <div style="flex-grow:{{ s.share_pct }};background:{{ colors[s.stage] }};opacity:0.85"
+             title="{{ s.stage }}: {{ s.avg_ms }}ms avg ({{ s.share_pct }}%)"></div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <table>
+      <thead><tr><th>Stage</th><th class="right">Share</th><th class="right">avg ms</th><th class="right">p95 ms</th><th class="right">max ms</th></tr></thead>
+      <tbody>
+        {% for s in stages.stages %}
+        <tr>
+          <td><span class="badge" style="color:{{ colors[s.stage] }};border-color:{{ colors[s.stage] }}">{{ s.stage.replace('_ms','') }}</span></td>
+          <td class="mono right">{{ s.share_pct }}%</td>
+          <td class="mono right">{{ s.avg_ms }}</td>
+          <td class="mono right">{{ s.p95_ms }}</td>
+          <td class="mono right muted">{{ s.max_ms }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Health-by-outcome (last 24h)</h2>
+  <table>
+    <thead><tr><th>Cycle outcome</th><th class="right">Count</th><th class="right">Avg duration</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge cs">ok</span></td>
+        <td class="right mono">{{ breakdown.ok_count }}</td>
+        <td class="right mono">{{ breakdown.ok_avg_ms }} ms</td></tr>
+      <tr><td><span class="badge http" style="color:var(--red);border-color:var(--red)">errors</span></td>
+        <td class="right mono">{{ breakdown.err_count }}</td>
+        <td class="right mono">{{ breakdown.err_avg_ms }} ms</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin:10px 0 0;font-size:11px">
+    For per-stage breakdown (LAPI fetch · snapshot · diff · push) see the panel above —
+    shipped in phase 55.
+  </p>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Slowest cycles ever (top 20)</h2>
+  <table>
+    <thead><tr>
+      <th>When</th><th>Duration</th><th>+adds</th><th>−rem</th><th>errors</th><th>mode</th><th>notes</th>
+    </tr></thead>
+    <tbody>
+      {% for r in slow %}
+      <tr>
+        <td class="mono">{{ r.started_at[:19].replace('T',' ') }}</td>
+        <td class="mono"
+            style="color:{% if r.duration_ms > 10000 %}var(--red){% elif r.duration_ms > 5000 %}var(--amber){% else %}var(--text){% endif %}">
+          {{ r.duration_ms }} ms</td>
+        <td class="mono right">{{ r.added }}</td>
+        <td class="mono right">{{ r.removed }}</td>
+        <td class="mono right" style="color:{{ 'var(--red)' if r.errors else 'var(--muted)' }}">{{ r.errors }}</td>
+        <td>{% if r.dry_run %}<span class="badge">dry</span>{% else %}<span class="badge cs">live</span>{% endif %}</td>
+        <td class="muted" style="font-size:11px">{{ r.notes[:80] }}</td>
+      </tr>
+      {% else %}
+        <tr><td colspan="7" class="muted">No cycles recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Token buckets — upstream backpressure (phase 68)</h2>
+  <p class="muted" style="margin:0 0 10px;font-size:12px">
+    Each upstream gets its own bucket. When empty, the caller defers (doesn't retry-loop)
+    — reconcile picks it up next cycle. 429 responses trigger a 5-min 2× slowdown.
+    Tune via <span class="mono">ratelimit.&lt;bucket&gt;.tokens_per_min</span> and
+    <span class="mono">ratelimit.&lt;bucket&gt;.capacity</span> in /settings.
+  </p>
+  {% if buckets %}
+  <table>
+    <thead>
+      <tr>
+        <th>Bucket</th>
+        <th class="right">Tokens</th>
+        <th>Fill</th>
+        <th class="right">Rate / min</th>
+        <th class="right">Used / min</th>
+        <th class="right">Denied / min</th>
+        <th>Penalty</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in buckets %}
+      <tr>
+        <td class="mono">{{ b.name }}</td>
+        <td class="mono right">{{ b.tokens }} / {{ b.capacity }}</td>
+        <td>
+          <div style="background:var(--bg-deep);width:100px;height:8px;border:1px solid var(--border);position:relative">
+            <div style="background:{% if b.tokens_pct < 20 %}var(--red){% elif b.tokens_pct < 50 %}var(--amber){% else %}var(--cyan){% endif %};width:{{ b.tokens_pct }}%;height:100%"></div>
+          </div>
+        </td>
+        <td class="mono right">{{ b.tokens_per_min }}</td>
+        <td class="mono right">{{ b.consumed_last_min }}</td>
+        <td class="mono right" style="color:{% if b.denied_last_min %}var(--red){% else %}var(--muted){% endif %}">{{ b.denied_last_min }}</td>
+        <td>
+          {% if b.penalty_active %}
+            <span class="badge" style="background:var(--red);color:var(--bg-deep)">429 cooling {{ b.penalty_remaining_s }}s</span>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px">No buckets registered yet — they materialize on first upstream call.</div>
+  {% endif %}
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Recent cycles (60)</h2>
+  <table>
+    <thead><tr><th>When</th><th>ms</th><th>+adds</th><th>−rem</th><th>errors</th><th>notes</th></tr></thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td class="mono">{{ r.started_at[11:19] }}</td>
+        <td class="mono">{{ r.duration_ms }}</td>
+        <td class="mono right">{{ r.added }}</td>
+        <td class="mono right">{{ r.removed }}</td>
+        <td class="mono right" style="color:{{ 'var(--red)' if r.errors else 'var(--muted)' }}">{{ r.errors }}</td>
+        <td class="muted" style="font-size:11px">{{ r.notes[:80] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

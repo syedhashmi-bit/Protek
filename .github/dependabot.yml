@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Python deps (requirements.txt + requirements-dev.txt)
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  # GitHub Actions versions (keeps checkout/setup-python current — see the
+  # Node 20 deprecation that prompted this)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Base image in the Dockerfile. Python 3.12 is the project standard (venv,
+  # install.sh, packaging all target it) — only take patch updates within the
+  # 3.12.x line, not major/minor jumps to 3.13/3.14.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"

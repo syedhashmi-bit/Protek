@@ -1,0 +1,219 @@
+"""
+Multi-instance MikroTik adapter — kind="mikrotik".
+
+Sibling of mikrotik_adapter.py's MikroTikLegacyAdapter (kind="mikrotik_env",
+which is hardcoded to the .env-anchored primary router). Use this one when
+you want to push the same decisions to additional routers — e.g. an office
+router, a backup site, or a friend's MikroTik you're protecting.
+
+Config_json shape (set via /bouncers add form):
+    {
+      "host": "10.0.0.1",
+      "username": "protek-api",
+      "password": "...",
+      "port": 8728,
+      "use_ssl": false,
+      "address_list": "crowdsec",          # router-side list name
+      "max_entries": 30000,                # optional; per-bouncer filter
+      "exclude_origins": ["lists:firehol_cruzit_web_attacks"]
+    }
+
+The operator still owns the firewall rules on each router. Protek only
+writes the address-list with `protek:` comment ownership — same safety
+contract as the env-anchored adapter.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+from typing import Any
+
+from mikrotik import MikroTik
+
+from . import register
+
+
+def _is_ipv6(addr: str) -> bool:
+    """True for IPv6 with or without /prefix. Same helper as the legacy
+    `mikrotik_adapter.py` — lifted here so the DB-driven adapter
+    doesn't depend on the legacy module."""
+    try:
+        return ipaddress.ip_network(addr.strip(), strict=False).version == 6
+    except (ValueError, AttributeError):
+        return False
+
+
+def _split_id(prefixed_id: str) -> tuple[str, str]:
+    """('v6:*123',) → ('/ipv6/firewall/address-list', '*123'). Bare ids
+    (no prefix) are treated as v4 for backward compat — the snapshot
+    path in `mikrotik.py` adds the `v4:` / `v6:` prefix to every entry's
+    .id so the remove path knows which resource to call."""
+    if prefixed_id.startswith("v6:"):
+        return "/ipv6/firewall/address-list", prefixed_id[3:]
+    if prefixed_id.startswith("v4:"):
+        return "/ip/firewall/address-list", prefixed_id[3:]
+    return "/ip/firewall/address-list", prefixed_id
+
+
+@register("mikrotik")
+class MikroTikDBAdapter:
+    """DB-configured MikroTik. Each row in bouncer_targets is one router."""
+
+    # Phase 82 — field_schema() drives the /bouncers/add wizard rendering.
+    # Each entry maps directly to a wizard input. `mask=True` renders as
+    # <input type="password">; `coerce` is applied to the posted string
+    # before it lands in config_json.
+    field_schema = [
+        {"name": "host", "label": "Router host or IP", "type": "text",
+         "required": True, "placeholder": "192.168.88.1",
+         "help": "RouterOS API host. Hostname or IP — port goes in the next field."},
+        {"name": "username", "label": "API username", "type": "text",
+         "required": True, "placeholder": "protek-api",
+         "help": "Dedicated user with `read,write,api,!sensitive` rights on the firewall menu. "
+                 "Don't use admin."},
+        {"name": "password", "label": "API password", "type": "password",
+         "required": True, "mask": True,
+         "help": "Stored at rest in bouncer_targets.config_json. Never shown again after save — "
+                 "rotate from the edit page when needed."},
+        {"name": "port", "label": "API port", "type": "number",
+         "required": False, "placeholder": "8728", "default": 8728, "coerce": "int",
+         "help": "8728 (plaintext) or 8729 (TLS, set use_ssl=true)."},
+        {"name": "use_ssl", "label": "Use TLS (API 8729)", "type": "checkbox",
+         "required": False, "default": False, "coerce": "bool"},
+        {"name": "address_list", "label": "Address-list name", "type": "text",
+         "required": False, "placeholder": "crowdsec", "default": "crowdsec",
+         "help": "Name of the address-list on the router. Operator's firewall rules "
+                 "consume this list — Protek never touches the rules."},
+        {"name": "max_entries", "label": "Max entries (optional cap)", "type": "number",
+         "required": False, "placeholder": "30000", "coerce": "int_or_none",
+         "help": "Leave blank to push everything. Useful for slower routers that struggle "
+                 "with multi-thousand address-lists."},
+        # Phase 97 — per-MT routing rules. Both fields are optional;
+        # leaving them blank preserves today's behavior (this MT gets
+        # the full merged set from all federation sources, all scenarios).
+        {"name": "source_filter", "label": "Source filter (optional)", "type": "text",
+         "required": False, "placeholder": "local,vps-b",
+         "help": "Comma-separated list of federation source names. Only "
+                 "decisions whose origin_source is in this list reach this "
+                 "bouncer. Leave blank for 'all sources'. Use case: a perimeter "
+                 "MT gets the full federated set, an internal MT gets only "
+                 "`local` so it doesn't carry community blocklists."},
+        {"name": "scenario_filter", "label": "Scenario filter (regex, optional)", "type": "text",
+         "required": False, "placeholder": "http-.*",
+         "help": "Python regex applied to each decision's scenario (re.search). "
+                 "Only matches are pushed. Leave blank for 'all scenarios'. "
+                 "Use case: narrow a service-specific MT to its threat profile, "
+                 "e.g. `http-` for an HTTPS edge or `ssh-bf` for an SSH bastion."},
+    ]
+
+    def __init__(self, name: str = "mikrotik",
+                 host: str = "", username: str = "", password: str = "",
+                 port: int = 8728, use_ssl: bool = False,
+                 address_list: str = "crowdsec",
+                 origins: list[str] | None = None,
+                 exclude_origins: list[str] | None = None,
+                 max_entries: int | None = None,
+                 min_reputation: int | None = None,
+                 source_filter: str | list[str] | None = None,
+                 scenario_filter: str | None = None,
+                 **_: Any):
+        self.name = name
+        self.kind = "mikrotik"
+        self._mt = MikroTik(host=host, username=username, password=password,
+                            port=int(port), use_ssl=bool(use_ssl))
+        self.list_name = address_list or "crowdsec"
+        # Per-bouncer filter knobs — same shape as cloudflare_adapter.
+        self.origins = list(origins or [])
+        self.exclude_origins = list(exclude_origins or [])
+        self.max_entries = int(max_entries) if max_entries else None
+        self.min_reputation = int(min_reputation) if min_reputation else None
+        # Phase 97 — store as-given; the reconciler normalizes CSV vs list.
+        self.source_filter = source_filter or None
+        self.scenario_filter = scenario_filter or None
+
+    def is_configured(self) -> bool:
+        return self._mt.is_configured()
+
+    def health(self) -> dict[str, Any]:
+        h = self._mt.health()
+        return {**h, "bouncer": self.name, "kind": self.kind, "list": self.list_name}
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        if not self.is_configured():
+            return []
+        try:
+            return self._mt.get_address_list(self.list_name)
+        except Exception:  # noqa: BLE001
+            return []
+
+    def apply(self, to_add: list[tuple[str, str]], to_remove_ids: list[str]) -> dict[str, Any]:
+        """IPv4 + IPv6 dispatch. RouterOS uses separate resources for the
+        two families (`/ip/firewall/address-list` vs
+        `/ipv6/firewall/address-list`); pushing an IPv6 string at the v4
+        resource produces the `<addr> is not a valid dns name` error
+        observed in 2026-05-26 MEMORY (~200/cycle). Mirrors the
+        established pattern in `mikrotik_adapter.py` (legacy env adapter)
+        — same split, same idempotency handling."""
+        applied_add = 0
+        applied_remove = 0
+        errors = 0
+        push_log: list[dict[str, Any]] = []
+        if not self.is_configured():
+            return {"applied_add": 0, "applied_remove": 0, "errors": 0, "push_log": []}
+        self._mt.connect()
+        try:
+            res_v4 = self._mt._api.get_resource("/ip/firewall/address-list")  # noqa: SLF001
+            try:
+                res_v6 = self._mt._api.get_resource("/ipv6/firewall/address-list")  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                res_v6 = None  # router has no IPv6 routing config
+
+            for addr, comment in to_add:
+                want_v6 = _is_ipv6(addr)
+                res = res_v6 if want_v6 else res_v4
+                if res is None:
+                    errors += 1
+                    push_log.append({"ip": addr, "action": "add", "success": False,
+                                     "error": "ipv6 address-list resource unavailable"})
+                    continue
+                try:
+                    res.add(list=self.list_name, address=addr, comment=comment)
+                    applied_add += 1
+                    push_log.append({"ip": addr, "action": "add", "success": True})
+                except Exception as e:  # noqa: BLE001
+                    msg = str(e).lower()
+                    if "already have such entry" in msg or "duplicate" in msg or "already exists" in msg:
+                        applied_add += 1
+                        push_log.append({"ip": addr, "action": "add", "success": True,
+                                         "error": "idempotent"})
+                    else:
+                        errors += 1
+                        push_log.append({"ip": addr, "action": "add", "success": False,
+                                         "error": str(e)[:300]})
+
+            for mt_id in to_remove_ids:
+                path, real_id = _split_id(mt_id)
+                res = res_v6 if path == "/ipv6/firewall/address-list" else res_v4
+                if res is None:
+                    errors += 1
+                    push_log.append({"ip": mt_id, "action": "remove", "success": False,
+                                     "error": "ipv6 address-list resource unavailable"})
+                    continue
+                try:
+                    res.remove(id=real_id)
+                    applied_remove += 1
+                    push_log.append({"ip": mt_id, "action": "remove", "success": True})
+                except Exception as e:  # noqa: BLE001
+                    msg = str(e).lower()
+                    if "no such item" in msg or "not found" in msg:
+                        applied_remove += 1
+                        push_log.append({"ip": mt_id, "action": "remove", "success": True,
+                                         "error": "idempotent"})
+                    else:
+                        errors += 1
+                        push_log.append({"ip": mt_id, "action": "remove", "success": False,
+                                         "error": str(e)[:300]})
+        finally:
+            self._mt.disconnect()
+        return {"applied_add": applied_add, "applied_remove": applied_remove,
+                "errors": errors, "push_log": push_log}
