@@ -2,41 +2,41 @@
 # Lift compatible versions from pipsqueeze where they overlap.
 
 # Web
-Flask>=3.0,<4.0
-Flask-WTF>=1.2,<2.0
-gunicorn>=21.0,<24.0
-Jinja2>=3.1,<4.0
+Flask>=3.1.3,<4.0
+Flask-WTF>=1.3.0,<2.0
+gunicorn>=26.0.0,<27.0
+Jinja2>=3.1.6,<4.0
 
 # HTTP / config
-requests>=2.31,<3.0
-python-dotenv>=1.0,<2.0
+requests>=2.34.2,<3.0
+python-dotenv>=1.2.2,<2.0
 
 # MikroTik
-RouterOS-api>=0.18,<1.0
+RouterOS-api>=0.21.0,<1.0
 
 # Auth / security
 pyotp>=2.9,<3.0
-bcrypt>=4.0,<5.0
-qrcode>=7.4,<9.0
+bcrypt>=5.0.0,<6.0
+qrcode>=8.2,<9.0
 
 # Intelligence layer (Arc 3)
-dnspython>=2.6,<3.0
+dnspython>=2.8.0,<3.0
 
 # Encrypted bundle (Arc 7 phase 41)
-cryptography>=42.0,<50.0
+cryptography>=48.0.0,<50.0
 
 # ML anomaly layer (Arc 10 phase 62) — Isolation Forest over per-IP features
-scikit-learn>=1.4,<2.0
-numpy>=1.26,<3.0
+scikit-learn>=1.8.0,<2.0
+numpy>=2.4.6,<3.0
 
 # Off-box backup (Arc 11 phase 63) — S3-compatible (Backblaze B2 / AWS / MinIO)
-boto3>=1.34,<2.0
+boto3>=1.43.18,<2.0
 
 # OIDC SSO (Arc 12 phase 70) — generic OpenID Connect via Authlib
-Authlib>=1.3,<2.0
+Authlib>=1.7.2,<2.0
 
 # GraphQL (Arc 12 phase 73)
-strawberry-graphql[flask]>=0.220,<1.0
+strawberry-graphql[flask]>=0.316.0,<1.0
 
 # Test/dev-only deps live in requirements-dev.txt so they are NOT installed
 # in production (install.sh / packaging install requirements.txt only).
