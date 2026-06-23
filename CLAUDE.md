@@ -12,13 +12,21 @@ Protek — a self-hosted **CrowdSec → MikroTik bouncer** with a NOC-style dash
 
 ## Deployment
 
+> **⚠️ MIGRATED 2026-06-23 — Protek now runs on VPS B.** This section was originally
+> written for VPS A (now pending decommission). Current truth + the full migration story
+> is in **`docs/MIGRATION-VPS-B.md`** (and the 2026-06-23 entry in `MEMORY.md`). Key deltas
+> from the bullets below: host is **VPS B** `5.78.147.36` (Ubuntu 26.04, Oregon); the venv
+> is **uv-built 3.12** (B has no apt python3.12 — `uv` at `/root/.local/bin/uv`); the
+> MikroTik is reached over the **public IP** `MT_HOST=45.248.49.159` (user `api` must be
+> allowlisted at the RouterOS `/user` level); DNS + TLS already live on B.
+
 - **Service**: `protek` (gunicorn systemd unit at `/etc/systemd/system/protek.service`, modelled after `vpn-dashboard` from pipsqueeze)
 - **Project path**: `/var/www/Protek`
 - **Gunicorn bind**: `127.0.0.1:8090` (other apps use 3000 atom, 5000 traverse, 8000 pipsqueeze, 8088 othoni)
-- **VPS**: this Ubuntu host — same box that runs CrowdSec locally
-- **Python venv**: `/var/www/Protek/venv` (Python 3.12)
+- **VPS**: ~~this Ubuntu host~~ → **VPS B** (`5.78.147.36`, Ubuntu 26.04) — same box that runs CrowdSec locally
+- **Python venv**: `/var/www/Protek/venv` (Python 3.12 — built with `uv`, not system python, on B)
 - **Domain**: `protek.syedhashmi.trade` → nginx site `/etc/nginx/sites-available/protek`, enabled and reloaded
-- **TLS**: run `sudo certbot --nginx -d protek.syedhashmi.trade` once the app is up; certbot will rewrite the nginx site to add 443 + HTTP→HTTPS redirect (same shape as pipsqueeze)
+- **TLS**: run `sudo certbot --nginx -d protek.syedhashmi.trade` once the app is up; certbot will rewrite the nginx site to add 443 + HTTP→HTTPS redirect (same shape as pipsqueeze). *(Already issued on B, auto-renew.)*
 
 ## Service Commands
 

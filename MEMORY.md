@@ -4,6 +4,62 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-06-23 — ⭐ MIGRATED: Protek relocated from VPS A → VPS B (see `docs/MIGRATION-VPS-B.md`)
+
+**Production host changed.** Protek now runs on **VPS B** (`5.78.147.36`, Ubuntu 26.04,
+Oregon) so VPS A can be decommissioned. Old CLAUDE.md/CONTEXT.md prose about "this VPS"
+referred to A — read `docs/MIGRATION-VPS-B.md` for the current truth. Headlines:
+
+- **Python via `uv`** (B has no apt python3.12; venv is uv-built 3.12.13). `uv` at `/root/.local/bin/uv`.
+- **LAPI local** `127.0.0.1:8080` (rebound off the old `10.8.0.5` federation bind), bouncer `protek-local`.
+- **MikroTik over the public IP** `MT_HOST=45.248.49.159:8728`, user `api`, RouterOS 7.23 `syed-home`.
+  B needed allowlisting at 3 layers; the last/sneakiest is the RouterOS **`/user` allowed-address**
+  (symptom: login error `not allowed to login from this address (9)` after TCP connects).
+- **Fresh DB** on B (A's 3.7 GB DB not copied); `.env` scp'd from A then patched. Federation collapsed to local-only.
+- DNS → B (grey-cloud) + certbot TLS. A's protek stopped+disabled; B live (`DRY_RUN=false`), `/health` ok.
+- **Decommission of A is NOT done** — still pending: migrate **atom** (:3000) + **pipsqueeze** (:8000,
+  nginx site `vpn-dashboard`), remove A's stale `traverse.service`, re-home wg0 peers `10.8.0.2/3/4`
+  to B's `wg1`. Plus B cleanup: delete stale `protek-from-vps-a` bouncer, rotate MT `api` password.
+- Keep MT batch cap at **~200/cycle** (CLAUDE.md rate limit); a bump to speed convergence was blocked.
+
+## 2026-06-04 — Outage: federation source `vps-b` (us-vps) down 24h+ — WireGuard tunnel stopped
+
+**Operator report:** "make sure all works, especially the us-vps." The us-vps =
+federation source `vps-b` (Hetzner US box `ubuntu-2gb-hil-1`, Hillsboro, WG IP `10.8.0.5`).
+
+### Root cause
+
+`wg-quick@wg0.service` on VPS A (the WireGuard hub) was cleanly stopped on
+**2026-06-03 05:08** and never restarted (unit was `enabled` but `inactive`).
+With the tunnel down, `10.8.0.5` was 100% unreachable, so the poller's pull of
+`vps-b` failed every cycle (`ConnectTimeout` to `10.8.0.5:8080`) — **49 consecutive
+failures**, source stuck in the 30-min exponential backoff. `ssh vps-b` also failed
+(its SSH config HostName is the WG IP `10.8.0.5`). Not a code bug.
+
+### Fix
+
+- `systemctl start wg-quick@wg0` → tunnel up, `vps-b` peer handshake re-established.
+- Verified VPS B healthy: CrowdSec active, LAPI bound to `10.8.0.5:8080`, cscli v1.7.8.
+- Proved poller request path: `GET /v1/decisions` on vps-b LAPI → HTTP 403 in 0.36s
+  (was 10s timeout).
+- `systemctl restart protek` to re-bootstrap; backoff cleared on next success.
+- **Recovery confirmed 06:37:19** — poller bootstrapped **33,559 decisions from vps-b**.
+
+### Notes / follow-ups (not actioned)
+
+- **`protek.db` is 1.6 GB** — `/health` takes ~13.8s because of it. Needs VACUUM +
+  retention pass on `geo_cache`/`sync_events`. (Forbidden to read per CLAUDE.md.)
+- `wg-quick@wg0` is `enabled` so it survives reboot — but it was stopped while the box
+  stayed up, so *something* issued `systemctl stop` on Jun 03 05:08. If it recurs,
+  investigate what stopped it.
+- Codebase health this session: ruff clean, full pytest suite passes. A bug-survey
+  pass claiming `.fetchone()[0]` crashes was a false positive (`sqlite3.Row` supports
+  integer indexing — verified). No code changes made.
+- Playwright login smoke passed (unauthenticated): `/`→`/login`, all 3 fields render,
+  no console errors. Full logged-in sweep needs a live TOTP code.
+
+---
+
 ## 2026-05-28 (cont. 4) — ENOSPC #3: VPS B replica filled, full rebaseline
 
 Third ENOSPC of the week. Same shape as #1 (2026-05-25, VPS A WAL bloat)
