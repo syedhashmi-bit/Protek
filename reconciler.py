@@ -480,14 +480,20 @@ def _desired_from_db() -> list[dict[str, Any]]:
     if ips:
         conn = get_conn()
         try:
-            placeholders = ",".join("?" * len(ips))
-            for r in conn.execute(
-                f"SELECT ip, asn, country_code FROM geo_cache WHERE ip IN ({placeholders})", ips
-            ).fetchall():
-                if r["asn"]:
-                    asn_map[r["ip"]] = r["asn"]
-                if r["country_code"]:
-                    country_map[r["ip"]] = r["country_code"]
+            # Chunk the IN(...) bind so we never exceed SQLite's
+            # SQLITE_LIMIT_VARIABLE_NUMBER (32766) when the active decision
+            # set is large (FireHOL/CAPI lists routinely push past it).
+            for i in range(0, len(ips), 900):
+                chunk = ips[i : i + 900]
+                placeholders = ",".join("?" * len(chunk))
+                for r in conn.execute(
+                    f"SELECT ip, asn, country_code FROM geo_cache WHERE ip IN ({placeholders})",
+                    chunk,
+                ).fetchall():
+                    if r["asn"]:
+                        asn_map[r["ip"]] = r["asn"]
+                    if r["country_code"]:
+                        country_map[r["ip"]] = r["country_code"]
         finally:
             conn.close()
 
@@ -519,21 +525,28 @@ def _desired_from_db() -> list[dict[str, Any]]:
             # row so we don't re-queue them.
             seen_status: dict[str, str] = {}
             if out:
-                placeholders = ",".join("?" * len(out))
-                rows = conn.execute(
-                    f"""
-                    SELECT ip, status
-                    FROM approval_queue
-                    WHERE id IN (
-                        SELECT MAX(id) FROM approval_queue
-                        WHERE ip IN ({placeholders})
-                        GROUP BY ip
-                    )
-                    """,
-                    [d["value"] for d in out],
-                ).fetchall()
-                for r in rows:
-                    seen_status[r["ip"]] = r["status"]
+                # Chunk to stay under SQLite's variable limit (see geo_cache
+                # query above). MAX(id) GROUP BY ip is per-ip, so batching by
+                # ip preserves semantics — each chunk returns the latest status
+                # for the ips it contains.
+                out_ips = [d["value"] for d in out]
+                for i in range(0, len(out_ips), 900):
+                    chunk = out_ips[i : i + 900]
+                    placeholders = ",".join("?" * len(chunk))
+                    rows = conn.execute(
+                        f"""
+                        SELECT ip, status
+                        FROM approval_queue
+                        WHERE id IN (
+                            SELECT MAX(id) FROM approval_queue
+                            WHERE ip IN ({placeholders})
+                            GROUP BY ip
+                        )
+                        """,
+                        chunk,
+                    ).fetchall()
+                    for r in rows:
+                        seen_status[r["ip"]] = r["status"]
         finally:
             conn.close()
         for d in out:
