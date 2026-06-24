@@ -4651,34 +4651,33 @@ def security_unlock():
     return redirect(url_for("security_page"))
 
 
-# ── MikroTik quick-cache (avoid hammering the router on every pageview) ─────
-
-_MT_CACHE: dict[str, object] = {"at": None, "ok": False, "count": None}
+# ── MikroTik status, read from the poller's cache (NEVER live-fetch here) ────
+#
+# The poller already probes MT reachability every cycle (cheap mt.health() →
+# settings `mt.last_status`) and the reconciler records the owned address-list
+# size (`mt.last_list_count`). The request path MUST read those settings and
+# never call get_address_list() itself — a full ~51k-entry snapshot takes ~100s
+# and, run per-pageview across sync workers, was the cause of the slow dashboard.
 
 
 def _mt_quick_ok() -> bool:
-    """Return cached health; refresh at most once per 30s."""
-    now = datetime.now(timezone.utc)
-    last = _MT_CACHE.get("at")
-    if last and (now - last).total_seconds() < 30:
-        return bool(_MT_CACHE.get("ok"))
-    mt = MikroTik()
-    if not mt.is_configured():
-        _MT_CACHE.update({"at": now, "ok": False, "count": None})
+    """MT reachability for the status pill, read from the poller's cache.
+    No network I/O — reflects the last poller cycle (~10s freshness)."""
+    if not MikroTik().is_configured():
         return False
-    try:
-        entries = mt.get_address_list(address_list_name())
-        _MT_CACHE.update({"at": now, "ok": True, "count": len(entries)})
-        return True
-    except Exception:  # noqa: BLE001
-        _MT_CACHE.update({"at": now, "ok": False, "count": None})
-        return False
+    return get_setting("mt.last_status") == "up"
 
 
 def _cached_mt_count() -> int | None:
-    _mt_quick_ok()
-    val = _MT_CACHE.get("count")
-    return val if isinstance(val, int) else None
+    """Owned address-list size, read from the reconciler's per-cycle cache.
+    No network I/O. None until the first successful MT snapshot."""
+    val = get_setting("mt.last_list_count")
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
 
 
 if __name__ == "__main__":
