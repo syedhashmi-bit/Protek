@@ -93,6 +93,8 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
              or "60")
         )
 
+        mt_list_count = 0
+        mt_count_valid = False
         with ThreadPoolExecutor(max_workers=max_workers,
                                  thread_name_prefix="bouncer-apply") as ex:
             futures = {
@@ -106,6 +108,11 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
                     error_count += 1
                     note_bits.append(f"{b.name}_apply_failed: {e}")
                     continue
+                # Owned address-list size, summed across MikroTik bouncers, so
+                # the dashboard can show the count without live-fetching the router.
+                if str(r.get("kind", "")).startswith("mikrotik") and r["snapshot_ok"]:
+                    mt_list_count += r["snapshot_n"]
+                    mt_count_valid = True
                 snapshot_ms += r["snapshot_ms"]
                 diff_ms     += r["diff_ms"]
                 apply_ms    += r["apply_ms"]
@@ -182,6 +189,8 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         "errors": error_count,
         "notes": "; ".join(note_bits),
         "bouncer_count": len(all_bouncers),
+        "mt_list_count": mt_list_count,
+        "mt_count_valid": mt_count_valid,
     }
 
 
@@ -196,17 +205,26 @@ def _run_one_bouncer(b, desired: list[dict[str, Any]],
         "name": b.name, "kind": getattr(b, "kind", ""),
         "snapshot_ms": 0, "diff_ms": 0, "apply_ms": 0,
         "to_add_n": 0, "to_remove_n": 0, "unchanged_n": 0,
+        "snapshot_n": 0, "snapshot_ok": False,
         "errors": 0, "notes": [], "push_log": [], "ok": True,
     }
     t_snap = time.monotonic()
     try:
-        current = b.snapshot() if b.is_configured() else []
+        if b.is_configured():
+            current = b.snapshot()
+            out["snapshot_ok"] = True  # configured + snapshot returned cleanly
+        else:
+            current = []
     except Exception as e:  # noqa: BLE001
         current = []
         out["errors"] += 1
         out["ok"] = False
         out["notes"].append(f"{b.name}_snapshot_failed: {e}")
     out["snapshot_ms"] = int((time.monotonic() - t_snap) * 1000)
+    # Owned-list size, captured for free here so the web tier never has to
+    # re-fetch the full address-list just to display a count (see app.py
+    # _cached_mt_count / poller mt.last_list_count).
+    out["snapshot_n"] = len(current)
 
     desired_for_b = _filter_desired_for_bouncer(b, desired)
     if len(desired_for_b) < len(desired):
