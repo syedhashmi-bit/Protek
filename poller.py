@@ -156,6 +156,13 @@ class Poller:
             set_setting("reconcile.last_errors", str(result["errors"]))
             set_setting("reconcile.last_dry_run", "1" if result["dry_run"] else "0")
             set_setting("reconcile.last_notes", result.get("notes", ""))
+            # Cache the owned MT address-list size so the web tier can show the
+            # count without re-fetching the whole list per pageview (the cause of
+            # the slow dashboard). Only persist when an MT bouncer snapshotted
+            # cleanly, so a transient snapshot failure doesn't clobber it with 0.
+            if result.get("mt_count_valid"):
+                set_setting("mt.last_list_count", str(result["mt_list_count"]))
+                set_setting("mt.last_list_count_at", datetime.now(timezone.utc).isoformat())
 
             # Notifications
             try:

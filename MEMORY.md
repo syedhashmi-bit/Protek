@@ -4,6 +4,43 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-06-24 (cont.) — Slow dashboard fixed: removed in-request full MikroTik snapshots
+
+**Operator report:** "website is very slow." Not CPU/RAM/DB (load 0.33/4 cores, 94 MB DB).
+
+### Root cause
+`_mt_quick_ok()` in `app.py` called `mt.get_address_list()` — a **full fetch of the entire
+owned address-list (v4+v6)** — just to render the status pill + a count. Reached from the
+hot path: `/api/health` (polled every 5 s by `refreshPills` in `templates/base.html`),
+public `/health`, and the dashboard `/` render (`_cached_mt_count`). `_MT_CACHE` was
+module-level = **per worker**, so all 3 sync workers each ran that snapshot every 30 s, on
+top of the reconcile worker's own. Measured cold `/health` = **18.2 s** (would climb toward
+~100 s as the list grows to ~51 k), blocking the worker each time → starved pool.
+
+### Fix (code-only, "core fix" scope)
+Make the request path read cached settings, **zero network I/O**:
+- `reconciler.py` — `_run_one_bouncer` now records `snapshot_n=len(current)` + `snapshot_ok`
+  (the snapshot is already taken each cycle, so the count is free); `reconcile_once`
+  sums it across `mikrotik*` bouncers → `mt_list_count` / `mt_count_valid` in the result.
+- `poller.py` — persists `mt.last_list_count` (+ `_at`) each cycle when `mt_count_valid`
+  (guarded so a transient snapshot failure can't clobber it with 0). The poller already
+  wrote `mt.last_status` via cheap `mt.health()`.
+- `app.py` — `_mt_quick_ok()` reads `mt.last_status`; `_cached_mt_count()` reads
+  `mt.last_list_count`. Deleted the per-worker `_MT_CACHE` / live `get_address_list()` path.
+- Left the genuinely-manual probes alone (`/api/mt/health`, `/mikrotik` page) — they already
+  use the cheap `mt.health()` (identity/resource), not the address-list.
+
+### Verified live
+Cold `/health`: **18,169 ms → 27 ms** (~670×). 20 concurrent `/health`: max 76 ms, no stalls.
+Reconcile cycles clean (0 failures). Pills/count refresh every poller cycle (~10 s).
+
+### Notes
+- `pytest` is NOT installed in this clone's venv (test deps weren't carried over) — relied
+  on live verification. Worth `pip install -r requirements-dev` (or equiv) if tests are wanted.
+- Deeper cost untouched (out of scope): the MT snapshot of ~51 k entries still takes ~100 s
+  *inside the reconcile loop* every cycle. Follow-ups noted in the plan: gunicorn `gthread`/
+  more workers, and the phase-98 `mikrotik_rest` adapter to cut the snapshot 2–3×.
+
 ## 2026-06-24 — MikroTik sync restored on a NEW host (snapshot clone) + `too many SQL variables` reconcile bug fixed
 
 **Operator report:** dashboard showed `STATUS OFFLINE`, `connect failed: timed out`,
