@@ -4,6 +4,51 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-06-24 — MikroTik sync restored on a NEW host (snapshot clone) + `too many SQL variables` reconcile bug fixed
+
+**Operator report:** dashboard showed `STATUS OFFLINE`, `connect failed: timed out`,
+address-list `0 owned`, 0 successful cycles.
+
+### Surprise: this is NOT VPS B
+The running host is `snapshot-400921072-ubuntu-8gb-hel1-1`, Hetzner **Helsinki 8GB**,
+public IPv4 **`135.181.157.248`** — a **snapshot/clone of VPS B**, not B itself
+(`5.78.147.36`, Oregon). It inherited B's journal history (old `ubuntu-2gb-hil-1`
+log lines are from the source image). `docs/MIGRATION-VPS-B.md` still describes B as the
+host — **needs updating if this clone is now production**.
+
+### Root cause #1 — MikroTik 3-layer source-IP allowlist (the `docs/MIGRATION-VPS-B.md` gotcha)
+MT `45.248.49.159:8728` only allowed B's IP; the clone's `135.181.157.248` was blocked.
+Diagnosed each layer at the socket level (ping OK, port 80 OK throughout):
+1. **firewall filter** → symptom `timed out` (SYN dropped). Operator fixed → port 8728 OPEN.
+2. **`/ip service api address`** → symptom `[Errno 104] Connection reset by peer` (TCP
+   connects, service resets before login protocol). Proved via raw socket: `recv()`
+   returned `b''` immediately. Operator added IP → `recv()` then timed out = service accepts.
+3. **`/user … address`** (would give `not allowed to login from this address (9)`) — did
+   NOT bite this time; cleared once layer 2 opened. `apply_failed` + `connection reset`
+   both went to 0.
+
+### Root cause #2 — reconcile crashed on `too many SQL variables` (latent bug the MT timeout had masked)
+Once MT was reachable, reconcile reached its DB path and threw every cycle. SQLite caps
+bound vars at **32766** (confirmed on this box, sqlite 3.53.1). Fix: chunked the two
+dynamic `IN (...)` queries in **`reconciler.py`** (geo_cache enrichment ~L483, approval_queue
+~L521) into batches of 900. `reconcile cycle failed: too many SQL variables` → **0** after
+restart. Active decisions were ~29k (just under the limit) but FireHOL/CAPI lists routinely
+push past it; historic counts of 33k–111k are in this log.
+
+### Debugging lesson
+`python` is NOT on PATH on this box (venv is uv-built; use `/var/www/Protek/venv/bin/python`
+or `python3`). A `python -c '…' && systemctl restart` guard silently short-circuited and
+the restart never ran — made the fix look like it failed. Use the venv python explicitly.
+
+### State / follow-ups
+- **Edits are in the LIVE checkout `/var/www/Protek` (uncommitted), NOT in the worktree
+  branch.** `reconciler.py` (the real fix) + `poller.py` (reverted clean — a temporary
+  `exc_info=True` was used to grab the traceback, then removed). Needs commit.
+- Separate non-blocking issue still open: `alerts mirror: machine login HTTP 401 "machine
+  not found"` — CrowdSec **machine** creds missing (distinct from bouncer key); `/alerts`
+  won't populate until `cscli machines add protek-machine --auto` → `.env` → restart.
+- Convergence now draining at the 200-ops/cycle cap; address-list owned count should climb.
+
 ## 2026-06-23 — ⭐ MIGRATED: Protek relocated from VPS A → VPS B (see `docs/MIGRATION-VPS-B.md`)
 
 **Production host changed.** Protek now runs on **VPS B** (`5.78.147.36`, Ubuntu 26.04,
