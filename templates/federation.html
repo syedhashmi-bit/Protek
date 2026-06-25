@@ -7,21 +7,21 @@
 .matrix .cell{background:var(--bg-deep);padding:6px 8px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--muted);text-align:center}
 .matrix .cell.head{background:var(--bg-panel);color:var(--cyan);font-weight:600;letter-spacing:.08em;text-transform:uppercase}
 .matrix .cell.diag{background:var(--bg-raised);color:var(--muted-low)}
-.matrix .cell.lvl-1{background:rgba(0,200,255,.16);color:#cfe8ff}
-.matrix .cell.lvl-2{background:rgba(0,200,255,.36);color:#fff}
-.matrix .cell.lvl-3{background:rgba(0,200,255,.6);color:#fff}
-.matrix .cell.lvl-4{background:rgba(0,255,157,.6);color:#06101c}
+.matrix .cell.lvl-1{background:rgba(54,200,239,.16);color:var(--text)}
+.matrix .cell.lvl-2{background:rgba(54,200,239,.34);color:var(--text)}
+.matrix .cell.lvl-3{background:rgba(54,200,239,.55);color:var(--bg-deep)}
+.matrix .cell.lvl-4{background:rgba(62,230,168,.55);color:var(--bg-deep)}
 .topology{padding:16px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;justify-content:center}
-.tnode{background:var(--bg-deep);border:1px solid var(--border);padding:10px 14px;border-radius:4px;
+.tnode{background:var(--bg-deep);border:1px solid var(--border);padding:10px 14px;border-radius:var(--radius-sm);
   font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--text);min-width:170px}
-.tnode .lbl{display:block;font-size:9px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase}
+.tnode .lbl{display:block;font-size:9px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
 .tnode .nm{display:block;color:var(--cyan);margin-top:4px}
-.tnode.hub{border-color:var(--cyan);box-shadow:0 0 16px rgba(0,200,255,.18)}
+.tnode.hub{border-color:var(--cyan)}
 .tnode.target{border-color:var(--green)}
 .arrow{font-size:24px;color:var(--muted)}
 .scorecard{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;background:var(--border);margin-top:8px}
 .scorecard .cell{background:var(--bg-deep);padding:8px 10px;font-family:'Share Tech Mono',monospace;font-size:12px}
-.scorecard .lbl{color:var(--muted);font-size:9px;letter-spacing:.16em;text-transform:uppercase}
+.scorecard .lbl{color:var(--muted);font-size:9px;letter-spacing:.12em;text-transform:uppercase}
 .scorecard .val{color:var(--green);margin-top:2px}
 .scorecard .val.warn{color:var(--amber)}
 .scorecard .val.bad{color:var(--red)}
@@ -53,7 +53,7 @@
 </div>
 
 <!-- Topology -->
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Topology</h2>
   <div class="topology">
     {% for s in sources %}
@@ -79,7 +79,7 @@
 </div>
 
 <!-- Sources table + per-source actions -->
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Sources</h2>
   <table>
     <thead><tr>
@@ -95,11 +95,11 @@
         <td class="mono">{{ s.name }}</td>
         <td class="mono muted" style="word-break:break-all">{{ s.url }}</td>
         <td>
-          {% if s.paused %}<span class="badge" style="color:var(--muted)">paused</span>
+          {% if s.paused %}<span class="badge">paused</span>
           {% elif s.error %}<span class="badge" style="color:var(--red)">down</span>
-          {% elif s.backoff_active %}<span class="badge" style="color:var(--amber)">backoff</span>
+          {% elif s.backoff_active %}<span class="badge ssh">backoff</span>
           {% elif s.healthy %}<span class="badge cs">ok</span>
-          {% else %}<span class="badge" style="color:var(--muted)">unknown</span>{% endif %}
+          {% else %}<span class="badge">unknown</span>{% endif %}
         </td>
         <td class="mono right muted">{{ s.last_pull_rel }}</td>
         <td class="mono right" style="color:{% if s.last_pull_ms > 2000 %}var(--amber){% elif s.last_pull_ms > 5000 %}var(--red){% else %}var(--muted){% endif %}">{% if s.last_pull_ms %}{{ s.last_pull_ms }}ms{% else %}—{% endif %}</td>
@@ -111,7 +111,7 @@
             <input type="hidden" name="source_id" value="{{ s.id }}">
             <input type="hidden" name="action" value="{{ 'unpause' if s.paused else 'pause' }}">
             <button class="btn ghost"
-                    style="padding:4px 12px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:{% if s.paused %}var(--green){% else %}var(--amber){% endif %}"
+                    style="padding:3px 11px;color:{% if s.paused %}var(--green){% else %}var(--amber){% endif %}"
                     title="{% if s.paused %}Resume pulling decisions from this source on the next reconcile cycle.{% else %}Stop pulling decisions from this source without deleting the row (config + key preserved).{% endif %}">
               {{ '▶ resume' if s.paused else '⏸ pause' }}
             </button>
@@ -121,7 +121,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="source_id" value="{{ s.id }}">
             <input type="hidden" name="action" value="delete">
-            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove this source?')">remove</button>
+            <button class="btn ghost" style="padding:3px 9px;color:var(--red)" onclick="return confirm('Remove this source?')">remove</button>
           </form>
           {% endif %}
         </td>
@@ -135,26 +135,23 @@
 </div>
 
 <!-- Add source -->
-<div class="panel" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;padding:18px 20px">
+<div class="panel" style="margin-top:var(--gap);display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
   <div>
     <h2 style="margin:0 0 4px">Add Remote Source</h2>
-    <div class="muted" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+    <div class="muted" style="font-size:12px">
       Guided 3-step wizard: source info → key paste → connection probe + save.
       Per-source bouncer keys never leave this server.
     </div>
   </div>
-  <a href="{{ url_for('federation_add') }}" class="btn"
-     style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;text-decoration:none;border-radius:3px">
-    + Add source →
-  </a>
+  <a href="{{ url_for('federation_add') }}" class="btn">+ Add source →</a>
 </div>
 
 <!-- Confidence threshold -->
-<form method="POST" action="{{ url_for('federation_set_threshold') }}" class="panel" style="margin-top:16px;display:flex;gap:10px;align-items:center;padding:16px">
+<form method="POST" action="{{ url_for('federation_set_threshold') }}" class="panel" style="margin-top:var(--gap);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div style="flex:1">
     <h2 style="margin:0 0 4px">Confidence Threshold (paranoid mode)</h2>
-    <div class="muted" style="font-size:12px;text-transform:none;letter-spacing:0">
+    <div class="muted" style="font-size:12px">
       Only push to MikroTik when an IP is seen by at least this many sources. Set to 1 to mirror every decision (default). Set to 2+ to require cross-source agreement.
     </div>
   </div>
@@ -164,9 +161,9 @@
 
 <!-- Overlap matrix -->
 {% if matrix.sources|length > 1 %}
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Cross-Source Overlap Matrix</h2>
-  <div class="muted" style="margin-bottom:10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+  <div class="muted" style="margin-bottom:10px;font-size:12px">
     cell <span class="mono">N</span> = IPs both row source AND column source have seen
   </div>
   <div class="matrix" style="grid-template-columns:repeat({{ matrix.sources|length + 1 }}, minmax(60px, 1fr))">
@@ -183,7 +180,7 @@
 {% endif %}
 
 <!-- Per-source scorecards -->
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Source Scorecards (last 7 days)</h2>
   {% for sc in scorecards %}
   <div style="border-top:1px solid var(--border);padding:14px 0">

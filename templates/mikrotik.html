@@ -36,33 +36,33 @@
 </div>
 
 {% if not mt.configured %}
-<div class="panel" style="margin-top:16px;border-left:3px solid var(--amber)">
+<div class="panel" style="margin-top:var(--gap);border-left:3px solid var(--amber)">
   <h2 style="color:var(--amber)">Not Configured</h2>
   <div class="muted">Set <code class="mono">MT_HOST</code>, <code class="mono">MT_USERNAME</code>, <code class="mono">MT_PASSWORD</code> in <code class="mono">.env</code>, then restart the service. Reconciler is computing a virtual diff in the meantime — see the sync history below.</div>
 </div>
 {% elif not mt.ok %}
-<div class="panel" style="margin-top:16px;border-left:3px solid var(--red)">
+<div class="panel" style="margin-top:var(--gap);border-left:3px solid var(--red)">
   <h2 style="color:var(--red)">Connection Error</h2>
   <div class="mono" style="color:var(--red);word-break:break-word">{{ mt.error }}</div>
 </div>
 {% endif %}
 
 {% if initial_sync %}
-<div class="panel" style="margin-top:16px;border-left:3px solid var(--cyan)">
+<div class="panel" style="margin-top:var(--gap);border-left:3px solid var(--cyan)">
   <h2 style="color:var(--cyan)">Initial Sync In Progress</h2>
   <div class="mono">
     {{ owned_total }} / {{ lapi_active }} entries applied ·
     <span class="muted">batch cap {{ batch_cap }}/cycle · ETA {{ initial_eta }}</span>
   </div>
-  <div style="margin-top:10px;height:6px;background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;overflow:hidden">
-    <div style="height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));width:{{ initial_pct }}%"></div>
+  <div style="margin-top:10px;height:6px;background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+    <div style="height:100%;background:var(--cyan);width:{{ initial_pct }}%"></div>
   </div>
 </div>
 {% endif %}
 
-<div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+<div style="display:flex;gap:10px;margin-top:var(--gap);align-items:center;flex-wrap:wrap">
   <button class="btn" id="force-sync-btn" onclick="forceSync()">Force Sync Now</button>
-  <div class="muted" id="force-sync-status" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+  <div class="muted mono" id="force-sync-status" style="font-size:11px">
     last cycle: {{ recon.last_at_rel }} · diff: +{{ recon.to_add }} / −{{ recon.to_remove }} · {{ recon.duration_ms }}ms{% if recon.dry_run %} · DRY-RUN{% endif %}
   </div>
 </div>
@@ -87,7 +87,7 @@ async function forceSync(){
 }
 </script>
 
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Sync History</h2>
   <table>
     <thead><tr><th>When</th><th>Source</th><th class="right">Added</th><th class="right">Removed</th><th class="right">Unchanged</th><th class="right">Errors</th><th class="right">Duration</th><th>Mode</th><th>Notes</th></tr></thead>
@@ -101,7 +101,7 @@ async function forceSync(){
         <td class="mono right muted">{{ e.unchanged }}</td>
         <td class="mono right" style="color:{{ 'var(--red)' if e.errors else 'var(--muted)' }}">{{ e.errors }}</td>
         <td class="mono right muted">{{ e.duration_ms }}ms</td>
-        <td>{% if e.dry_run %}<span class="badge" style="color:var(--amber)">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>
+        <td>{% if e.dry_run %}<span class="badge ssh">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>
         <td class="muted mono" style="font-size:11px">{{ e.notes }}</td>
       </tr>
       {% else %}
@@ -111,7 +111,7 @@ async function forceSync(){
   </table>
 </div>
 
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Address-List · {{ list_name }} (Protek-owned)</h2>
   <table>
     <thead><tr><th>Address</th><th>Comment</th><th>Disabled</th><th class="right">Created</th></tr></thead>
@@ -120,7 +120,7 @@ async function forceSync(){
       <tr>
         <td class="mono">{{ e.address }}</td>
         <td class="mono muted" style="word-break:break-word">{{ e.comment }}</td>
-        <td>{% if e.disabled == 'true' %}<span class="badge" style="color:var(--amber)">yes</span>{% else %}<span class="badge cs">no</span>{% endif %}</td>
+        <td>{% if e.disabled == 'true' %}<span class="badge ssh">yes</span>{% else %}<span class="badge cs">no</span>{% endif %}</td>
         <td class="mono right muted">{{ e.creation_time or '—' }}</td>
       </tr>
       {% else %}
@@ -129,7 +129,7 @@ async function forceSync(){
     </tbody>
   </table>
   {% if foreign_total %}
-  <div class="muted" style="font-size:11px;letter-spacing:.15em;margin-top:10px;text-transform:uppercase">
+  <div class="muted" style="font-size:11px;margin-top:10px">
     + {{ foreign_total }} foreign entries (other tooling) — Protek never touches these
   </div>
   {% endif %}

@@ -16,24 +16,24 @@
     you republish your own intel, not other people's.
   </p>
 
-  <div class="kpi-row">
+  <div class="grid kpi-strip">
     <div class="kpi">
-      <div class="kpi-label">Publishing</div>
-      <div class="kpi-value" style="color:{% if status.enabled %}var(--green){% else %}var(--muted){% endif %}">
+      <div class="k">Publishing</div>
+      <div class="v" {% if not status.enabled %}style="color:var(--muted)"{% endif %}>
         {% if status.enabled %}ON{% else %}OFF{% endif %}
       </div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Issuer</div>
-      <div class="kpi-value mono" style="font-size:14px">{{ status.issuer }}</div>
+      <div class="k">Issuer</div>
+      <div class="v cyan mono" style="font-size:14px">{{ status.issuer }}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Sequence</div>
-      <div class="kpi-value mono">{{ status.sequence }}</div>
+      <div class="k">Sequence</div>
+      <div class="v mono">{{ status.sequence }}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Key fingerprint</div>
-      <div class="kpi-value mono" style="font-size:12px">
+      <div class="k">Key fingerprint</div>
+      <div class="v cyan mono" style="font-size:12px">
         {{ status.fingerprint or '—' }}
       </div>
     </div>
@@ -61,20 +61,20 @@
   <h2>Filter</h2>
   <form method="post" action="{{ url_for('intel_publish_save') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div class="grid cols-3">
       <div>
         <label>Issuer ID (shown to subscribers)</label>
-        <input type="text" name="issuer" value="{{ status.issuer }}" style="width:100%">
+        <input type="text" name="issuer" value="{{ status.issuer }}">
       </div>
       <div>
         <label>Whitelist scenarios (comma-sep, empty = all)</label>
         <input type="text" name="scenarios" value="{{ status.scenarios | join(', ') }}"
-               placeholder="ssh-bf, http-cve-probing" style="width:100%">
+               placeholder="ssh-bf, http-cve-probing">
       </div>
       <div>
         <label>Excluded origin prefixes (comma-sep)</label>
         <input type="text" name="exclude_origins" value="{{ status.exclude_origins | join(', ') }}"
-               placeholder="lists:, capi:" style="width:100%">
+               placeholder="lists:, capi:">
       </div>
     </div>
     <div style="margin-top:10px">

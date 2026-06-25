@@ -72,17 +72,17 @@
   {% set used = disk.used_pct %}
   {% set max24 = disk.max_pct_24h %}
   {% if used >= crit %}
-    {% set band_color = '#ff4d4d' %}{% set band_label = 'critical' %}
+    {% set band_color = 'var(--red)' %}{% set band_label = 'critical' %}
   {% elif used >= warn %}
-    {% set band_color = '#ffb547' %}{% set band_label = 'warn' %}
+    {% set band_color = 'var(--amber)' %}{% set band_label = 'warn' %}
   {% else %}
-    {% set band_color = '#00ff9d' %}{% set band_label = 'ok' %}
+    {% set band_color = 'var(--green)' %}{% set band_label = 'ok' %}
   {% endif %}
   <div style="display:flex;align-items:center;gap:18px;margin-bottom:10px">
-    <div style="flex:1;height:18px;border:1px solid var(--border);border-radius:3px;position:relative;background:#0a1218">
+    <div style="flex:1;height:18px;border:1px solid var(--border);border-radius:var(--radius-sm);position:relative;background:var(--bg-deep)">
       <div style="position:absolute;top:0;left:0;height:100%;width:{{ '%.1f'|format(used) }}%;background:{{ band_color }};opacity:0.85"></div>
-      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(warn) }}%;height:22px;border-left:1px dashed #ffb547" title="warn {{ warn }}%"></div>
-      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(crit) }}%;height:22px;border-left:1px dashed #ff4d4d" title="critical {{ crit }}%"></div>
+      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(warn) }}%;height:22px;border-left:1px dashed var(--amber)" title="warn {{ warn }}%"></div>
+      <div style="position:absolute;top:-2px;left:{{ '%.1f'|format(crit) }}%;height:22px;border-left:1px dashed var(--red)" title="critical {{ crit }}%"></div>
     </div>
     <div style="min-width:240px;text-align:right">
       <span class="mono" style="font-size:18px;color:{{ band_color }}">{{ '%.1f'|format(used) }}%</span>
@@ -125,8 +125,8 @@
       <span class="mono">diff</span> = pure-Python reconcile compute ·
       <span class="mono">apply</span> = pushing add/remove ops to each bouncer.
     </p>
-    <div style="display:flex;height:24px;border:1px solid var(--border);border-radius:3px;overflow:hidden;margin-bottom:14px">
-      {% set colors = {'lapi_fetch_ms':'#00c8ff','snapshot_ms':'#ffb547','diff_ms':'#00ff9d','apply_ms':'#d97aff'} %}
+    <div style="display:flex;height:24px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;margin-bottom:14px">
+      {% set colors = {'lapi_fetch_ms':'var(--cyan)','snapshot_ms':'var(--amber)','diff_ms':'var(--green)','apply_ms':'#d39bff'} %}
       {% for s in stages.stages %}
         {% if s.share_pct > 0 %}
         <div style="flex-grow:{{ s.share_pct }};background:{{ colors[s.stage] }};opacity:0.85"

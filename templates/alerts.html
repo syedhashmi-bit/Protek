@@ -5,9 +5,9 @@
 {% if not has_machine_creds %}
 <div class="panel" style="border-left:3px solid var(--amber)">
   <div style="display:flex;align-items:center;gap:14px">
-    <div style="font-size:32px;color:var(--amber);font-family:'Share Tech Mono',monospace">!</div>
+    <div class="mono" style="font-size:32px;color:var(--amber)">!</div>
     <div>
-      <div style="font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin-bottom:4px">Machine credentials required</div>
+      <div style="font-size:14px;font-weight:600;color:var(--amber);margin-bottom:4px">Machine credentials required</div>
       <div class="muted" style="font-size:13px">
         The CrowdSec <code class="mono">/v1/alerts</code> endpoint requires a <b>machine</b> credential, not a bouncer key.
         Protek currently only authenticates with a bouncer key, which can read decisions but not alerts.

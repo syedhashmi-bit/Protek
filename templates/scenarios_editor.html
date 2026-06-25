@@ -4,7 +4,7 @@
 {% block head %}
 <style>
 textarea.code{width:100%;min-height:520px;background:var(--bg-deep);border:1px solid var(--border);
-  color:var(--green);font-family:'Share Tech Mono',monospace;font-size:13px;padding:14px;border-radius:3px;line-height:1.5;
+  color:var(--green);font-family:'Share Tech Mono',monospace;font-size:13px;padding:14px;border-radius:var(--radius-sm);line-height:1.5;
   white-space:pre;tab-size:2}
 textarea.code:focus{outline:none;border-color:var(--cyan)}
 </style>
@@ -22,7 +22,7 @@ textarea.code:focus{outline:none;border-color:var(--cyan)}
       <button class="btn sec" type="submit" name="reload" value="1">Save &amp; Reload Agent</button>
     </div>
     <textarea class="code" name="content" spellcheck="false">{{ content }}</textarea>
-    <div class="muted" style="font-size:11px;margin-top:8px;letter-spacing:.12em;text-transform:uppercase">
+    <div class="muted" style="font-size:12px;margin-top:8px">
       Scenarios use the CrowdSec YAML format. <a href="https://docs.crowdsec.net/docs/scenarios/intro/" target="_blank">docs</a>.
       After save, the agent must be reloaded to pick up the change.
     </div>

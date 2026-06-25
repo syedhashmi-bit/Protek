@@ -9,12 +9,12 @@
 .endpoint .p{color:var(--text)}
 .endpoint .a{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.12em;text-align:right}
 .endpoint .b{text-align:right}
-pre.json{background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;padding:12px;
+pre.json{background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;
   max-height:480px;overflow:auto;color:var(--green);font-size:12px;font-family:'Share Tech Mono',monospace;
   white-space:pre-wrap;word-break:break-all}
 .k-status{display:inline-flex;align-items:center;gap:6px}
-.k-status::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
-.k-status.bad::before{background:var(--red);box-shadow:0 0 8px var(--red)}
+.k-status::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--green)}
+.k-status.bad::before{background:var(--red)}
 .k-status.bad{color:var(--red)}
 </style>
 {% endblock %}

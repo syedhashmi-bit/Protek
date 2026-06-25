@@ -18,7 +18,7 @@
 <div class="panel" style="margin-top:16px">
   <h2>Pending Decisions ({{ pending|length }})</h2>
   {% if not approval_required %}
-  <div class="muted" style="font-size:11px;margin-bottom:12px;letter-spacing:.1em;text-transform:uppercase">
+  <div class="muted" style="font-size:12px;margin-bottom:12px">
     Queue mode is <b style="color:var(--green)">AUTO</b> — decisions flow straight to MikroTik without queueing. Switch to SEMI-AUTO in /whitelist to start queueing.
   </div>
   {% endif %}
@@ -37,12 +37,12 @@
           <form method="POST" action="{{ url_for('approvals_decide', qid=p.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="decision" value="approved">
-            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--green)">approve</button>
+            <button class="btn ghost" style="padding:4px 10px;color:var(--green)">approve</button>
           </form>
           <form method="POST" action="{{ url_for('approvals_decide', qid=p.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="decision" value="rejected">
-            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)">reject</button>
+            <button class="btn ghost" style="padding:4px 10px;color:var(--red)">reject</button>
           </form>
         </td>
       </tr>

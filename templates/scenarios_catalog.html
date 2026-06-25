@@ -38,10 +38,10 @@
             <input type="hidden" name="name" value="{{ it.name }}">
             {% if it.status == 'enabled' %}
               <input type="hidden" name="action" value="remove">
-              <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove {{ it.name }}?')">remove</button>
+              <button class="btn ghost" style="padding:4px 10px;color:var(--red)" onclick="return confirm('Remove {{ it.name }}?')">remove</button>
             {% else %}
               <input type="hidden" name="action" value="install">
-              <button class="btn ghost" style="padding:2px 8px;font-size:10px">install</button>
+              <button class="btn ghost" style="padding:4px 10px">install</button>
             {% endif %}
           </form>
         </td>
@@ -63,7 +63,7 @@
         <td class="mono cyan">{{ f.name }}</td>
         <td class="mono right">{{ f.size }}</td>
         <td class="mono right muted">{{ f.modified[:19] }}</td>
-        <td><a class="btn ghost" style="padding:2px 8px;font-size:10px" href="{{ url_for('scenarios_editor', file=f.name) }}">edit</a></td>
+        <td><a class="btn ghost" style="padding:4px 10px" href="{{ url_for('scenarios_editor', file=f.name) }}">edit</a></td>
       </tr>
       {% else %}
       <tr><td colspan="4" class="muted" style="text-align:center;padding:20px">no custom scenarios. Click + new to create one.</td></tr>

@@ -31,7 +31,7 @@
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px">
+<div class="grid cols-2" style="margin-top:16px">
   <div class="panel">
     <h2>Login Audit (recent 50)</h2>
     <table>
@@ -42,7 +42,7 @@
           <td class="mono muted">{{ r.rel }}</td>
           <td class="mono">{{ r.ip }}</td>
           <td>{{ r.username }}</td>
-          <td>{% if r.success %}<span class="badge cs">OK</span>{% else %}<span class="badge" style="color:var(--red)">FAIL</span>{% endif %}</td>
+          <td>{% if r.success %}<span class="badge cs">OK</span>{% else %}<span class="badge" style="color:var(--red);border-color:var(--red)">FAIL</span>{% endif %}</td>
           <td class="muted mono" style="font-size:11px">{{ r.reason }}</td>
         </tr>
         {% else %}
