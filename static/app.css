@@ -71,20 +71,20 @@ a:hover{color:var(--info);text-decoration:none}
 .side{width:var(--side-w);flex:0 0 var(--side-w);background:var(--bg-panel);
   border-right:1px solid var(--border);padding:14px 0 28px;position:sticky;top:var(--topbar-h);
   height:calc(100vh - var(--topbar-h));overflow-y:auto;overscroll-behavior:contain}
-.side a{display:flex;align-items:center;gap:10px;padding:9px 20px;color:var(--muted);
+.side a{display:flex;align-items:center;gap:10px;padding:9px 20px;color:#c4d3e4;
   font-size:13px;letter-spacing:.02em;border-left:3px solid transparent;
   transition:background var(--ease),color var(--ease)}
-.side a:hover{background:var(--bg-raised);color:var(--text)}
+.side a:hover{background:var(--bg-raised);color:#fff}
 .side a.active{border-left-color:var(--cyan);background:var(--bg-raised);color:var(--cyan)}
-.side a.sub{padding-left:38px;font-size:12px;color:var(--muted-low)}
-.side a.sub:hover{color:var(--muted)}
+.side a.sub{padding-left:38px;font-size:12px;color:#9fb2c7}
+.side a.sub:hover{color:#dce7f2}
 .side a.sub.active{color:var(--cyan)}
 
 /* collapsible groups */
 .side .group{display:flex;align-items:center;justify-content:space-between;cursor:pointer;
-  padding:13px 20px 6px;font-size:10px;letter-spacing:.16em;color:var(--muted-low);
+  padding:13px 20px 6px;font-size:10px;letter-spacing:.16em;color:#7e96b0;
   text-transform:uppercase;user-select:none}
-.side .group:hover{color:var(--muted)}
+.side .group:hover{color:#c4d3e4}
 .side .group .chev{font-size:9px;transition:transform var(--ease);opacity:.7}
 .side .group.collapsed .chev{transform:rotate(-90deg)}
 .side .section{overflow:hidden;transition:max-height var(--ease)}

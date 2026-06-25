@@ -154,6 +154,11 @@ function initMap(){
     showCoverageOnHover: false, disableClusteringAtZoom: 7, maxClusterRadius: 50,
   });
   mapInst.addLayer(clusterLayer);
+  // The flex/grid layout sizes #map after Leaflet inits, so recalc dimensions
+  // once the browser has laid out the panel (otherwise: gray tiles + offset markers).
+  requestAnimationFrame(() => mapInst.invalidateSize());
+  setTimeout(() => mapInst.invalidateSize(), 300);
+  window.addEventListener('resize', () => mapInst.invalidateSize());
 }
 async function refreshMap(){
   try{
