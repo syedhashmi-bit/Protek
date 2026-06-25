@@ -14,9 +14,9 @@
   <div class="kpi"><div class="k">Cycles w/ errors 24h</div><div class="v" style="color:{% if kpis.errs_24h %}var(--red){% else %}var(--text){% endif %}">{{ kpis.errs_24h }}</div></div>
 </div>
 
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2 style="margin:0 0 8px">Throughput · last 24h</h2>
-  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0">
+  <p class="muted" style="margin:0 0 14px;font-size:12px">
     Per-hour add+remove volume across all bouncer targets. Red marks at
     the top of a bar indicate at least one cycle in that hour reported errors.
   </p>
@@ -34,27 +34,24 @@
         {% set h = 0 %}
       {% endif %}
       <rect x="{{ x }}" y="{{ CHART_H - h }}" width="{{ BAR_W }}" height="{{ h }}"
-            fill="{% if b.errs %}#ff4d4d{% else %}#00ff9d{% endif %}"
+            fill="{% if b.errs %}var(--red){% else %}var(--green){% endif %}"
             opacity="0.78">
         <title>{{ b.label }} · {{ b.adds }} adds · {{ b.removes }} rem · {{ b.cycles }} cycles{% if b.errs %} · ⚠ {{ b.errs }} cycles w/ err{% endif %}</title>
       </rect>
       {% if loop.index0 % 6 == 0 %}
         <text x="{{ x + BAR_W // 2 }}" y="{{ CHART_H + 14 }}" font-size="9"
-              fill="#7c8b9a" text-anchor="middle">{{ b.label }}</text>
+              fill="var(--muted)" text-anchor="middle">{{ b.label }}</text>
       {% endif %}
     {% endfor %}
   </svg>
 </div>
 
-<div class="panel" style="margin-top:16px">
-  <div style="display:flex;justify-content:space-between;align-items:baseline">
+<div class="panel" style="margin-top:var(--gap)">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
     <h2 style="margin:0">Targets ({{ rows|length }})</h2>
-    <a href="{{ url_for('bouncers_page') }}" class="muted"
-       style="font-size:11px;text-decoration:none;border-bottom:1px dashed var(--border);text-transform:uppercase;letter-spacing:.1em">
-      → manage on /bouncers
-    </a>
+    <a href="{{ url_for('bouncers_page') }}" style="font-size:12px">→ manage on /bouncers</a>
   </div>
-  <p class="muted" style="margin:6px 0 12px;font-size:12px;text-transform:none;letter-spacing:0">
+  <p class="muted" style="margin:6px 0 12px;font-size:12px">
     Click a column header to sort. Hover the error cell for the full message.
   </p>
 
@@ -87,7 +84,7 @@
           {% if r.status == 'online' %}
             <span class="badge cs">online</span>
           {% elif r.status == 'degraded' %}
-            <span class="badge" style="color:var(--amber)" title="{{ r.last_error }}">degraded</span>
+            <span class="badge ssh" title="{{ r.last_error }}">degraded</span>
           {% else %}
             <span class="badge" style="color:var(--red)">offline</span>
           {% endif %}
@@ -97,7 +94,7 @@
         </td>
         <td>
           {% if r.dry_run %}
-            <span class="badge" style="color:var(--amber)">DRY</span>
+            <span class="badge ssh">DRY</span>
           {% else %}
             <span class="badge cs">LIVE</span>
           {% endif %}

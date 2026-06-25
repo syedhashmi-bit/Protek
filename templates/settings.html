@@ -6,7 +6,7 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="panel">
     <h2>Reconcile Loop</h2>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+    <div class="grid cols-3">
       <div>
         <label>Sync Interval (sec)</label>
         <input type="number" name="sync_interval_sec" value="{{ values.sync_interval_sec }}" min="2" max="3600">
@@ -21,20 +21,20 @@
       </div>
       <div>
         <label>Dry Run</label>
-        <select name="dry_run" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+        <select name="dry_run">
           <option value="true" {% if values.dry_run %}selected{% endif %}>true — never touch MikroTik</option>
           <option value="false" {% if not values.dry_run %}selected{% endif %}>false — push live changes</option>
         </select>
       </div>
     </div>
-    <div class="muted" style="margin-top:10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase">
+    <div class="muted" style="margin-top:10px;font-size:11px">
       Settings stored in DB override .env values for the next reconcile cycle. Restart not required.
     </div>
   </div>
 
   <div class="panel" style="margin-top:16px">
     <h2>Connection (read-only — set in <code class="mono">.env</code>)</h2>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="grid cols-2">
       <div>
         <label>LAPI URL</label>
         <input type="text" value="{{ values.lapi_url }}" disabled>
@@ -60,7 +60,7 @@
       Base URLs for sibling apps. When set, attacker pages show "Open in atom" links and
       othoni's dashboard can render the Protek tile via <span class="mono">/api/v1/tile/summary</span>.
     </p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="grid cols-2">
       <div>
         <label>Atom base URL</label>
         <input type="text" name="atom_url" value="{{ values.atom_url }}"

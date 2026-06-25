@@ -39,9 +39,7 @@
     </div>
     <div style="width:140px">
       <label>Role</label>
-      <select name="role" style="width:100%;background:var(--bg-deep);color:var(--text);
-              border:1px solid var(--border);padding:8px;font-family:'Share Tech Mono',monospace;
-              font-size:13px;border-radius:3px">
+      <select name="role">
         <option value="viewer">viewer</option>
         <option value="operator">operator</option>
         <option value="admin">admin</option>
@@ -73,8 +71,7 @@
             <form method="post" action="{{ url_for('admin_users_role', uid=u.id) }}" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <select name="role" onchange="this.form.submit()"
-                      style="background:var(--bg-deep);color:var(--text);border:1px solid var(--border);
-                             padding:3px 6px;font-family:'Share Tech Mono',monospace;font-size:11px">
+                      style="width:auto;padding:3px 6px;font-size:11px">
                 <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>viewer</option>
                 <option value="operator" {% if u.role == 'operator' %}selected{% endif %}>operator</option>
                 <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>

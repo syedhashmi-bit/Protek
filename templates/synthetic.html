@@ -15,8 +15,8 @@
   </p>
 
   {% if status.live_bouncers_n == 0 %}
-  <div style="background:rgba(255,180,0,0.08);border:1px solid var(--amber);border-radius:6px;padding:10px 12px;margin:0 0 12px;font-size:12px">
-    <b style="color:var(--amber)">⚠ Synthetic test will skip — no live bouncers.</b>
+  <div class="flash warn" style="margin:0 0 12px;font-size:12px">
+    <b style="color:var(--amber)">Synthetic test will skip — no live bouncers.</b>
     Every bouncer is either disabled or in dry-run mode, so the synthetic
     decision can't actually be pushed anywhere to verify propagation.
     Until at least one bouncer is enabled with <span class="mono">dry_run=0</span>,
@@ -26,38 +26,38 @@
   </div>
   {% endif %}
 
-  <div class="kpi-row">
+  <div class="grid kpi-strip">
     <div class="kpi">
-      <div class="kpi-label">Schedule</div>
-      <div class="kpi-value" style="color:{% if status.enabled %}{% if status.live_bouncers_n == 0 %}var(--amber){% else %}var(--green){% endif %}{% else %}var(--muted){% endif %}">
-        {% if status.enabled %}ENABLED · every 6h{% else %}OFF{% endif %}
+      <div class="k">Schedule</div>
+      <div class="v" style="font-size:18px;color:{% if status.enabled %}{% if status.live_bouncers_n == 0 %}var(--amber){% else %}var(--green){% endif %}{% else %}var(--muted){% endif %}">
+        {% if status.enabled %}Enabled · every 6h{% else %}Off{% endif %}
       </div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Live bouncers</div>
-      <div class="kpi-value mono" style="color:{% if status.live_bouncers_n > 0 %}var(--green){% else %}var(--amber){% endif %}">
+      <div class="k">Live bouncers</div>
+      <div class="v mono" style="color:{% if status.live_bouncers_n > 0 %}var(--green){% else %}var(--amber){% endif %}">
         {{ status.live_bouncers_n }}
       </div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Last run</div>
-      <div class="kpi-value mono" style="font-size:14px">
+      <div class="k">Last run</div>
+      <div class="v mono" style="font-size:14px">
         {% if status.last_at %}{{ status.last_at[:19].replace('T',' ') }}{% else %}—{% endif %}
       </div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Last status</div>
-      <div class="kpi-value" style="color:{% if status.last_status == 'ok' %}var(--green){% elif status.last_status in ('failed','partial') %}var(--red){% elif status.last_status == 'skipped' %}var(--amber){% else %}var(--muted){% endif %}">
+      <div class="k">Last status</div>
+      <div class="v" style="font-size:18px;color:{% if status.last_status == 'ok' %}var(--green){% elif status.last_status in ('failed','partial') %}var(--red){% elif status.last_status == 'skipped' %}var(--amber){% else %}var(--muted){% endif %}">
         {{ status.last_status or '—' }}
       </div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Test IP</div>
-      <div class="kpi-value mono" style="font-size:14px">{{ status.ip }}</div>
+      <div class="k">Test IP</div>
+      <div class="v mono" style="font-size:14px">{{ status.ip }}</div>
     </div>
   </div>
 
-  <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+  <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
     {% if session.get('role') == 'admin' %}
     <form method="post" action="{{ url_for('synthetic_toggle') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

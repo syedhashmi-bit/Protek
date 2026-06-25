@@ -5,12 +5,12 @@
 <style>
 .intel-heat{display:grid;gap:1px;font-family:'Share Tech Mono',monospace;font-size:11px}
 .intel-heat .c{aspect-ratio:1.6;background:var(--bg-deep);text-align:center;line-height:30px;color:var(--muted)}
-.intel-heat .c.lvl-1{background:rgba(0,200,255,.18);color:#cfe8ff}
-.intel-heat .c.lvl-2{background:rgba(0,200,255,.36);color:#fff}
-.intel-heat .c.lvl-3{background:rgba(0,200,255,.56);color:#fff}
-.intel-heat .c.lvl-4{background:rgba(0,255,157,.55);color:#06101c}
-.intel-heat .c.lvl-5{background:rgba(255,181,71,.7);color:#06101c}
-.intel-heat .c.lvl-6{background:rgba(255,56,96,.78);color:#fff}
+.intel-heat .c.lvl-1{background:rgba(54,200,239,.18);color:var(--text)}
+.intel-heat .c.lvl-2{background:rgba(54,200,239,.36);color:#fff}
+.intel-heat .c.lvl-3{background:rgba(54,200,239,.56);color:#fff}
+.intel-heat .c.lvl-4{background:rgba(62,230,168,.55);color:var(--bg-deep)}
+.intel-heat .c.lvl-5{background:rgba(245,181,82,.7);color:var(--bg-deep)}
+.intel-heat .c.lvl-6{background:rgba(255,86,115,.78);color:#fff}
 .intel-heat .lbl{background:var(--bg-panel);color:var(--muted);padding:4px 8px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .intel-heat .hr{background:var(--bg-panel);text-align:center;color:var(--muted-low);font-size:10px;padding:2px 0}
 </style>
@@ -23,7 +23,7 @@
   <div class="kpi"><div class="k">Top ASN</div><div class="v cyan" style="font-size:16px;word-break:break-all">{{ kpis.top_asn or '—' }}</div><div class="d">{{ kpis.top_asn_org or '' }}</div></div>
 </div>
 
-<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-top:16px">
+<div class="grid cols-2" style="margin-top:16px">
   <div class="panel">
     <h2>Top Attacking ASNs (24h)</h2>
     <table>
@@ -101,12 +101,12 @@
      wiring without shelling into the VPS. -->
 <div class="panel" style="margin-top:16px">
   <h2>Intel providers</h2>
-  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0">
+  <p class="muted" style="margin:0 0 14px;font-size:12px">
     Each provider's API key lives in <span class="mono">.env</span> (read at boot).
     The Test button probes the live API with a benign IP (1.1.1.1) so you can
     verify the key works without waiting for a real attacker lookup.
   </p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+  <div class="grid cols-3">
     {% set providers = [
       {'key': 'abuseipdb',  'name': 'AbuseIPDB',        'env_var': 'ABUSEIPDB_API_KEY',  'free_tier': '1 000 lookups / day', 'docs': 'https://www.abuseipdb.com/account/api'},
       {'key': 'otx',        'name': 'AlienVault OTX',   'env_var': '(no key required)',  'free_tier': 'unlimited general lookups', 'docs': 'https://otx.alienvault.com/api'},
@@ -115,9 +115,9 @@
       {'key': 'tor',        'name': 'Tor exit list',    'env_var': '(bulk download)',    'free_tier': 'unlimited (cached)', 'docs': 'https://check.torproject.org/torbulkexitlist'},
     ] %}
     {% for p in providers %}
-    <div style="background:var(--bg-deep);border:1px solid var(--border);border-radius:4px;padding:14px" data-provider="{{ p.key }}">
+    <div style="background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px" data-provider="{{ p.key }}">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <h3 style="margin:0;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan)">{{ p.name }}</h3>
+        <h3 style="margin:0;font-size:14px;font-weight:600;color:var(--cyan)">{{ p.name }}</h3>
         <span class="badge" data-status="badge">unknown</span>
       </div>
       <div class="muted" style="margin-top:8px;font-size:11px;line-height:1.6">
@@ -127,7 +127,7 @@
       </div>
       <div style="margin-top:10px">
         <button type="button" class="btn sec intel-test-btn" data-provider="{{ p.key }}"
-                style="padding:4px 12px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:var(--bg-raised);border:1px solid var(--cyan);color:var(--cyan)">
+                style="padding:4px 12px">
           ↻ test
         </button>
       </div>

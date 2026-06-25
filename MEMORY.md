@@ -4,6 +4,91 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-06-25 — UI redesign: refined NOC theme, extracted CSS, collapsible nav
+
+**Trigger:** operator — "widescreen looks horrible, website looks complex/vibe-coded,
+left panel not scrollable, too many confusing names." Direction chosen: **refine** the
+NOC theme (keep cyan/green + suite coherence, drop the noise), **collapse+rename** nav
+(keep all pages), **everything in one pass**.
+
+**Foundation (me):**
+- Extracted the 27KB inline `<style>` from `base.html` into **`static/app.css`** — a
+  documented design system (refined palette, calmer typography, more whitespace,
+  no scanline overlay, no glow/text-shadow). `base.html` now just links it.
+- **Sidebar scroll fixed:** `.side` gets `overflow-y:auto` (+ thin themed scrollbar).
+  Root cause was `height:calc(100vh-56px)` with no overflow → ~32 items clipped.
+- **Widescreen fixed:** `.main` is now `max-width:1680px;margin:0 auto` (was
+  `flex:1;max-width:1600px` un-centered → dead space on the right). Dashboard's
+  hardcoded `1.3fr 1fr` / `1fr 1fr` grids → `.dash-main`/`.dash-row2` that stack <1100px.
+- **Nav rebuilt:** plain-language labels (Decisions→"Blocked IPs", Scenarios→
+  "Detections", Bouncer group→"Routers & Sync", SIEM→"SIEM Export", etc.),
+  **collapsible groups** with chevrons, state persisted in `localStorage`
+  (`protek.nav.collapsed`); Advanced+Admin collapsed by default; the group holding
+  the active page always auto-expands. All links kept.
+- Wrote **`docs/STYLE-GUIDE.md`** as the contract.
+
+**Parallel agents (4):** restyled all ~44 other templates to the system (hardcoded
+hex → CSS vars, removed glows/scanlines, ad-hoc grids → `.grid cols-2/3`, semantic
+`.btn`/`.badge`/`.flash`, plain labels). Several pages had a stale `.kpi-row`/
+`.kpi-label` class set that never existed in CSS — rewired to the real
+`.grid.kpi-strip`+`.k`/`.v`/`.d`.
+
+**Bug fixed (pre-existing, found mid-pass):** `federation_add.html` and
+`federation_add_advanced.html` used `{% block content %}` but `base.html` only
+renders `{% block body %}` → those pages rendered a **blank body**. Root cause: the
+`_wizard.html` docstring usage-example said `block content`; fixed the example too so
+it can't recur. (`bouncers_add.html` already used `block body` correctly.)
+
+**Verified:** all templates Jinja-parse; `base.html` renders with stubbed globals
+(app.css linked, collapsible groups + sections present, DRY-RUN badge toggles, nav
+JS present); no old-palette hex / glow / scanline remain anywhere.
+
+**Pending:** changes are in the worktree branch `claude/lucid-northcutt-385b60`,
+**not committed and not deployed** to live `/var/www/Protek`. Live visual verification
+(start app / screenshot) not yet done — recommend doing it before merge.
+
+---
+
+## 2026-06-25 — Live daily backup switched to ENCRYPTED bundles (was plaintext gzip)
+
+**Trigger:** operator asked whether Backblaze/off-box backup still works. Tested
+`backup.py` (7/7 unit + a 14/14 end-to-end pipeline exercise against a synthetic
+DB/.env — snapshot→tar→AES-GCM→LocalBackend→retention→restore_test, plus S3Backend
+builds against the B2 endpoint). Code is healthy.
+
+**Finding:** the phase-63 `backup.py` automation was NOT what ran in production. The
+live daily backup was a separate shell script `/usr/local/bin/protek-backup.sh`
+(`sqlite3 .backup | gzip`) driven by `protek-backup.timer` (03:30 UTC). It wrote
+**plaintext** `/var/backups/protek/protek-*.db.gz` — i.e. the credential hash +
+bouncer key sitting in cleartext on disk. `backup.py`'s own `daily/monthly/test/`
+dirs were empty (`backup.enabled` effectively off). No off-box/B2 backup was live.
+
+**Change (this host only — Hetzner hel1, apparent old VPS A):**
+- Rewrote `/usr/local/bin/protek-backup.sh` to invoke `backup.py` →
+  `run_backup("daily")` + same-run `restore_test()`. Now produces AES-256-GCM
+  `LocalBackend` bundles at `/var/backups/protek/daily/protek-<ts>.bin`
+  (header `PROTEKBK`), retention via `daily_keep`, journaled to `backup_runs`.
+  Old script kept as `protek-backup.sh.gzip-bak.20260625`.
+- Updated `protek-backup.service` description; `daemon-reload`. Timer unchanged.
+- Verified live: `ok .../daily/protek-20260625T042233Z.bin (30285158 bytes, verified)`.
+- Used existing `BACKUP_PASSPHRASE` from `.env` (confirmed present ≥12 chars; value
+  never read).
+- Deleted the two superseded plaintext `*.db.gz` dumps (operator-approved).
+
+**Decision:** kept it LOCAL-ONLY per operator (single box). B2/offsite is one
+setting away — `backup.backend=s3` + `BACKUP_S3_*` in `.env` (Backblaze B2 endpoint
+`https://s3.us-west-002.backblazeb2.com`). See `backup.py` `S3Backend`.
+
+**Pending / loose ends:**
+- Confirm canonical host: this box is hel1 (old VPS A?), but `docs/MIGRATION-VPS-B.md`
+  says Protek moved to VPS B (Oregon). Backup was configured on the box actively
+  serving traffic; verify B is/ isn't separately covered.
+- `litestream.py:10` comment still references "the same Backblaze B2 bucket already
+  used by backup.py" — stale since phase 64 chose SFTP-over-WG; backup.py is local.
+- `pytest` was missing from this venv; installed via `uv pip install pytest`.
+
+---
+
 ## 2026-06-24 (cont.) — Slow dashboard fixed: removed in-request full MikroTik snapshots
 
 **Operator report:** "website is very slow." Not CPU/RAM/DB (load 0.33/4 cores, 94 MB DB).

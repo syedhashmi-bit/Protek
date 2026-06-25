@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <style>
 .leaflet-container{background:#06101c}
-.protek-glow{filter:drop-shadow(0 0 4px #00c8ff) drop-shadow(0 0 6px rgba(0,200,255,.5))}
+.protek-glow{filter:drop-shadow(0 0 3px #36c8ef)}
 .marker-cluster-small{background:rgba(0,200,255,.18);color:#cfe8ff}
 .marker-cluster-small div{background:rgba(0,200,255,.32)}
 .marker-cluster-medium{background:rgba(0,255,157,.18)}
@@ -30,6 +30,9 @@
 .sync-toast.show{opacity:1;transform:translateY(0)}
 .sync-toast.err{border-color:var(--red);color:var(--red);box-shadow:0 0 14px rgba(255,56,96,.18)}
 .spark{height:32px;width:100%;display:block}
+.dash-main{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--gap);margin-top:var(--gap)}
+.dash-row2{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-top:var(--gap)}
+@media (max-width:1100px){.dash-main,.dash-row2{grid-template-columns:1fr}}
 </style>
 {% endblock %}
 {% block body %}
@@ -37,7 +40,7 @@
   <div class="kpi">
     <div class="k">LAPI Active</div>
     <div class="v" id="kpi-lapi">{{ kpis.lapi_active }}</div>
-    <svg class="spark" id="spark-lapi" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline fill="none" stroke="#00ff9d" stroke-width="1.2"/></svg>
+    <svg class="spark" id="spark-lapi" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline fill="none" stroke="#3ee6a8" stroke-width="1.2"/></svg>
   </div>
   <div class="kpi">
     <div class="k">MT List Size</div>
@@ -66,7 +69,7 @@
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-top:16px">
+<div class="dash-main">
   <div class="panel">
     <h2 style="display:flex;justify-content:space-between;align-items:center">
       Live Attack Feed
@@ -98,7 +101,7 @@
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+<div class="dash-row2">
   <div class="panel">
     <h2>Top Scenarios (active)</h2>
     <div id="top-scen">
@@ -163,7 +166,7 @@ async function refreshMap(){
       if(knownMapKeys.has(key)) continue;
       knownMapKeys.add(key);
       const m = L.circleMarker([p.lat, p.lon], {
-        radius:4.5, color:'#00c8ff', weight:1.5, fillColor:'#00c8ff', fillOpacity:.85, pane:'glow'
+        radius:4.5, color:'#36c8ef', weight:1.5, fillColor:'#36c8ef', fillOpacity:.85, pane:'glow'
       }).bindPopup(`<b>${escapeHtml(p.ip)}</b><br>${escapeHtml(p.city||p.country||'—')}<br>${escapeHtml(p.scenario||'')}<br><span style="color:#7d94ad">${escapeHtml(p.as_org||p.asn||'')}</span>`);
       newMarkers.push(m);
     }
@@ -231,8 +234,8 @@ async function refreshSyncSpark(){
       const ah = (b.adds / maxv) * h;
       const rh = (b.rems / maxv) * h;
       svg.insertAdjacentHTML('beforeend',
-        `<rect x="${i*bw+1}" y="${h-ah}" width="${bw-2}" height="${ah}" fill="#00ff9d" opacity=".8"/>` +
-        `<rect x="${i*bw+1+bw/2}" y="${h-rh}" width="${bw/2-1}" height="${rh}" fill="#ff3860" opacity=".7"/>`);
+        `<rect x="${i*bw+1}" y="${h-ah}" width="${bw-2}" height="${ah}" fill="#3ee6a8" opacity=".8"/>` +
+        `<rect x="${i*bw+1+bw/2}" y="${h-rh}" width="${bw/2-1}" height="${rh}" fill="#ff5673" opacity=".7"/>`);
     });
   }catch(e){}
 }

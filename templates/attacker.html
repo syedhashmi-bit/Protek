@@ -3,18 +3,18 @@
 {% block crumb %}<b>ATTACKER</b> · <span class="mono">{{ ip }}</span>{% endblock %}
 {% block head %}
 <style>
-.pcols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:var(--gap)}
 .row{display:grid;grid-template-columns:160px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
-.row .k{color:var(--muted);text-transform:uppercase;letter-spacing:.12em;font-size:10px;align-self:center}
+.row .k{color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-size:10px;align-self:center}
 .row .v{font-family:'Share Tech Mono',monospace;word-break:break-all}
 .row:last-child{border-bottom:none}
 .tl{position:relative;border-left:2px solid var(--border);margin-left:6px;padding-left:14px}
 .tl .ev{padding:8px 0;border-bottom:1px solid var(--border)}
-.tl .ev::before{content:'';position:absolute;left:-7px;width:10px;height:10px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);margin-top:8px}
-.score{display:inline-block;padding:1px 6px;border-radius:3px;font-family:'Share Tech Mono',monospace;font-size:11px}
-.score.s0,.score.s1{background:rgba(0,255,157,.18);color:var(--green)}
-.score.s2,.score.s3{background:rgba(255,181,71,.16);color:var(--amber)}
-.score.s4,.score.s5{background:rgba(255,56,96,.18);color:var(--red)}
+.tl .ev::before{content:'';position:absolute;left:-7px;width:10px;height:10px;border-radius:50%;background:var(--cyan);margin-top:8px}
+.score{display:inline-block;padding:1px 6px;border-radius:var(--radius-sm);font-family:'Share Tech Mono',monospace;font-size:11px}
+.score.s0,.score.s1{background:rgba(62,230,168,.18);color:var(--green)}
+.score.s2,.score.s3{background:rgba(245,181,82,.16);color:var(--amber)}
+.score.s4,.score.s5{background:rgba(255,86,115,.18);color:var(--red)}
 </style>
 {% endblock %}
 {% block body %}
@@ -147,7 +147,7 @@
     </div>
     <div>
       <h2 style="font-size:11px;margin-bottom:8px">Raw response</h2>
-      <pre class="mono" style="background:var(--bg-deep);border:1px solid var(--border);padding:10px;border-radius:3px;font-size:11px;max-height:280px;overflow:auto;color:var(--green)">{{ cti_raw_pretty }}</pre>
+      <pre class="mono" style="background:var(--bg-deep);border:1px solid var(--border);padding:10px;border-radius:var(--radius-sm);font-size:11px;max-height:280px;overflow:auto;color:var(--green)">{{ cti_raw_pretty }}</pre>
     </div>
   </div>
 </div>

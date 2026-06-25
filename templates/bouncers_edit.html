@@ -34,9 +34,7 @@
       </div>
       <div>
         <label>Dry Run</label>
-        <select name="dry_run"
-                style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);
-                       padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+        <select name="dry_run">
           <option value="1" {% if target.dry_run %}selected{% endif %}>yes</option>
           <option value="0" {% if not target.dry_run %}selected{% endif %}>no</option>
         </select>
@@ -44,9 +42,7 @@
     </div>
     <div>
       <label>Config (JSON)</label>
-      <textarea name="config_json" rows="12"
-        style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);
-               padding:10px;font-family:'Share Tech Mono',monospace;font-size:12px;border-radius:3px">{{ display_cfg }}</textarea>
+      <textarea name="config_json" rows="12" style="font-size:12px">{{ display_cfg }}</textarea>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
       <a class="btn ghost" href="{{ url_for('bouncers_page') }}">Cancel</a>

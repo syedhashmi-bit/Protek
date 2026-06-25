@@ -23,7 +23,7 @@
       <tr>
         <td class="mono cyan">AS{{ e.asn }}</td>
         <td class="muted">{{ e.as_org }}</td>
-        <td class="mono right red">{{ e.ip_count }}</td>
+        <td class="mono right" style="color:var(--red)">{{ e.ip_count }}</td>
         <td class="mono muted">{{ e.window_hours }}h</td>
         <td class="mono" style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
             title="{{ e.sample_ips|join(', ') }}">
@@ -38,13 +38,13 @@
           <form method="post" action="{{ url_for('asn_escalations_decide', eid=e.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="decision" value="approved">
-            <button class="btn" type="submit" style="padding:2px 8px;font-size:10px"
+            <button class="btn" type="submit" style="padding:4px 10px"
                     onclick="return confirm('Approve ASN block for AS{{ e.asn }} ({{ e.as_org }})?')">approve</button>
           </form>
           <form method="post" action="{{ url_for('asn_escalations_decide', eid=e.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="decision" value="rejected">
-            <button class="btn ghost" type="submit" style="padding:2px 8px;font-size:10px;color:var(--red)">reject</button>
+            <button class="btn ghost" type="submit" style="padding:4px 10px;color:var(--red)">reject</button>
           </form>
           {% endif %}
         </td>

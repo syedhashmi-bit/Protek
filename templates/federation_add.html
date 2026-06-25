@@ -4,14 +4,14 @@
 
 {% block title %}Add federation source · PROTEK{% endblock %}
 
-{% block content %}
+{% block body %}
 {{ wizard_styles() }}
 
 <div style="max-width:760px;margin:0 auto;padding:32px 20px">
 
   <div style="margin:0 0 24px">
     <a href="{{ url_for('federation_page') }}" style="font-size:11px;color:var(--muted)">← Back to /federation</a>
-    <h1 style="margin:8px 0 4px;font-size:18px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan)">
+    <h1 style="margin:8px 0 4px;font-size:18px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan)">
       Add federation source
     </h1>
     <p style="margin:0;font-size:12px;color:var(--muted);line-height:1.6">
@@ -64,7 +64,7 @@
         parameterized — the placeholder &lt;this-host&gt; should be replaced
         with a recognizable label (e.g. your VPS A's hostname).
       </p>
-<pre id="remote-bash"># 1. Install CrowdSec on the remote if it isn't already.
+<pre id="remote-bash" style="background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-family:'Share Tech Mono',monospace;font-size:12px;overflow:auto;white-space:pre-wrap"># 1. Install CrowdSec on the remote if it isn't already.
 curl -s https://install.crowdsec.net | sudo sh
 sudo apt install -y crowdsec
 sudo systemctl enable --now crowdsec
@@ -107,15 +107,11 @@ sudo ufw allow from {{ protek_host_ip or '&lt;protek-host-IP&gt;' }} to any port
         between "wrong key" and "firewall blocking TCP 8080".
       </p>
 
-      <button type="button" id="fed-probe-btn"
-              style="margin:8px 0 12px;padding:8px 16px;font-family:'Share Tech Mono',monospace;
-                     font-size:11px;letter-spacing:.15em;text-transform:uppercase;
-                     background:var(--bg-raised);border:1px solid var(--cyan);color:var(--cyan);
-                     border-radius:3px;cursor:pointer">
+      <button type="button" id="fed-probe-btn" class="btn sec" style="margin:8px 0 12px">
         ↻ Run diagnostic probe (without saving)
       </button>
       <div id="fed-probe-result" style="display:none;background:var(--bg-deep);border:1px solid var(--border);
-                                         border-radius:3px;padding:12px;margin-bottom:12px;font-family:'Share Tech Mono',monospace;font-size:12px">
+                                         border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;font-family:'Share Tech Mono',monospace;font-size:12px">
         <!-- filled by JS -->
       </div>
 

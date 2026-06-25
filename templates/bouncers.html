@@ -9,7 +9,7 @@
   <div class="kpi"><div class="k">Total Entries (across all targets)</div><div class="v">{{ kpis.total_entries }}</div></div>
 </div>
 
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Active Targets</h2>
   <table>
     <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th class="right">Size</th><th>Mode</th><th>Last Sync</th><th>Actions</th></tr></thead>
@@ -24,30 +24,30 @@
           {% elif t.error and t.error.startswith('degraded:') %}
             {# Phase 89 — bouncer hit its per-cycle timeout but the global #}
             {# loop kept moving for other targets. Re-attempts every cycle. #}
-            <span class="badge" style="color:var(--amber)" title="{{ t.error }}">degraded</span>
+            <span class="badge ssh" title="{{ t.error }}">degraded</span>
           {% else %}
             <span class="badge" style="color:var(--red)">{{ t.error or 'offline' }}</span>
           {% endif %}
         </td>
         <td class="mono right">{{ t.size if t.size is not none else '—' }}</td>
-        <td>{% if t.dry_run %}<span class="badge" style="color:var(--amber)">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>
+        <td>{% if t.dry_run %}<span class="badge ssh">DRY</span>{% else %}<span class="badge cs">LIVE</span>{% endif %}</td>
         <td class="mono muted">{{ t.last_sync_rel }}</td>
         <td>
           {% if t.removable %}
           {% if t.dry_run %}
           <form method="POST" action="{{ url_for('bouncers_promote', tid=t.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--green)"
+            <button class="btn ghost" style="padding:3px 9px;color:var(--green)"
                     onclick="return confirm('Promote {{ t.name }} ({{ t.kind }}) to LIVE? It will start writing to the target on the next reconcile cycle.')">
               ↑ promote
             </button>
           </form>
           {% endif %}
           <a class="btn ghost" href="{{ url_for('bouncers_edit', tid=t.id) }}"
-             style="padding:2px 8px;font-size:10px;color:var(--cyan)">edit</a>
+             style="padding:3px 9px">edit</a>
           <form method="POST" action="{{ url_for('bouncers_delete', tid=t.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="return confirm('Remove target?')">remove</button>
+            <button class="btn ghost" style="padding:3px 9px;color:var(--red)" onclick="return confirm('Remove target?')">remove</button>
           </form>
           {% else %}
           <span class="muted" style="font-size:10px">env-managed</span>
@@ -65,30 +65,26 @@
   </table>
 </div>
 
-<div class="panel" style="margin-top:16px">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:20px">
+<div class="panel" style="margin-top:var(--gap)">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap">
     <div>
       <h2 style="margin:0 0 4px">Add Target</h2>
-      <div class="muted" style="font-size:12px;text-transform:none;letter-spacing:0">
+      <div class="muted" style="font-size:12px">
         Pick an adapter, fill its config, and Protek will start applying the same merged decision set to it on the next reconcile cycle. Operator owns the consuming firewall rule (block/drop); Protek owns only the list contents.
       </div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center;white-space:nowrap">
-      <a href="{{ url_for('mt_bootstrap_page') }}"
-         style="font-size:11px;font-family:'Share Tech Mono',monospace;text-transform:uppercase;letter-spacing:.12em;color:var(--cyan);text-decoration:none;border-bottom:1px dashed var(--cyan);padding-bottom:1px"
+    <div style="display:flex;gap:12px;align-items:center;white-space:nowrap">
+      <a href="{{ url_for('mt_bootstrap_page') }}" class="btn ghost"
          title="One-paste RouterOS script that creates a user with the right perms — drops MT onboarding from ~10 steps to one">
         ⚡ MT bootstrap .rsc
       </a>
-      <a href="{{ url_for('bouncers_add') }}" class="btn"
-         style="padding:10px 22px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;background:var(--cyan);color:var(--bg-deep);border:1px solid var(--cyan);font-weight:700;text-decoration:none;border-radius:3px">
-        + Guided wizard →
-      </a>
+      <a href="{{ url_for('bouncers_add') }}" class="btn">+ Guided wizard →</a>
     </div>
   </div>
 
   {% if request.args.get('advanced') %}
-  <div style="margin-top:12px;padding:8px 12px;background:rgba(255,180,71,0.08);border:1px solid var(--amber);border-radius:3px;font-size:11px;color:var(--amber)">
-    Advanced one-shot form below. The <a href="{{ url_for('bouncers_add') }}" style="color:var(--amber);text-decoration:underline">guided wizard</a> is recommended for new bouncers — structured fields, inline help, health-probe-on-save.
+  <div class="flash warn" style="margin-top:12px">
+    Advanced one-shot form below. The <a href="{{ url_for('bouncers_add') }}">guided wizard</a> is recommended for new bouncers — structured fields, inline help, health-probe-on-save.
   </div>
   {% endif %}
 
@@ -96,7 +92,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div>
       <label>Kind</label>
-      <select name="kind" id="kind" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px" onchange="showFields(this.value)">
+      <select name="kind" id="kind" onchange="showFields(this.value)">
         <option value="mikrotik">MikroTik (additional router)</option>
         <option value="iptables_ipset">iptables + ipset (local)</option>
         <option value="cloudflare">Cloudflare WAF list</option>
@@ -111,7 +107,7 @@
     </div>
     <div>
       <label>Dry Run</label>
-      <select name="dry_run" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+      <select name="dry_run">
         <option value="1">yes</option><option value="0">no</option>
       </select>
     </div>
@@ -155,7 +151,7 @@ ALL ADAPTERS support optional per-bouncer filter knobs:
   </div>
 </div>
 
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Third-party plugin adapters (phase 69)</h2>
   <p class="muted" style="margin:0 0 10px;font-size:12px">
     Drop Python files into <span class="mono">{{ plugin_dir }}</span> to add new

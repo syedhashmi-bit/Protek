@@ -13,7 +13,7 @@
       <div class="v" style="font-size:18px;color:{{ 'var(--amber)' if approval_required else 'var(--green)' }}">
         {{ 'SEMI-AUTO' if approval_required else 'AUTO' }}
       </div>
-      <button class="btn ghost" type="submit" style="padding:2px 8px;font-size:10px;margin-top:6px">
+      <button class="btn ghost" type="submit" style="padding:4px 10px;margin-top:6px">
         switch to {{ 'AUTO' if approval_required else 'SEMI-AUTO' }}
       </button>
     </form>
@@ -26,7 +26,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div>
       <label>Kind</label>
-      <select name="kind" style="width:100%;background:var(--bg-deep);border:1px solid var(--border);color:var(--text);padding:8px 10px;font-family:'Share Tech Mono',monospace;border-radius:3px">
+      <select name="kind">
         <option value="ip">IP</option><option value="cidr">CIDR</option>
         <option value="asn">ASN</option><option value="country">Country</option>
       </select>
@@ -53,7 +53,7 @@
         <td>
           <form method="POST" action="{{ url_for('whitelist_delete', wid=r.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn ghost" style="padding:2px 8px;font-size:10px;color:var(--red)">remove</button>
+            <button class="btn ghost" style="padding:4px 10px;color:var(--red)">remove</button>
           </form>
         </td>
       </tr>

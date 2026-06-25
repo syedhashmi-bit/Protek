@@ -12,28 +12,28 @@
     in a new tab (SSO cookie shared if both are on the same parent domain).
   </p>
 
-  <div class="kpi-row">
+  <div class="grid kpi-strip">
     <div class="kpi">
-      <div class="kpi-label">Aggregated bans</div>
-      <div class="kpi-value cyan">{{ '{:,}'.format(kpis.total_active_bans) }}</div>
+      <div class="k">Aggregated bans</div>
+      <div class="v cyan">{{ '{:,}'.format(kpis.total_active_bans) }}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Healthy peers</div>
-      <div class="kpi-value" style="color:{% if kpis.peers_healthy == kpis.peers_total %}var(--green){% else %}var(--amber){% endif %}">
+      <div class="k">Healthy peers</div>
+      <div class="v" style="color:{% if kpis.peers_healthy == kpis.peers_total %}var(--green){% else %}var(--amber){% endif %}">
         {{ kpis.peers_healthy }} / {{ kpis.peers_total }}
       </div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Max sync lag</div>
-      <div class="kpi-value mono">{{ '%.1f'|format(kpis.max_sync_lag_seconds) }}<span class="muted">s</span></div>
+      <div class="k">Max sync lag</div>
+      <div class="v mono">{{ '%.1f'|format(kpis.max_sync_lag_seconds) }}<span class="muted">s</span></div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Cycles (sum)</div>
-      <div class="kpi-value mono">{{ '{:,}'.format(kpis.cycle_total) }}</div>
+      <div class="k">Cycles (sum)</div>
+      <div class="v mono">{{ '{:,}'.format(kpis.cycle_total) }}</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Last refresh</div>
-      <div class="kpi-value mono" style="font-size:13px">
+      <div class="k">Last refresh</div>
+      <div class="v mono" style="font-size:16px">
         {% if kpis.last_refresh %}{{ kpis.last_refresh[11:19] }}{% else %}—{% endif %}
       </div>
     </div>
@@ -47,7 +47,7 @@
   </div>
 </div>
 
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Instances</h2>
   <table>
     <thead>
@@ -76,7 +76,7 @@
         </td>
         <td class="mono right">{{ '{:,}'.format(i.active_bans) }}</td>
         <td class="mono right">{{ '%.1f'|format(i.sync_lag_seconds) }}s</td>
-        <td>{% if i.dry_run %}<span class="badge">dry</span>{% else %}<span class="badge cs">live</span>{% endif %}</td>
+        <td>{% if i.dry_run %}<span class="badge ssh">dry</span>{% else %}<span class="badge cs">live</span>{% endif %}</td>
         <td class="mono" style="font-size:11px">{% if i.last_pull_at %}{{ i.last_pull_at[11:19] }}{% else %}—{% endif %}</td>
         <td>
           {% if i.id and session.get('role') == 'admin' %}
@@ -88,7 +88,7 @@
           <form method="post" action="{{ url_for('peers_delete', pid=i.id) }}" style="display:inline"
                 onsubmit="return confirm('Remove peer {{ i.name }}?')">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn sec" type="submit" style="color:var(--red)">remove</button>
+            <button class="btn danger" type="submit">remove</button>
           </form>
           {% endif %}
         </td>
@@ -99,29 +99,28 @@
 </div>
 
 {% if session.get('role') == 'admin' %}
-<div class="panel" style="margin-top:16px">
+<div class="panel" style="margin-top:var(--gap)">
   <h2>Add peer</h2>
   <form method="post" action="{{ url_for('peers_add') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div style="display:grid;grid-template-columns:1fr 2fr 2fr;gap:10px">
       <div><label>Name</label>
-        <input type="text" name="name" placeholder="protek-eu" required style="width:100%">
+        <input type="text" name="name" placeholder="protek-eu" required>
       </div>
       <div><label>URL</label>
-        <input type="url" name="url" placeholder="https://protek-eu.example.com" required style="width:100%">
+        <input type="url" name="url" placeholder="https://protek-eu.example.com" required>
       </div>
       <div><label>Bearer token (read scope)</label>
-        <input type="text" name="token" placeholder="protek_xxxxxxxxxxxx" required style="width:100%">
+        <input type="text" name="token" placeholder="protek_xxxxxxxxxxxx" required>
       </div>
     </div>
     <div style="margin-top:10px;display:flex;gap:10px;align-items:center">
-      <button type="button" id="peers-test-btn" class="btn sec"
-              style="background:var(--bg-raised);color:var(--cyan);border:1px solid var(--cyan)">
+      <button type="button" id="peers-test-btn" class="btn sec">
         ↻ Test connection
       </button>
       <button class="btn" type="submit">Add peer</button>
     </div>
-    <div id="peers-test-result" style="display:none;margin-top:10px;background:var(--bg-deep);border:1px solid var(--border);border-radius:3px;padding:12px;font-family:'Share Tech Mono',monospace;font-size:12px">
+    <div id="peers-test-result" style="display:none;margin-top:10px;background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-family:'Share Tech Mono',monospace;font-size:12px">
       <!-- filled by JS -->
     </div>
   </form>
