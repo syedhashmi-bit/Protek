@@ -65,6 +65,8 @@ class Poller:
         self.last_error: str = ""
         self.last_active_count: int = 0
         self.cycles: int = 0
+        # Separate from self.cycles on purpose — see _check_disk().
+        self._maint_ticks: int = 0
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -90,6 +92,49 @@ class Poller:
                 self.last_error = str(e)
             self._stop.wait(self.interval)
 
+    def _run_retention(self, _gs, tick_no: int) -> None:
+        """Bound the append-only tables. Hourly, and up here with the disk
+        check for the same reason: it must not be starved by a failure
+        further down the cycle. See retention.py for why it is a row cap
+        rather than a time window."""
+        if tick_no % 360 != 0:  # ~1h at the 10s default interval
+            return
+        try:
+            import retention
+            retention.prune()
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.warning("retention sweep failed: %s", e)
+
+    def _check_disk(self, _gs, tick_no: int) -> None:
+        """Disk watchdog. Runs at the TOP of tick(), before anything else.
+
+        2026-07-26 post-mortem — this used to sit ~300 lines further down and
+        had two independent reasons it could never fire when it mattered:
+
+          1. `record_pull()` above it raises `database or disk is full` under
+             ENOSPC, aborting the cycle before execution ever reached here.
+          2. The cadence gate read `self.cycles % disk_every`, but
+             `self.cycles += 1` also sat below the crashing federation pulls —
+             so on a full disk the counter froze and the gate never opened
+             again even if the cycle had survived.
+
+        Hence: first statement in the cycle, and its own counter that cannot
+        be starved by a failure elsewhere. Cadence default every 6 ticks ≈60s,
+        and tick 0 fires immediately so a restart onto an already-full disk
+        alerts at once rather than 60s later.
+        """
+        try:
+            disk_every = int(_gs("disk.check_every_cycles") or "6")
+        except (TypeError, ValueError):
+            disk_every = 6
+        if disk_every < 1 or tick_no % disk_every != 0:
+            return
+        try:
+            import disk_watchdog
+            disk_watchdog.check_and_alert()
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.warning("disk watchdog failed: %s", e)
+
     def tick(self) -> None:
         started = datetime.now(timezone.utc)
         # Re-read runtime knobs from the settings table so toggles applied via
@@ -97,6 +142,13 @@ class Poller:
         # not just on full process restart. .env values were the boot defaults;
         # the settings table is the runtime source of truth.
         from db import get_setting as _gs
+
+        # Maintenance that must never be starved by a failure further down
+        # the cycle runs first, off its own counter. See _check_disk().
+        tick_no = self._maint_ticks
+        self._maint_ticks += 1
+        self._check_disk(_gs, tick_no)
+        self._run_retention(_gs, tick_no)
         v = _gs("settings.dry_run")
         if v in ("0", "1"):
             self.dry_run = (v == "1")
@@ -400,22 +452,6 @@ class Poller:
                     conn.close()
             except Exception as e:  # noqa: BLE001
                 log.debug("wal checkpoint swallowed: %s", e)
-
-        # Phase 93 — disk watchdog. Two ENOSPC incidents (2026-05-25 WAL,
-        # 2026-05-28 Litestream LTX stage) both kept /health green while
-        # SQLite went read-only underneath. Sample + edge-triggered warn/
-        # critical notification, mirroring the SLO breach pattern.
-        # Cadence is configurable; default every 6 cycles ≈ 60s.
-        try:
-            disk_every = int(_gs("disk.check_every_cycles") or "6")
-        except (TypeError, ValueError):
-            disk_every = 6
-        if disk_every >= 1 and self.cycles % disk_every == 0:
-            try:
-                import disk_watchdog
-                disk_watchdog.check_and_alert()
-            except Exception as e:  # noqa: BLE001
-                log.debug("disk watchdog swallowed: %s", e)
 
         # Phase 93 — litestream journal scraper. Errors like
         # `level=ERROR retention enforcement failed` are invisible to
