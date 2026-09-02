@@ -73,6 +73,29 @@ def _setting_float(key: str, default: float) -> float:
         return float(default)
 
 
+def usage() -> dict[str, Any]:
+    """Current capacity — pure, no DB, never raises.
+
+    Split out of sample() after the 2026-07-26 ENOSPC incident: alerting has
+    to work when the database is unwritable, so the numbers must be
+    obtainable without touching SQLite. See check_and_alert().
+
+    `used_pct` divides by used+free, not total. ext4 reserves ~5% for root,
+    which counts toward `total` but is not usable space — dividing by total
+    reads several points low and alerts late. This matches `df`.
+    """
+    try:
+        du = shutil.disk_usage(str(DB_PATH))
+    except OSError:
+        log.warning("disk usage probe failed", exc_info=True)
+        return {"ts": datetime.now(timezone.utc).isoformat(), "used_pct": 0.0,
+                "free_bytes": 0, "total_bytes": 0, "error": True}
+    denom = du.used + du.free
+    used_pct = (du.used / denom) * 100.0 if denom else 0.0
+    return {"ts": datetime.now(timezone.utc).isoformat(), "used_pct": used_pct,
+            "free_bytes": du.free, "total_bytes": du.total, "error": False}
+
+
 def sample() -> dict[str, Any]:
     """Take one disk sample, persist it, prune to the 1440-row cap.
 
@@ -80,10 +103,14 @@ def sample() -> dict[str, Any]:
     where ENOSPC actually hurts — the gunicorn worker can't checkpoint
     the WAL if that mount is full). `shutil.disk_usage(DB_PATH)` does
     the right thing here.
+
+    NOTE: this WRITES to SQLite, so it fails exactly when the disk is full.
+    Never make alerting depend on it — call usage() for that.
     """
+    u = usage()
     du = shutil.disk_usage(str(DB_PATH))
-    used_pct = (du.used / du.total) * 100.0 if du.total else 0.0
-    ts = datetime.now(timezone.utc).isoformat()
+    used_pct = u["used_pct"]
+    ts = u["ts"]
     conn = get_conn()
     try:
         conn.execute(
@@ -172,11 +199,18 @@ def check_and_alert() -> dict[str, Any]:
           fire recovery notification, clear warn_alerted.
       critical: same shape with critical_pct + critical_alerted.
 
-    Both edges always sample fresh state via sample(). Returns a dict
-    describing what (if anything) fired this call — used by tests and
-    optionally logged by the caller.
+    Ordering matters and is load-bearing (2026-07-26 ENOSPC post-mortem).
+    This used to open with `s = sample()`, whose first act is an INSERT into
+    disk_samples. On a full disk that raises ENOSPC and the whole function
+    died before it could notify — which is why this watchdog never fired in
+    any of the three ENOSPC incidents it was written for. Now: read capacity
+    with the pure usage() helper, alert, and only then attempt the DB write,
+    best-effort. A watchdog must not depend on the resource it watches.
+
+    Returns a dict describing what (if anything) fired this call — used by
+    tests and optionally logged by the caller.
     """
-    s = sample()
+    s = usage()
     warn_pct = _setting_float("disk.warn_pct", DEFAULT_WARN_PCT)
     crit_pct = _setting_float("disk.critical_pct", DEFAULT_CRITICAL_PCT)
     used_pct = s["used_pct"]
@@ -239,22 +273,39 @@ def check_and_alert() -> dict[str, Any]:
 
     # Critical (evaluated first so we never silently skip critical because
     # the warn edge already fired this cycle).
+    # Dedupe state is a DB write, so it is the second thing that fails under
+    # ENOSPC. Always attempt it AFTER _fire() and never let it raise: a lost
+    # flag means the same alert repeats next cycle, which is strictly better
+    # than the alert never being sent at all.
+    def _remember(key: str, value: str) -> None:
+        try:
+            set_setting(key, value)
+        except Exception:  # noqa: BLE001
+            log.warning("disk watchdog could not persist %s (disk full?)", key)
+
     if used_pct >= crit_pct:
         if not crit_alerted:
             _fire("critical", "critical")
-            set_setting("disk.critical_alerted", "1")
+            _remember("disk.critical_alerted", "1")
     elif used_pct < (crit_pct - HYSTERESIS_PCT) and crit_alerted:
         _fire("critical", "critical", recovery=True)
-        set_setting("disk.critical_alerted", "0")
+        _remember("disk.critical_alerted", "0")
 
     # Warn
     if used_pct >= warn_pct:
         if not warn_alerted:
             _fire("warn", "warn")
-            set_setting("disk.warn_alerted", "1")
+            _remember("disk.warn_alerted", "1")
     elif used_pct < (warn_pct - HYSTERESIS_PCT) and warn_alerted:
         _fire("warn", "warn", recovery=True)
-        set_setting("disk.warn_alerted", "0")
+        _remember("disk.warn_alerted", "0")
+
+    # Persist the sample for /perf and /health last of all — purely
+    # cosmetic relative to alerting, and the first thing to fail when full.
+    try:
+        sample()
+    except Exception:  # noqa: BLE001
+        log.warning("disk sample persist failed (disk full?)")
 
     return out
 

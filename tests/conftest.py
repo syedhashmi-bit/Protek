@@ -13,10 +13,17 @@ session default afterward, so the two layers don't conflict.
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
 import pytest
+
+# app.py refuses to start without a SECRET_KEY — the session cookie is signed,
+# not encrypted, and carries `role`, so a known fallback key meant anyone could
+# forge an admin session. Supply a throwaway key here, at module scope, because
+# test modules import `app` at collection time (before any fixture runs).
+os.environ.setdefault("SECRET_KEY", "test-only-not-a-real-key")
 
 
 @pytest.fixture(scope="session", autouse=True)
