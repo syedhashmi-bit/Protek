@@ -23,7 +23,9 @@ qrcode>=8.2,<9.0
 dnspython>=2.8.0,<3.0
 
 # Encrypted bundle (Arc 7 phase 41)
-cryptography>=48.0.0,<50.0
+# 50.x is the floor: PYSEC-2026-3552 affects 49.0.0 and earlier, fixed in
+# 50.0.0. The old `<50.0` ceiling was what pinned us to the vulnerable line.
+cryptography>=50.0.0,<51.0
 
 # ML anomaly layer (Arc 10 phase 62) — Isolation Forest over per-IP features
 scikit-learn>=1.8.0,<2.0
