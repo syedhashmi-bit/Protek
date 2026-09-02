@@ -4,6 +4,262 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-09-02 — Full security audit: 9 Critical/High fixed + systemd sandboxing
+
+Audit of the whole codebase (three parallel passes + a manual one). Every finding
+below was verified by reading the code and reproducing the logic, not inferred.
+
+### The two that mattered
+
+**Arbitrary root file read/write by ANY logged-in user.** `/scenarios/editor`
+(`app.py`) was the only state-changing route in the app carrying `@login_required`
+without `@role_required`, so a `viewer` — the default role for OIDC/SAML-provisioned
+accounts — could reach it. `scenarios_admin._name_safe` permitted `/` and `.`, so
+both `../` traversal *and* absolute paths passed:
+
+```
+_name_safe('/etc/crowdsec/local_api_credentials.yaml') -> True
+Path('/etc/crowdsec/scenarios') / '/root/x.yaml'       -> /root/x.yaml
+```
+
+Service runs as root, so: read the LAPI machine credentials into the editor
+textarea, or write any `*.yaml` on the box and POST `reload=1` to
+`systemctl reload crowdsec` and apply it. Found independently by two auditors.
+
+Fix: split `_name_safe` into two functions — it had **four callers doing two
+different jobs** (cscli argv names vs filesystem paths), which is exactly how this
+got in. New `_path_safe` rejects `/`, `\`, `..`, leading `-`, requires `.yaml`, then
+asserts `(CUSTOM_DIR / name).resolve().is_relative_to(CUSTOM_DIR.resolve())` — the
+resolve check is the real guard. Plus `@role_required("operator")` on the route.
+
+**X-Forwarded-For spoofing defeated the login lockout.** `auth.client_ip()` returned
+`xff.split(",")[0]`, with a comment asserting nginx overwrites the header. It does
+not — `$proxy_add_x_forwarded_for` **appends** `$remote_addr`, so the leftmost
+element is attacker-controlled. Rotating it gave unlimited password *and* TOTP
+brute force (lockout is keyed on this value), plus `IP_WHITELIST` bypass and audit
+poisoning. `X-Real-IP` was set correctly all along and unused.
+
+Fix: `ProxyFix(x_for=TRUSTED_PROXY_HOPS)` in `app.py` so `request.remote_addr` is
+the rightmost (proxy-appended) hop; `client_ip()` now just returns that.
+`deploy/nginx.conf` switched to `$remote_addr` so both layers agree. Confirmed live:
+the gunicorn access log now shows real client IPs instead of `127.0.0.1`.
+
+### Also fixed
+- **`SECRET_KEY` failed open** to `"dev-secret-CHANGE-ME"` — role lives in the signed
+  cookie, so a known key mints admin sessions. Now `raise SystemExit`.
+- **Stored XSS in the cmd-K palette** (`templates/base.html`) — built `innerHTML`
+  from `decisions.value`/`scenario`, which `/api/external/decisions` accepted with
+  only `.strip()`. Now `createElement` + `textContent`, and both ingest points
+  validate with `ipaddress.ip_network(strict=False)`.
+- **`diagnostic.py` sent credentials over `verify=False`** — the LAPI key, CF token,
+  pfSense key or peer token, on a hardcoded-unverified connection. Now threads
+  `verify_tls` from the caller, default `True`.
+- **Cloudflare adapter deleted foreign entries** — `(item.get("comment") or
+  "protek:cloudflare::0")` relabelled every un-commented CF list item as
+  Protek-owned. Default is now `""` = foreign = never touched.
+- **`api_key` escaped redaction** — `SECRET_KEYS` was an exact-name tuple missing the
+  field name both pfSense and OPNsense use, so the key rendered in cleartext and was
+  written to `audit_log` (which has BEFORE UPDATE/DELETE triggers → unremovable).
+  Replaced with a substring rule. **Rotate any pfSense/OPNsense key already used.**
+- **Batch cap starved removals** — `remaining = batch_cap - len(to_add)` meant a full
+  add batch applied zero removals, and since adapters count "already have such entry"
+  as an applied add, a pre-seeded list could pin `to_add` at the cap forever and stop
+  unbans permanently. Removals now get their own budget.
+- **`run_once()` raised `UnboundLocalError` with no bouncers** — the state of every
+  fresh install, swallowed by `poller.py`'s broad handler.
+
+### Two mistakes I made, both caught and fixed
+1. Applied this codebase's `split("#",1)[0]` inline-comment idiom to `SECRET_KEY`.
+   **The live key's value starts with `#`**, so it truncated to empty and every
+   worker refused to boot — ~2 min outage. Secrets are now taken verbatim
+   (`_env_secret`), whitespace-stripped only. Do not comment-strip secrets.
+2. First systemd hardening attempt used `ProtectHome=yes`. This venv is uv-built and
+   its interpreter lives under `/root/.local/share/uv/`, so hiding `/root` broke exec
+   (`status=203/EXEC`) — reverted from backup within a minute, re-applied with
+   `ProtectHome=read-only` + `/root/.gunicorn` in `ReadWritePaths` (gunicorn's
+   control socket lives there).
+
+### Hardening applied
+`/etc/systemd/system/protek.service`: `NoNewPrivileges`, `PrivateTmp`,
+`ProtectSystem=strict`, `ProtectHome=read-only`, `ProtectKernel*`,
+`RestrictSUIDSGID`, `LockPersonality`, `UMask=0077`, with
+`ReadWritePaths=/var/www/Protek /etc/crowdsec /var/lib/crowdsec /run /root/.gunicorn`.
+Backup at `/root/protek.service.bak-004257`. `systemd-analyze security` still says
+7.8 — dominated by `User=root`, deliberately kept (dropping privileges needs the
+CrowdSec socket + `systemctl reload crowdsec` paths worked through separately).
+`protek.db` chmod 0600 (was 0644). CSP added **report-only** — enforcing needs nonces
+for the inline Chart.js/Leaflet blocks; flip with `CSP_ENFORCE=1`.
+
+### Audited clean (worth not re-checking)
+No SQL injection — every value bound, and no `ORDER BY` ever taken from a query
+string. No command injection — `shell=True` appears nowhere, all `subprocess` calls
+use argv lists. No unsafe deserialization — no `pickle`, no `yaml.load`, no `eval`.
+Server-rendered XSS clean (one `|safe`, on a hardcoded literal). bcrypt rounds=12,
+tokens stored as SHA-256 only, `secrets`/`os.urandom` throughout with zero uses of
+`random`. All 31 POST templates carry CSRF tokens. Dependencies all current.
+
+### Deferred (Medium — logged, not fixed)
+Open redirect on `?next=` · GraphQL accepts session cookies while bypassing session
+timeout + IP allowlist · role read from cookie and never re-validated, so
+demote/disable/delete don't affect live sessions · plaintext API tokens and TOTP
+seeds in the signed-but-unencrypted session cookie · pfSense `apply()` re-snapshots
+and wipes the alias on a failed fetch · adapters return `[]` on snapshot failure,
+indistinguishable from empty · `/api/sync/run` uses boot-time `DRY_RUN`, ignoring the
+runtime toggle · MikroTik REST adapter missing the IPv4/IPv6 split so IPv6 bans never
+apply · `_normalize_addr` string-only → IPv6 zero-compression flap · SSRF probe with
+no RFC1918/metadata guard · unbounded rate-limit registry keyed on a query param.
+
+Still outstanding from 2026-09-01: WAL-size guard in `disk_watchdog.py` (it watches
+free space only), and `get_conn()` issuing `PRAGMA journal_mode = WAL` on every
+connection — that is what made worker boot fail during the WAL checkpoint.
+
+**No test exercises `login_required`, `role_required`, `client_ip`, or CSRF.** The two
+Critical findings would both have been caught by one small test module; operator
+chose to skip it this round.
+
+---
+
+## 2026-09-01 — "Freezes after I click login" = a 64–100s dashboard render (diagnosed; fix written, NOT yet deployed)
+
+**Operator report:** "protek freezes after i click login."
+
+### It was never the login
+`POST /login` with a valid session + CSRF token returns in **70 ms** (tested
+end-to-end against prod over HTTPS). The login succeeds; the browser then sits
+on the `GET /` redirect target for over a minute. Reconstructed from the access
+log (gunicorn logs on *completion*, so an in-flight slow request is invisible):
+
+```
+06:16:01  POST /login?next=/  → 302   ← login SUCCEEDED (no CSRF error logged)
+06:16:08  POST /login?next=/  → 302   ← operator re-clicked; this one hit CSRF
+06:17:41  GET /               → 200   ← dashboard rendered, ~100s after the POST
+```
+
+Reproducible, not a one-off — Aug 27 shows five consecutive dashboard loads at
+77s / 86s / 78s / 88s / 64s. Only 7 successful `GET /` in the whole 7-day window.
+
+### Ruled out (with evidence)
+- **MikroTik in the request path** — the 2026-06-24 fix (`4530674`) is present
+  and correct; `_mt_quick_ok()` / `_cached_mt_count()` do zero network I/O.
+- **Lock contention / WAL** — WAL stayed ~3 MB and public `/health` answered in
+  ~20 ms throughout a 2-minute sampler.
+- **nginx / CDN caching** — no `proxy_cache`, fresh CSRF token per response,
+  no Cloudflare in front (direct nginx, grey-cloud).
+
+### Root cause — four unindexed aggregates over 7.49M rows
+`dashboard()` runs eight SQLite aggregates. Measured read-only on the live
+2.7 GB DB:
+
+| query | time |
+|---|---|
+| `COUNT(*) WHERE deleted_at IS NULL` | 0.42 s |
+| `COUNT(DISTINCT origin_source) WHERE deleted_at IS NULL` | **18.1 s** |
+| `COUNT(DISTINCT scenario) WHERE last_seen_at > -1day` | 1.47 s |
+| `COUNT(DISTINCT value) WHERE last_seen_at > -1day` | **19.2 s** |
+| `GROUP BY scenario` (LIMIT 1, then LIMIT 10) | **21.3 s × 2** |
+
+≈ **82 s**, matching the observed 64–100 s. The pattern in every slow case:
+the planner scans an index that does *not* carry the filtered/selected column,
+so each of ~7M rows costs a table lookup — note `sys` was ~12 s of each 19 s,
+i.e. pure I/O across a 2.7 GB file.
+
+### The number underneath it all
+`decisions` holds **7,488,854 rows — 6,988,854 of them live (`deleted_at IS
+NULL`) — across only 157,216 distinct IPs.** ~44 duplicate rows per IP. And
+**every live row has `until IS NULL`**, so there is no expiry data to tombstone
+from. This is the churn `retention.py` documents (CrowdSec issues a fresh
+`lapi_id` per re-ban, `UNIQUE(origin_source, lapi_id)` makes each a new row) —
+but retention only caps *tombstones*, so the live set is unbounded. The
+dashboard KPI "LAPI active" is therefore reporting ~6.99M.
+
+### OUTCOME — shipped 06:42, operator logged in at 06:47
+`POST /login → 302` at 06:47:42, `GET / → 200` at 06:47:59: **17 s**, including
+the browser round trip, and measured while the box was still churning through a
+post-restart bootstrap. Was 64-100 s, latterly a hard 504 (nginx
+`proxy_read_timeout 60s` cut the connection at 60 s while gunicorn kept going
+and logged a 200 at ~80 s that never reached the browser).
+
+**Indexes alone were not enough — the hints were the actual fix.** Built the
+three indexes first (18 s total, DB 2.7 → 3.0 GB) and only q4 got faster,
+because **the DB has no ANALYZE stats at all (`sqlite_stat1` does not exist)**,
+so the planner falls back on heuristics and keeps choosing the older, wider
+indexes. Measured on the live DB, index present but unhinted vs hinted:
+
+| query | unhinted | hinted |
+|---|---|---|
+| `COUNT(DISTINCT value)` 24h | 19.2 s | **0.15 s** |
+| `COUNT(DISTINCT origin_source)` | 25.6 s | **0.67 s** |
+| `GROUP BY scenario` | 22.3 s | **1.15 s** |
+
+Left `COUNT(DISTINCT scenario)` unhinted — 1.5-3.7 s when the box is calm, but
+it hit **144 s (128 s of it user CPU)** once under concurrent load, so it is
+still the weak spot. It is the same anti-pattern as the rest: scans
+`idx_decisions_scenario`, which does not carry `last_seen_at`, so ~7.5M table
+lookups. A `(last_seen_at, scenario)` covering index plus a hint would finish
+the job.
+
+### The stale-mirror problem partly self-healed on restart
+The 6.99M "live" rows were **stale, not un-tombstonable**. The restart forced a
+fresh `?startup=true` bootstrap (57,625 decisions from local), which correctly
+tombstoned the drift; retention then began draining it (`pruned 320000
+decisions … budget hit; more remains`) and live rows fell 6,988,854 → 6,202,622
+within six minutes. So the real bug is that **the mirror drifts over long
+uptimes and only self-corrects on restart** — the service had been up 1 month
+3 days. That is milder than "never tombstones" but still wants a fix: the
+dashboard KPI reads ~6.2M "LAPI active" against a true ~57k.
+
+### Known rough edge — worker timeouts during the transition
+Gunicorn's `--timeout 120` killed workers repeatedly between 06:44 and 06:48
+while bootstrap + retention + diagnostics contended. Not seen at all in the
+3 days before the restart. Expected to settle once retention finishes draining;
+if it recurs in steady state, the `--timeout` is too tight for a cold bootstrap
+on this data volume.
+
+### Changes shipped (also committed on `claude/project-overview-65edc3`)
+- `db.py` — three indexes added to `SCHEMA`: partial
+  `idx_decisions_live_scenario` / `idx_decisions_live_origin` (both
+  `WHERE deleted_at IS NULL`), and `idx_decisions_lastseen_value`.
+- `app.py` — `attk_24h` query pinned with `INDEXED BY
+  idx_decisions_lastseen_value`. **Required:** left alone the planner picks
+  `idx_decisions_value` (value-ordered, so `COUNT(DISTINCT value)` needs no
+  temp b-tree and *looks* cheap) but pays 7M table lookups. Verified on a
+  400k-row scratch DB that only `INDEXED BY` forces the covering plan —
+  subquery/GROUP BY rewrites did not.
+- `app.py` — `_csrf_error` no longer redirects unauthenticated failures to
+  `url_for("dashboard")`. That bounced through `login_required` back to
+  `/login`, so a CSRF failure looked like a silent hang, and the flash was
+  written into the broken session so `login.html` (which renders only `error`,
+  not flashes) never showed it. Now re-renders the form with the reason.
+  Reproduced the trigger: any stale or duplicate `session` cookie makes
+  `POST /login` return `302 → /` instead of an error.
+
+Full suite passes (195 passed, 1 skipped). Deployment order matters and was
+followed: **build the indexes first, ship `db.py` second.** Reversed, all three
+gunicorn workers try to build them inside `init_db()` at boot, block on each
+other past the 30 s busy_timeout, and crash-loop.
+
+### Follow-ups (not actioned)
+1. **Hint the last query.** `COUNT(DISTINCT scenario)` is the one KPI left
+   unhinted and it spiked to 144 s under load. Add
+   `idx_decisions_lastseen_scenario ON decisions(last_seen_at, scenario)` and
+   an `INDEXED BY`, same as the other three.
+2. **Consider ANALYZE.** With `sqlite_stat1` populated the planner would pick
+   these indexes unaided and all four hints could be dropped. Skipped this
+   session because it changes plans process-wide, including the reconciler's
+   hot path — wants a measured before/after of its own.
+3. **Mirror drift.** Watch whether live-row count creeps back up over the next
+   weeks of uptime. If it does, the stream path is losing deletions and needs a
+   `last_seen_at`-staleness sweep (careful: a wrong rule unbans IPs). `until` is
+   never populated on any row, so expiry-based tombstoning is not available.
+4. **DB is 3.0 GB** and retention only returns pages to the freelist. Once the
+   tombstone drain finishes, a VACUUM would reclaim a lot — needs ~2x free space
+   and an exclusive lock, so it is a maintenance-window job. Deliberately
+   deferred by operator decision this session.
+5. `docs/MIGRATION-VPS-B.md` still describes VPS B as the host; the box is the
+   Helsinki clone `<live-host-ip>`. Unchanged since 2026-06-24.
+
+---
+
 ## 2026-06-24 (cont.) — Slow dashboard fixed: removed in-request full MikroTik snapshots
 
 **Operator report:** "website is very slow." Not CPU/RAM/DB (load 0.33/4 cores, 94 MB DB).

@@ -182,7 +182,13 @@ class CloudflareBouncer:
                 for item in items:
                     out.append({
                         "address": item.get("ip", ""),
-                        "comment": (item.get("comment") or "protek:cloudflare::0"),
+                        # An absent comment means the entry is NOT ours.
+                        # Defaulting to a protek: marker made every item the
+                        # operator (or Terraform, or the CF dashboard, none of
+                        # which set comments) added look Protek-owned, so
+                        # reconcile put it straight into to_remove. The CF list
+                        # is explicitly shared, unlike the ipset case.
+                        "comment": (item.get("comment") or ""),
                         ".id": item.get("id", ""),
                         "list": lid,
                     })
