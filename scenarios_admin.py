@@ -101,12 +101,50 @@ def reload_agent() -> dict[str, Any]:
 
 
 def _name_safe(name: str) -> bool:
-    return name and all(c.isalnum() or c in "/_-." for c in name)
+    """Validate a CrowdSec **hub item name** (e.g. `crowdsecurity/http-probing`).
+
+    Hub names legitimately contain `/`, so this stays permissive — it only ever
+    feeds a list-form argv, never a shell and never a filesystem path. The
+    leading-dash check matters because `cscli scenarios install --help` would
+    otherwise be reachable: argv entries beginning with `-` are parsed as flags.
+
+    Do NOT use this for file paths — see `_path_safe`. The two callers were the
+    same function until 2026-09-02, which is how a path traversal reached
+    `save_custom_scenario`.
+    """
+    if not name or name.startswith("-"):
+        return False
+    return all(c.isalnum() or c in "/_-." for c in name)
 
 
 # ── Custom scenario files ──────────────────────────────────────────────────
 
 CUSTOM_DIR = Path("/etc/crowdsec/scenarios")
+
+
+def _path_safe(name: str) -> bool:
+    """Validate a filename destined for `CUSTOM_DIR`.
+
+    The character rules reject the obvious shapes, but the guarantee comes from
+    the final containment check: resolve the joined path and confirm it is still
+    inside CUSTOM_DIR. That catches anything the character rules miss, including
+    symlinked parents.
+
+    Both shapes below defeated the old check, and the service runs as root:
+        "../../../../etc/crowdsec/config.yaml"  -> escapes upward
+        "/etc/crowdsec/config.yaml"             -> absolute; `Path.__truediv__`
+                                                   discards the base entirely
+    """
+    if not name or name.startswith("-") or not name.endswith(".yaml"):
+        return False
+    if "/" in name or "\\" in name or ".." in name:
+        return False
+    if not all(c.isalnum() or c in "_-." for c in name):
+        return False
+    try:
+        return (CUSTOM_DIR / name).resolve().is_relative_to(CUSTOM_DIR.resolve())
+    except (OSError, ValueError):
+        return False
 
 
 def list_custom_scenarios() -> list[dict[str, Any]]:
@@ -128,7 +166,7 @@ def list_custom_scenarios() -> list[dict[str, Any]]:
 
 
 def read_custom_scenario(name: str) -> str | None:
-    if not _name_safe(name) or not name.endswith(".yaml"):
+    if not _path_safe(name):
         return None
     p = CUSTOM_DIR / name
     if not p.exists() or not p.is_file():
@@ -140,8 +178,8 @@ def read_custom_scenario(name: str) -> str | None:
 
 
 def save_custom_scenario(name: str, content: str) -> dict[str, Any]:
-    if not _name_safe(name) or not name.endswith(".yaml"):
-        return {"ok": False, "error": "name must be alphanumeric + .yaml"}
+    if not _path_safe(name):
+        return {"ok": False, "error": "name must be a bare alphanumeric *.yaml filename"}
     if len(content) > 200_000:
         return {"ok": False, "error": "file too large"}
     p = CUSTOM_DIR / name

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import logging
 import os
 import re
@@ -56,9 +57,55 @@ log = logging.getLogger("protek.app")
 # ── Flask ───────────────────────────────────────────────────────────────────
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = os.environ.get("SECRET_KEY") or "dev-secret-CHANGE-ME"
-if app.secret_key == "dev-secret-CHANGE-ME":
-    log.warning("SECRET_KEY missing — running with insecure dev key.")
+
+# Fail closed. The session cookie is signed, not encrypted, and it carries
+# `role` — so with a known key anyone can mint {"logged_in": true,
+# "role": "admin"} and skip both the password and TOTP entirely. This used to
+# fall back to a constant published in this repo and merely log a warning.
+# scripts/setup_admin.py always writes a SECRET_KEY, so nothing legitimate
+# reaches this branch.
+def _env_secret(name: str) -> str:
+    """Read a secret from the environment, falling back to .env itself.
+
+    Deliberately does NOT apply this codebase's usual
+    `split("#", 1)[0]` inline-comment strip. That idiom exists because dotenv
+    keeps trailing comments attached to values, but a generated secret may
+    legitimately *contain* '#' — the live SECRET_KEY starts with one — and
+    splitting on it silently truncates the key to an empty string. Secrets are
+    taken verbatim; only surrounding whitespace is removed.
+
+    systemd's EnvironmentFile= and python-dotenv also parse .env differently,
+    and `load_dotenv()` will not override a name systemd already set, so fall
+    back to reading the file directly if the environment yields nothing.
+    """
+    raw = (os.environ.get(name) or "").strip()
+    if raw:
+        return raw
+    try:
+        from dotenv import dotenv_values
+        return (dotenv_values(ROOT / ".env").get(name) or "").strip()
+    except Exception:  # noqa: BLE001 — .env unreadable is the same as unset
+        return ""
+
+
+app.secret_key = _env_secret("SECRET_KEY")
+if not app.secret_key:
+    raise SystemExit(
+        "SECRET_KEY is not set — refusing to start with a forgeable session key. "
+        "Run: python scripts/setup_admin.py --username <name>"
+    )
+
+# Trust exactly the hops we actually run behind. nginx is configured with
+# `$proxy_add_x_forwarded_for`, which APPENDS $remote_addr to whatever the
+# client sent, so the leftmost XFF element is attacker-controlled — reading it
+# let anyone rotate their apparent IP and defeat the login lockout outright.
+# ProxyFix takes the RIGHTMOST hop instead, which is the value our own proxy
+# appended. Bump TRUSTED_PROXY_HOPS if a further reverse proxy is added.
+_proxy_hops = max(0, int((os.environ.get("TRUSTED_PROXY_HOPS") or "1").split("#", 1)[0].strip() or 1))
+if _proxy_hops:
+    from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_proxy_hops,
+                            x_proto=_proxy_hops, x_host=_proxy_hops)
 
 _session_cookie_domain = (os.environ.get("SESSION_COOKIE_DOMAIN") or "").strip() or None
 
@@ -86,6 +133,20 @@ csrf = CSRFProtect(app)
 def _csrf_error(e):
     if request.path.startswith("/api/") or request.is_json:
         return jsonify(error="csrf", reason=e.description), 400
+    if not session.get("logged_in"):
+        # An unauthenticated CSRF failure is almost always a stale login form
+        # (reloaded tab, back button, or a second tab whose token was rotated
+        # by a successful login elsewhere). Redirecting to the dashboard sends
+        # it through login_required and straight back to /login, so the form
+        # silently reappears with no explanation — indistinguishable from a
+        # hang. Re-render the form with the reason and a fresh token instead.
+        return render_template(
+            "login.html",
+            error=f"Security check failed ({e.description}). Please try again.",
+            locked=False, lockout_mins=0,
+            sso_configured=_oidc.is_configured(),
+            username=request.form.get("username", ""),
+        ), 400
     flash(f"Security check failed ({e.description}). Reload and try again.", "error")
     return redirect(url_for("dashboard"))
 
@@ -280,6 +341,26 @@ def _security_headers(resp):
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     if app.config.get("SESSION_COOKIE_SECURE"):
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    # Report-only for now. The dashboard renders plenty of strings that
+    # originate outside this box (scenario names, ASN/org, rDNS, WHOIS, geo),
+    # so a CSP is worth having — but Chart.js/Leaflet and our inline <script>
+    # blocks need 'unsafe-inline', and the templates would have to be reworked
+    # with nonces before this can be enforced. Report-only lets us see what
+    # would break without breaking it. Set CSP_ENFORCE=1 once the reports are
+    # clean to switch to the enforcing header.
+    _csp = ("default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'")
+    _hdr = ("Content-Security-Policy"
+            if os.environ.get("CSP_ENFORCE", "0") == "1"
+            else "Content-Security-Policy-Report-Only")
+    resp.headers.setdefault(_hdr, _csp)
     return resp
 
 
@@ -1024,19 +1105,36 @@ def dashboard():
             "SELECT COUNT(*) FROM decisions WHERE deleted_at IS NULL"
         ).fetchone()[0]
         sources = conn.execute(
-            "SELECT COUNT(DISTINCT origin_source) FROM decisions WHERE deleted_at IS NULL"
+            "SELECT COUNT(DISTINCT origin_source) FROM decisions "
+            "INDEXED BY idx_decisions_live_origin WHERE deleted_at IS NULL"
         ).fetchone()[0] or 1
         scen_24h = conn.execute(
             "SELECT COUNT(DISTINCT scenario) FROM decisions "
             "WHERE last_seen_at > datetime('now','-1 day')"
         ).fetchone()[0]
+        # INDEXED BY is deliberate on the four KPI aggregates below. The DB has
+        # no ANALYZE stats (no sqlite_stat1 — verified 2026-09-01), so the
+        # planner falls back to heuristics and keeps choosing the older, wider
+        # indexes: they do not carry the filtered column, so each of the ~7M
+        # rows costs a table lookup over a 3 GB file. Measured on the live DB,
+        # index present but unhinted vs hinted:
+        #   COUNT(DISTINCT value)     19.2s -> 0.15s
+        #   COUNT(DISTINCT origin)    25.6s -> 0.67s
+        #   GROUP BY scenario         22.3s -> 1.15s
+        # These indexes are created in db.py's SCHEMA so they are always
+        # present; if one is ever removed this raises loudly instead of
+        # silently regressing to the 20s path. Running ANALYZE would let the
+        # planner pick them unaided, but that changes plans process-wide and
+        # was not worth the blast radius for four known queries.
         attk_24h = conn.execute(
             "SELECT COUNT(DISTINCT value) FROM decisions "
+            "INDEXED BY idx_decisions_lastseen_value "
             "WHERE last_seen_at > datetime('now','-1 day')"
         ).fetchone()[0]
         top_row = conn.execute(
             """
             SELECT scenario, COUNT(*) AS n FROM decisions
+            INDEXED BY idx_decisions_live_scenario
             WHERE deleted_at IS NULL AND scenario != ''
             GROUP BY scenario ORDER BY n DESC LIMIT 1
             """
@@ -1058,6 +1156,7 @@ def dashboard():
         top_scen_rows = conn.execute(
             """
             SELECT scenario, COUNT(*) AS n FROM decisions
+            INDEXED BY idx_decisions_live_scenario
             WHERE deleted_at IS NULL AND scenario != ''
             GROUP BY scenario ORDER BY n DESC LIMIT 10
             """
@@ -2144,6 +2243,17 @@ def api_external_decisions():
     ip_val = (data.get("ip") or data.get("value") or "").strip()
     if not ip_val:
         return jsonify(error="ip required"), 400
+    # Validate before this reaches the DB. `value` is rendered in the command
+    # palette and the decisions table, is pushed to firewall adapters, and is
+    # interpolated into an ipset argv and a whois query — none of which assume
+    # anything about its shape. Until 2026-09-02 this took only .strip(), so a
+    # write-scoped token could store arbitrary markup as a "decision".
+    # ip_network(strict=False) accepts a bare IP and a CIDR, v4 and v6, which is
+    # exactly the set of scopes the reconciler supports.
+    try:
+        ip_val = str(ipaddress.ip_network(ip_val, strict=False))
+    except ValueError:
+        return jsonify(error="ip must be a valid IP address or CIDR"), 400
     scope = (data.get("scope") or "Ip").strip()
     scenario = (data.get("scenario") or "external/manual").strip()
     duration = (data.get("duration") or "4h").strip()
@@ -2302,6 +2412,10 @@ def api_external_honeypot_callback():
     ip = (data.get("ip") or "").strip()
     if not ip:
         return jsonify(error="ip required"), 400
+    try:  # same reasoning as /api/external/decisions — this lands in ip_tags.ip
+        ip = str(ipaddress.ip_address(ip))
+    except ValueError:
+        return jsonify(error="ip must be a valid IP address"), 400
     import honeypot
     honeypot.record_callback(ip, data.get("metadata") or data)
     return jsonify(ok=True, ip=ip, tagged="honeypot-confirmed"), 202
@@ -3468,7 +3582,20 @@ def bouncers_edit(tid: int):
     except _json.JSONDecodeError:
         current_cfg = {}
 
-    SECRET_KEYS = ("api_token", "api_secret", "password", "hmac_secret")
+    # Substring match, not an exact-name tuple. This was
+    # ("api_token", "api_secret", "password", "hmac_secret") and therefore
+    # missed `api_key` — the field name used by BOTH the pfSense and OPNsense
+    # adapters. That key rendered in cleartext in this form and was written to
+    # audit_log, which has BEFORE UPDATE/DELETE triggers making the rows
+    # permanently unremovable. A rule keyed on what the name contains cannot
+    # miss the next adapter's credential field the same way.
+    _SECRET_HINTS = ("token", "secret", "password", "passwd", "key", "hmac", "credential")
+
+    def _is_secret(k: str) -> bool:
+        kl = (k or "").lower()
+        # `key` is deliberately broad; the false positives we care about are
+        # non-secret names that merely end in it, e.g. a "list_key" label.
+        return any(h in kl for h in _SECRET_HINTS)
 
     if request.method == "POST":
         new_name = (request.form.get("name") or row["name"]).strip()
@@ -3481,7 +3608,7 @@ def bouncers_edit(tid: int):
             return redirect(url_for("bouncers_edit", tid=tid))
 
         # For each secret key, blank submission = keep current.
-        for k in SECRET_KEYS:
+        for k in [k for k in current_cfg if _is_secret(k)]:
             if k in current_cfg and not new_cfg.get(k):
                 new_cfg[k] = current_cfg[k]
 
@@ -3506,8 +3633,8 @@ def bouncers_edit(tid: int):
         finally:
             conn.close()
         # Build a redacted diff for the audit log — never log raw secrets.
-        before_san = {k: ("••••" if k in SECRET_KEYS else v) for k, v in current_cfg.items()}
-        after_san  = {k: ("••••" if k in SECRET_KEYS else v) for k, v in new_cfg.items()}
+        before_san = {k: ("••••" if _is_secret(k) else v) for k, v in current_cfg.items()}
+        after_san  = {k: ("••••" if _is_secret(k) else v) for k, v in new_cfg.items()}
         changed = [k for k in set(list(before_san) + list(after_san))
                    if before_san.get(k) != after_san.get(k)]
         _audit("bouncer.edit", target=new_name,
@@ -3521,8 +3648,8 @@ def bouncers_edit(tid: int):
     # a separate hint for what's currently set.
     display_cfg = dict(current_cfg)
     masked_summary = {}
-    for k in SECRET_KEYS:
-        if k in display_cfg and display_cfg[k]:
+    for k in [k for k in display_cfg if _is_secret(k)]:
+        if display_cfg[k]:
             v = display_cfg[k]
             masked_summary[k] = "•••• " + (v[-4:] if len(v) >= 4 else "••")
             display_cfg[k] = ""  # blank in the JSON shown to the operator
@@ -3600,6 +3727,7 @@ def scenarios_action():
 
 @app.route("/scenarios/editor", methods=["GET", "POST"])
 @login_required
+@role_required("operator")
 def scenarios_editor():
     import scenarios_admin as sa
     test_result = None

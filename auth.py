@@ -69,11 +69,20 @@ def _totp_secret() -> str:
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 def client_ip() -> str:
-    # Behind nginx; X-Forwarded-For is trusted (one hop). nginx sets it from
-    # $remote_addr so a client-supplied header cannot spoof it.
-    xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    """The real peer address, as resolved by ProxyFix in app.py.
+
+    Do NOT read X-Forwarded-For here. This function previously returned
+    `xff.split(",")[0]`, on the stated assumption that nginx overwrites the
+    header — it does not. `$proxy_add_x_forwarded_for` *appends* $remote_addr
+    to whatever the client sent, so the leftmost element is fully
+    attacker-controlled. Everything keyed on this value inherits that: the
+    login lockout (is_locked/record_failure), the IP allowlist, and the audit
+    trail. Rotating the header gave unlimited password + TOTP brute force.
+
+    ProxyFix rewrites request.remote_addr from the rightmost TRUSTED_PROXY_HOPS
+    entries, which are the ones our own proxy appended and a client cannot
+    forge.
+    """
     return request.remote_addr or ""
 
 

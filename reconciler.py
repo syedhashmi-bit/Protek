@@ -54,6 +54,15 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
 
     all_bouncers = bouncers_mod.load_all_targets()
 
+    # Bind everything the return dict reads, before the branch. The
+    # no-bouncers path used to leave these three unbound, so run_once() raised
+    # UnboundLocalError on any box with no configured target — the state of
+    # every fresh install — and poller.py's broad handler swallowed it, leaving
+    # the dashboard with a frozen timestamp and no error to explain it.
+    mt_list_count = 0
+    mt_count_valid = False
+    per_bouncer_push: list[dict[str, Any]] = []
+
     if not all_bouncers:
         note_bits.append("no_bouncers_configured")
         # Still compute a virtual diff vs empty so the dashboard shows queue size.
@@ -241,9 +250,17 @@ def _run_one_bouncer(b, desired: list[dict[str, Any]],
 
     b_dry = dry_run or _bouncer_is_dry(b)
     if not b_dry and b.is_configured() and diff.changes:
+        # Removals get their own budget rather than the leftover of the add
+        # budget. The old `remaining = batch_cap - len(to_add)` meant a full
+        # add batch applied ZERO removals — and because adapters count the
+        # router's "already have such entry" as an applied add (an address that
+        # exists as a *foreign* entry never becomes protek-owned, so it is
+        # re-proposed every cycle), a pre-seeded address list could pin to_add
+        # at the cap forever and Protek would never unban anything again.
+        # Leaving a ban up too long is worse than adding one late, so removals
+        # are no longer the side that starves.
         to_add = diff.to_add[:batch_cap]
-        remaining = max(0, batch_cap - len(to_add))
-        to_remove = diff.to_remove[:remaining]
+        to_remove = diff.to_remove[:batch_cap]
         t_apply = time.monotonic()
         try:
             res = b.apply(to_add, to_remove)

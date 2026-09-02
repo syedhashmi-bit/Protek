@@ -384,8 +384,18 @@ setInterval(refreshPills, 5000);
     filtered.forEach(function(it, i){
       var row = document.createElement('div');
       row.className = 'cmd-row' + (i === sel ? ' sel' : '');
-      row.innerHTML = '<span class="kind">'+it.kind+'</span><span class="lbl">'+
-        it.label+'</span><span class="hint">'+it.hint+'</span>';
+      // textContent, not innerHTML. it.label / it.hint are decision values and
+      // scenario names, which arrive from CrowdSec community feeds, federated
+      // peers and the token-authed /api/external/decisions endpoint (which did
+      // not validate them). Concatenating them into markup made the palette a
+      // stored-XSS sink on every authenticated page. Escaping would also work;
+      // assigning text cannot regress if someone edits this later.
+      [['kind', 'kind'], ['label', 'lbl'], ['hint', 'hint']].forEach(function(f){
+        var span = document.createElement('span');
+        span.className = f[1];
+        span.textContent = it[f[0]] == null ? '' : String(it[f[0]]);
+        row.appendChild(span);
+      });
       row.addEventListener('click', function(){ choose(it); });
       list.appendChild(row);
     });
