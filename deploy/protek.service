@@ -20,5 +20,24 @@ ExecStart=/var/www/Protek/venv/bin/gunicorn -w 3 -b 127.0.0.1:8090 --timeout 60 
 Restart=on-failure
 RestartSec=5
 
+# Sandboxing. Protek still runs as root (see above), so these directives are
+# what bounds the damage a file-write bug can do — a path-traversal in the
+# scenario editor was a write-anywhere-as-root primitive until 2026-09-02.
+# ReadWritePaths is the important line: everything else on / is read-only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# /var/www/Protek — the DB, WAL and .poller.lock.
+# /etc/crowdsec/scenarios — the custom scenarios the editor writes.
+# Add any path a bouncer adapter or backup destination needs to write.
+ReadWritePaths=/var/www/Protek /etc/crowdsec/scenarios
+
 [Install]
 WantedBy=multi-user.target

@@ -43,6 +43,7 @@ def diagnose_url(url: str, *, api_key: str | None = None,
                  expect_status_lt: int = 500,
                  api_smoke_path: str = "/v1/decisions/stream",
                  api_smoke_query: dict | None = None,
+                 verify_tls: bool = True,
                  timeout: float = 3.0) -> list[dict[str, Any]]:
     """Run the DNS → TCP → TLS → auth → API smoke ladder against a URL.
 
@@ -182,7 +183,14 @@ def diagnose_url(url: str, *, api_key: str | None = None,
         r = requests.get(f"{base}{api_smoke_path}",
                          params=api_smoke_query or {"startup": "true"},
                          headers=auth_headers,
-                         timeout=timeout, verify=False)
+                         # verify_tls, not False. auth_headers carries the very
+                         # credential being probed — the LAPI bouncer key, a
+                         # Cloudflare bearer token, a pfSense API key or a peer
+                         # token. This was hardcoded False, so an on-path
+                         # attacker harvested it from one diagnostic click.
+                         # Step 3 above already does a *verified* handshake and
+                         # reports cert failures; this rung then ignored that.
+                         timeout=timeout, verify=verify_tls)
     except requests.exceptions.ConnectionError as e:
         out.append(_step("auth", "fail", detail=str(e)[:200],
                          hint="HTTP request failed after TCP succeeded — check the path "

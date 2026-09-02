@@ -61,6 +61,23 @@ SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_decisions_value  ON decisions (value)",
     "CREATE INDEX IF NOT EXISTS idx_decisions_scenario ON decisions (scenario)",
 
+    # Dashboard aggregates. Measured 2026-09-01 on 7.49M rows (6.99M live,
+    # 157k distinct IPs — churn, see retention.py): the `/` render took 64-100s
+    # because four KPI queries each scanned the whole table and then fetched a
+    # column the scanned index did not carry, i.e. ~7M random row lookups over
+    # a 2.7 GB file. Timings were COUNT(DISTINCT origin_source) 18.1s,
+    # COUNT(DISTINCT value) 19.2s, GROUP BY scenario 21.3s x2.
+    #
+    # These three make each of those covering. The first two are partial —
+    # `deleted_at IS NULL` is the predicate every dashboard KPI uses, and a
+    # partial index keeps them off the 500k tombstones.
+    "CREATE INDEX IF NOT EXISTS idx_decisions_live_scenario "
+    "ON decisions (scenario) WHERE deleted_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_decisions_live_origin "
+    "ON decisions (origin_source) WHERE deleted_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_decisions_lastseen_value "
+    "ON decisions (last_seen_at, value)",
+
     # Alerts (richer event context) — populated when a machine credential is
     # available; with only a bouncer credential this table stays empty.
     """
