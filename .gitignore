@@ -59,3 +59,6 @@ packaging/debian/protek.*.debhelper
 packaging/debian/protek.substvars
 # Repo-root symlink build.sh creates pointing at packaging/debian
 /debian
+
+# Real infrastructure values — never commit (see docs/HOSTS.local.md)
+docs/HOSTS.local.md
