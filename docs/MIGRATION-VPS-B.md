@@ -4,6 +4,18 @@
 > The old `CLAUDE.md`/`CONTEXT.md` prose describing "this VPS" was written for VPS A.
 > As of 2026-06-23 **Protek runs on VPS B**. VPS A is pending decommission.
 
+> **⚠️ UPDATE 2026-06-24 — the live host is now a SNAPSHOT/CLONE of VPS B, not B itself.**
+> The running box is `<live-hostname>` — Hetzner **Helsinki, 8 GB**,
+> public IPv4 **`<live-host-ip>`** (IPv6 `<live-host-ipv6>`). It was cloned from VPS B,
+> so it inherits B's journal history and `.env` but has a **different public IP**. Consequences:
+> - The MikroTik (`<mikrotik-ip>`) had to re-allowlist the new IP across all 3 layers
+>   (firewall filter, `/ip service api address`, `/user … address`) — see the gotcha below.
+> - `git push` uses the **`gh` HTTPS credential helper** here (`gh auth setup-git`); there is
+>   **no `~/.ssh/id_ed25519`** on this box, despite CLAUDE.md's Git note.
+> - `python` is not on PATH; use `/var/www/Protek/venv/bin/python` or `python3`.
+> Treat `<vps-b-ip>` / "Oregon" / `ubuntu-2gb-hil-1` references below as the *clone source*,
+> not the current host, until this doc is reconciled to a single canonical box.
+
 ## Why
 
 Operator is retiring **VPS A** (the original Germany/Hetzner host that was the WireGuard
