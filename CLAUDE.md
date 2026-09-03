@@ -15,7 +15,11 @@ Protek — a self-hosted **CrowdSec → MikroTik bouncer** with a NOC-style dash
 > **⚠️ MIGRATED 2026-06-23 — Protek now runs on VPS B.** This section was originally
 > written for VPS A (now pending decommission). Current truth + the full migration story
 > is in **`docs/MIGRATION-VPS-B.md`** (and the 2026-06-23 entry in `MEMORY.md`). Key deltas
-> from the bullets below: host is **VPS B** `<vps-b-ip>` (Ubuntu 26.04, Oregon); the venv
+> from the bullets below: the live host is a **Hetzner Helsinki CLONE of VPS B** —
+> `<live-hostname>`, public IPv4 **`<live-host-ip>`**, NOT VPS B
+> itself (`<vps-b-ip>`, Oregon). It inherits B's journal history and `.env` but has a
+> different public IP, which is why the MikroTik had to re-allowlist it. Treat any
+> `<vps-b-ip>` / Oregon reference as the *clone source*, not the current box. The venv
 > is **uv-built 3.12** (B has no apt python3.12 — `uv` at `/root/.local/bin/uv`); the
 > MikroTik is reached over the **public IP** `MT_HOST=<mikrotik-ip>` (user `api` must be
 > allowlisted at the RouterOS `/user` level); DNS + TLS already live on B.
@@ -67,7 +71,11 @@ Prometheus metrics: `http://127.0.0.1:6060/metrics` (no auth on localhost).
 
 ```bash
 git remote                                          # origin → TBD
-git push                                            # push to main (SSH key at ~/.ssh/id_ed25519)
+git remote -v                                       # origin → github.com/syedhashmi-bit/Protek (HTTPS)
+git push                                            # auth via the `gh` credential helper
+# NOTE: there is NO ~/.ssh/id_ed25519 on this box. Git authenticates over HTTPS using
+# the gh CLI's token (`gh auth setup-git`). Claude Code's auto-mode classifier also
+# blocks `git push` unless permissions.allow contains "Bash(git push:*)".
 ```
 
 ## Stack
