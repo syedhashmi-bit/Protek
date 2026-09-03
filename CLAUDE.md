@@ -12,6 +12,12 @@ Protek — a self-hosted **CrowdSec → MikroTik bouncer** with a NOC-style dash
 
 ## Deployment
 
+> **Host identifiers are placeholders.** `<live-host-ip>`, `<mikrotik-ip>`,
+> `<live-hostname>` etc. are redacted in the committed docs — this is a public repo
+> and the real values together formed a targeting profile for the router. The actual
+> values are in **`docs/HOSTS.local.md`** (gitignored, 0600, on the box only).
+> Never commit them back.
+
 > **⚠️ MIGRATED 2026-06-23 — Protek now runs on VPS B.** This section was originally
 > written for VPS A (now pending decommission). Current truth + the full migration story
 > is in **`docs/MIGRATION-VPS-B.md`** (and the 2026-06-23 entry in `MEMORY.md`). Key deltas
