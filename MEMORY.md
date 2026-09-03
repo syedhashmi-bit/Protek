@@ -475,7 +475,7 @@ referred to A — read `docs/MIGRATION-VPS-B.md` for the current truth. Headline
 
 - **Python via `uv`** (B has no apt python3.12; venv is uv-built 3.12.13). `uv` at `/root/.local/bin/uv`.
 - **LAPI local** `127.0.0.1:8080` (rebound off the old `10.8.0.5` federation bind), bouncer `protek-local`.
-- **MikroTik over the public IP** `MT_HOST=<mikrotik-ip>:8728`, user `api`, RouterOS 7.x `<router-identity>`.
+- **MikroTik over the public IP** `MT_HOST=<mikrotik-ip>:8728`, user `<mt-api-user>`, RouterOS 7.x `<router-identity>`.
   B needed allowlisting at 3 layers; the last/sneakiest is the RouterOS **`/user` allowed-address**
   (symptom: login error `not allowed to login from this address (9)` after TCP connects).
 - **Fresh DB** on B (A's 3.7 GB DB not copied); `.env` scp'd from A then patched. Federation collapsed to local-only.
