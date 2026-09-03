@@ -36,7 +36,7 @@ B is now the *primary and only* host).
   bind `10.8.0.5:8080`; the `crowdsec.service.d/wg-dep.conf` wg0 boot-dep drop-in was
   removed). `CROWDSEC_LAPI_URL=http://127.0.0.1:8080`, bouncer `protek-local`.
 - **MikroTik**: reached over the **public IP**, NOT a tunnel.
-  `MT_HOST=<mikrotik-ip>`, `MT_PORT=8728`, user `api`, no SSL. Router is RouterOS
+  `MT_HOST=<mikrotik-ip>`, `MT_PORT=8728`, user `<mt-api-user>`, no SSL. Router is RouterOS
   **7.23**, name `<router-identity>`, address-list `crowdsec`.
 - **DNS**: `protek.syedhashmi.trade` → B (A `<vps-b-ip>` + AAAA `2a01:4ff:1f0:3eae::1`,
   Cloudflare **grey-cloud / DNS-only**). TLS via `certbot --nginx` (auto-renew, exp 2026-09-21).

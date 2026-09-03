@@ -27,7 +27,7 @@ Protek — a self-hosted **CrowdSec → MikroTik bouncer** with a NOC-style dash
 > different public IP, which is why the MikroTik had to re-allowlist it. Treat any
 > `<vps-b-ip>` / Oregon reference as the *clone source*, not the current box. The venv
 > is **uv-built 3.12** (B has no apt python3.12 — `uv` at `/root/.local/bin/uv`); the
-> MikroTik is reached over the **public IP** `MT_HOST=<mikrotik-ip>` (user `api` must be
+> MikroTik is reached over the **public IP** `MT_HOST=<mikrotik-ip>` (user `<mt-api-user>` must be
 > allowlisted at the RouterOS `/user` level); DNS + TLS already live on B.
 
 - **Service**: `protek` (gunicorn systemd unit at `/etc/systemd/system/protek.service`, modelled after `vpn-dashboard` from pipsqueeze)
