@@ -139,16 +139,24 @@ let lastSyncId = {{ kpis.last_sync_event_id or 0 }};
 
 // ── World map ──────────────────────────────────────────────────────────────
 function initMap(){
+  // Keep the map off GPU-composited layers. This page has a position:fixed
+  // full-screen overlay (body::before scanlines), and Chromium leaves composited
+  // layers pinned to the viewport during scroll -- which made the map float in
+  // place and spill out of its panel as the page scrolled. Forcing 2D pane
+  // positioning (any3d=false) + SVG markers (preferCanvas=false) keeps the whole
+  // map on the normal paint path so it scrolls and clips with its container.
+  L.Browser.any3d = false;
   mapInst = L.map('map', {
-    preferCanvas: true, worldCopyJump: true, attributionControl: true,
+    preferCanvas: false, worldCopyJump: true, attributionControl: true,
     zoomControl: true,
+    // Don't hijack the mouse wheel: otherwise scrolling the page while the cursor
+    // is over the map zooms the map instead of scrolling. Use +/- or dbl-click.
+    scrollWheelZoom: false,
   }).setView([22, 10], 2);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     subdomains: 'abcd', maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(mapInst);
-  mapInst.createPane('glow');
-  mapInst.getPane('glow').classList.add('protek-glow');
   clusterLayer = L.markerClusterGroup({
     chunkedLoading: true, chunkInterval: 200,
     showCoverageOnHover: false, disableClusteringAtZoom: 7, maxClusterRadius: 50,
@@ -171,7 +179,7 @@ async function refreshMap(){
       if(knownMapKeys.has(key)) continue;
       knownMapKeys.add(key);
       const m = L.circleMarker([p.lat, p.lon], {
-        radius:4.5, color:'#36c8ef', weight:1.5, fillColor:'#36c8ef', fillOpacity:.85, pane:'glow'
+        radius:4.5, color:'#36c8ef', weight:1.5, fillColor:'#36c8ef', fillOpacity:.85
       }).bindPopup(`<b>${escapeHtml(p.ip)}</b><br>${escapeHtml(p.city||p.country||'—')}<br>${escapeHtml(p.scenario||'')}<br><span style="color:#7d94ad">${escapeHtml(p.as_org||p.asn||'')}</span>`);
       newMarkers.push(m);
     }
