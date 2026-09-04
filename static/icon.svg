@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Protek">
   <title>Protek</title>
   <defs>
-    <!-- Cyan glow halo around the shield + glyph -->
+    <!-- Soft halo around the shield + glyph -->
     <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
       <feGaussianBlur stdDeviation="0.9" result="blur"/>
       <feMerge>
@@ -45,7 +45,7 @@
         stroke-linejoin="miter"
         filter="url(#glow)"/>
 
-  <!-- Neon-green pulse dot — the "active" signal -->
+  <!-- Sage pulse dot — the "active" signal -->
   <circle cx="42" cy="44" r="2.4" fill="#86B27A">
     <animate attributeName="opacity"
              values="1;0.35;1"
