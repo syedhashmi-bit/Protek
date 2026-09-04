@@ -9,42 +9,54 @@ The goal is consistency across the suite: Protek must feel like it belongs next 
 ## 1. Color Palette
 
 ```
-Background (deepest):     #06101c   /* near-black with a navy lean */
-Background (panel):       #0a1626   /* navy panel base */
-Background (raised):      #102236   /* hover / selected row */
-Border:                   #1b3050   /* subtle dividers */
-Border (accent):          #00c8ff   /* active section, focused field */
+--bg-deep      #14120F   /* warm near-black */
+--bg-panel     #1C1917   /* panel base */
+--bg-raised    #262220   /* hover / selected row */
+--border       #35302B   /* dividers */
+--border-soft  #282320
+--border-accent #4A4038  /* focused field, active edge */
 
-Primary accent (cyan):    #00c8ff   /* links, primary buttons, active tab */
-Secondary (neon green):   #00ff9d   /* online, success, "all clear" */
-Danger (hot red):         #ff3860   /* banned IPs, errors, dry-run badge */
-Warning (amber):          #ffb547   /* slow, degraded, partial */
-Info (soft cyan):         #6ed3ff   /* secondary info text */
+--accent       #D9975B   /* brand, links, primary action, active nav */
+--ok           #86B27A   /* sage — online, success, all clear */
+--warn         #E3B341   /* amber — slow, degraded, partial */
+--danger       #D4736A   /* terracotta — errors, destructive, dry-run badge */
+--info         #89A8B3   /* muted teal — secondary/informational */
 
-Text (primary):           #d6e4f0
-Text (secondary):         #7d94ad
-Text (muted):             #4a627e
-Text (mono numbers):      #00ff9d   /* all KPI numbers in neon green mono */
+--text         #EDE8E3
+--muted        #A79E95
+--muted-low    #928779   /* lowest legible tier; clears WCAG AA */
 ```
 
-Use exact hex codes. Do not introduce new accent colors without amending this file.
+The warmth lives in the **neutrals**. Semantic colours stay semantic — in a
+security tool, danger must read as danger, so `--danger`/`--warn`/`--ok` are not
+tinted for style.
+
+Use the tokens, never hardcoded hex. Prefer the semantic names; `--cyan`,
+`--green`, `--red` and `--amber` remain as aliases only because ~600 template
+references predate the rename.
+
+All three surfaces clear WCAG AA for `--text` and `--muted`.
 
 ---
 
 ## 2. Typography
 
 ```
-UI font:        'Rajdhani', sans-serif              (Google Fonts, weights 400/500/600/700)
-Mono font:      'Share Tech Mono', monospace        (Google Fonts, single weight)
-Fallback:       system sans-serif / monospace
+UI font:        'IBM Plex Sans'   (Google Fonts, weights 400/500/600)  -> var(--font-ui)
+Mono font:      'IBM Plex Mono'   (Google Fonts, weights 400/500)      -> var(--font-mono)
+Scale:          --fs-xs 11 · --fs-sm 12 · --fs-base 14 · --fs-md 15
+                --fs-lg 18 · --fs-xl 24 · --fs-2xl 30
 ```
 
 Rules:
 
-- **All numeric values use Share Tech Mono.** KPI numbers, IP addresses, counts, timestamps, durations, byte counts. Never display a number in Rajdhani.
-- Headings: Rajdhani 600/700, uppercase, +0.05em letter-spacing.
-- Body / table cells: Rajdhani 400/500.
-- Avoid italics. NOC interfaces don't use italics.
+- **Mono is for identifiers and figures only** — IPs, CIDRs, counts, timestamps,
+  durations, tokens, IDs. Not buttons, labels, inputs, badges or prose. Mono on
+  non-tabular content was the single biggest reason the UI read as costume.
+- **Sentence case.** No uppercase labels, headers or nav. An eyebrow may use
+  letter-spacing up to `.06em`; nothing goes higher.
+- Use the scale tokens rather than new literal sizes.
+- Avoid italics.
 
 ---
 
@@ -53,24 +65,24 @@ Rules:
 ### Topbar (sticky)
 
 - 56px tall, full-width
-- Left: small logo + "PROTEK" wordmark in uppercase Rajdhani
+- Left: small logo + "PROTEK" wordmark in IBM Plex Sans, sentence case
 - Center: breadcrumb / page title
 - Right: status pill cluster (LAPI · MikroTik · Reconciler) + DRY-RUN badge (if active) + user menu
-- Background `#0a1626`, bottom border 1px `#1b3050`
+- Background `var(--bg-panel)`, bottom border 1px `var(--border)`
 
 ### Sidebar (left, sticky)
 
 - 220px wide, full-height
 - Sections: Dashboard · Decisions · Alerts · Scenarios · MikroTik · Federation · Notifications · Security · Settings
 - Each item: icon (16px) + label, 36px tall row
-- Active item: left border 3px `#00c8ff`, background `#102236`, text `#00c8ff`
-- Hover: background `#102236`
+- Active item: left border 3px `var(--accent)`, background `var(--bg-raised)`, text `var(--accent)`
+- Hover: background `var(--bg-raised)`
 
 ### Main content
 
 - Padded 24px, max-width 1600px, centered
 - Grid: 12-column, 16px gutter
-- Panels are `#0a1626` background, 1px `#1b3050` border, 4px border-radius, 16px internal padding
+- Panels are `var(--bg-panel)` background, 1px `var(--border)` border, 4px border-radius, 16px internal padding
 
 ---
 
@@ -80,9 +92,9 @@ Rules:
 
 ```
 ┌─────────────────────────────────┐
-│  ACTIVE DECISIONS               │  ← uppercase Rajdhani 500, #7d94ad, 11px
+│  ACTIVE DECISIONS               │  ← IBM Plex Sans 500, sentence case, var(--muted), 11px
 │                                 │
-│  1,247                          │  ← Share Tech Mono, 36px, #00ff9d
+│  1,247                          │  ← IBM Plex Mono, 36px, var(--ok)
 │  ▁▂▃▄▅▆▇ 24h                   │  ← Chart.js sparkline, cyan stroke
 └─────────────────────────────────┘
 ```
@@ -103,20 +115,20 @@ Use the pulse animation only on the "current scan" indicator, never on healthy s
 
 ### Data table
 
-- Header row: `#06101c` background, uppercase Rajdhani 600, 11px, `#7d94ad`
-- Body rows: 32px tall, alternating with `#0a1626` / `#0c1a2e`
-- Hover: `#102236`
-- Selected: `#102236` + left border 2px `#00c8ff`
-- IPs always in Share Tech Mono
+- Header row: `var(--bg-deep)` background, IBM Plex Sans 600, sentence case, 11px, `var(--muted)`
+- Body rows: 32px tall, alternating with `var(--bg-panel)` / `#0c1a2e`
+- Hover: `var(--bg-raised)`
+- Selected: `var(--bg-raised)` + left border 2px `var(--accent)`
+- IPs always in IBM Plex Mono
 - Timestamps relative ("3m ago") with absolute on hover tooltip
 - No outer borders — let the panel border do that job
 
 ### Buttons
 
-- Primary: solid `#00c8ff` bg, `#06101c` text, no border, 4px radius, uppercase Rajdhani 600
-- Secondary: transparent bg, `#00c8ff` text, 1px `#00c8ff` border
-- Danger: `#ff3860` variant
-- Ghost: transparent bg, `#7d94ad` text, no border (for tertiary actions)
+- Primary: solid `var(--accent)` bg, `var(--bg-deep)` text, no border, 4px radius, IBM Plex Sans 600, sentence case
+- Secondary: transparent bg, `var(--accent)` text, 1px `var(--accent)` border
+- Danger: `var(--danger)` variant
+- Ghost: transparent bg, `var(--muted)` text, no border (for tertiary actions)
 - Buttons in tables are always ghost or secondary, never primary
 
 ### Badges
@@ -128,7 +140,7 @@ Use the pulse animation only on the "current scan" indicator, never on healthy s
   - `crowdsecurity/*` → green
   - custom local scenarios → magenta
 - Origin badges: pill-shaped, monospace, smaller
-- Dry-run badge in topbar: solid `#ff3860` bg, white text, pulse animation
+- Dry-run badge in topbar: solid `var(--danger)` bg, white text, pulse animation
 
 ---
 
@@ -184,8 +196,8 @@ Avoid: bouncing, big modals, anything that draws the eye away from the feed. The
 
 The aesthetic uses tight contrast in places (muted slate text). Provide:
 
-- A "high contrast" toggle in settings that swaps `#7d94ad` → `#a8bccf` and `#4a627e` → `#8aa0b9`.
-- Focus rings: 2px `#00c8ff` outline, never removed.
+- A "high contrast" toggle in settings that swaps `var(--muted)` → `#a8bccf` and `var(--muted-low)` → `#8aa0b9`.
+- Focus rings: 2px `var(--accent)` outline, never removed.
 - Keyboard nav: every action reachable via Tab; bulk actions via keyboard shortcuts (documented in `?` overlay).
 
 ---

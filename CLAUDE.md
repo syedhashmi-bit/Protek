@@ -92,7 +92,7 @@ git push                                            # auth via the `gh` credenti
 - **Frontend**: Jinja2 server-rendered HTML; JS only for live updates (dashboard polls every 5s), Chart.js sparklines, Leaflet.js world map
 - **Auth**: Username/password + TOTP 2FA (pyotp), rate limiting, session timeout, IP whitelist
 - **Notifications**: Discord webhook, SMTP email, Telegram bot — `notifications.py` (compatible with pipsqueeze's module shape)
-- **Design**: Tactical dark NOC aesthetic — electric cyan `#00c8ff`, neon green `#00ff9d`, deep navy background, Rajdhani + Share Tech Mono fonts from Google Fonts. **Match pipsqueeze/traverse exactly** so the suite feels coherent.
+- **Design**: Warm dark operator UI — warm charcoal surfaces (`--bg-deep #14120F`), amber accent (`--accent #D9975B`), sage/amber/terracotta semantics, IBM Plex Sans + IBM Plex Mono. Sentence case; monospace only for identifiers and figures (IPs, counts, timestamps). **Protek deliberately diverges from pipsqueeze/traverse** as of 2026-09-03 — the previous "match exactly" rule had in any case been broken since the 2026-06-25 pass shifted every accent. `static/app.css` is the source of truth; `docs/UI.md` documents it.
 
 ## Architecture
 
@@ -257,7 +257,8 @@ SMTP_FROM=
 - **Comment ownership.** Only touch address-list entries whose comment starts with `protek:`. Entries written by hand or by other tools are off-limits.
 - Use the LAPI **stream endpoint** (`/v1/decisions/stream`) for steady-state polling. Bootstrap from `/v1/decisions` once at start. See `SKILL.md`.
 - Geo lookups must be cached aggressively (TTL ≥ 7 days). Cold lookups should never block the reconcile loop — they live in a separate worker.
-- Keep the tactical dark NOC design language consistent — cyan `#00c8ff`, neon green `#00ff9d`, deep navy, Rajdhani + Share Tech Mono. Match pipsqueeze/traverse.
+- Keep the warm design language consistent — use the tokens in `static/app.css`, never hardcoded hex. Prefer the semantic names (`--accent`, `--ok`, `--warn`, `--danger`); the legacy `--cyan`/`--green`/`--red`/`--amber` names are aliases kept only because ~600 template references use them. Sentence case, and monospace only for identifiers and figures.
+- **Navigation lives in one place**: the `NAV` structure in `app.py` drives the sidebar, the per-page tab strips, the topbar crumb and the command palette. Add a page there, not in `base.html` — these four had previously drifted into separate vocabularies.
 - `reconcile.py` must be a pure function `(decisions, current_list) -> (to_add, to_remove)`. No I/O. This is what we unit-test.
 - All new DB columns go in both `CREATE TABLE` and the `init_db()` migration block.
 - VSCode flags Jinja2 `{{ }}` inside `<script>` tags as JS errors — these are false positives, the code works fine.

@@ -8,6 +8,9 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <style>
 .leaflet-container{background:var(--bg-deep)}
+/* Invert the light OSM raster to a dark ground, then warm and mute it so the
+   map sits inside the theme instead of glowing white. */
+.map-tiles{filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) sepia(.35) saturate(.6)}
 
 .marker-cluster-small{background:rgba(137,168,179,.20);color:var(--text)}
 .marker-cluster-small div{background:rgba(137,168,179,.34)}
@@ -37,43 +40,44 @@
 {% endblock %}
 {% block body %}
 <div class="grid kpi-strip">
-  <div class="kpi">
+  <a class="kpi" href="{{ url_for('decisions_page') }}">
     <div class="k">LAPI Active</div>
     <div class="v" id="kpi-lapi">{{ kpis.lapi_active }}</div>
     <svg class="spark" id="spark-lapi" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline fill="none" stroke="#86B27A" stroke-width="1.2"/></svg>
-  </div>
-  <div class="kpi">
+  </a>
+  <a class="kpi" href="{{ url_for('bouncers_page') }}">
     <div class="k">MT List Size</div>
     <div class="v cyan" id="kpi-mt">{{ kpis.mt_list_size }}</div>
     <div class="d">{{ kpis.mt_list_name }}</div>
-  </div>
-  <div class="kpi">
+  </a>
+  <a class="kpi" href="{{ url_for('mikrotik_page') }}">
     <div class="k">Sync Lag</div>
     <div class="v amber" id="kpi-poll">{{ kpis.last_poll_rel }}</div>
     <div class="d">{{ kpis.cycles }} cycles · {{ kpis.recon_duration }}ms</div>
-  </div>
-  <div class="kpi">
+  </a>
+  <a class="kpi" href="{{ url_for('scenarios_page') }}">
     <div class="k">Scenarios 24h</div>
     <div class="v" id="kpi-scen">{{ kpis.scenarios_24h }}</div>
     <div class="d">unique</div>
-  </div>
-  <div class="kpi">
+  </a>
+  <a class="kpi" href="{{ url_for('intel_page') }}">
     <div class="k">Attackers 24h</div>
     <div class="v" id="kpi-attk">{{ kpis.attackers_24h }}</div>
     <div class="d">unique IPs</div>
-  </div>
-  <div class="kpi">
+  </a>
+  <a class="kpi" href="{{ url_for('scenarios_page') }}">
     <div class="k">Top Scenario</div>
     <div class="v cyan" style="font-size:14px;line-height:1.4;word-break:break-all">{{ kpis.top_scenario or '—' }}</div>
     <div class="d">{{ kpis.top_scenario_count }} fires</div>
-  </div>
+  </a>
 </div>
 
 <div class="dash-main">
   <div class="panel">
-    <h2 style="display:flex;justify-content:space-between;align-items:center">
-      Live Attack Feed
-      <span class="muted mono" id="feed-poll" style="text-transform:none;letter-spacing:0;font-size:10px">polling every 5s</span>
+    <h2>
+      Recent blocks
+      <span class="muted" id="feed-poll" style="font-size:var(--fs-sm);font-weight:400">polling every 5s</span>
+      <a class="more" href="{{ url_for('decisions_page') }}">View all &rarr;</a>
     </h2>
     <div class="poll-bar"><i id="poll-bar-fill"></i></div>
     <table>
@@ -82,7 +86,7 @@
         {% for d in recent %}
         <tr data-key="{{ d.key }}">
           <td class="mono muted">{{ d.first_seen_rel }}</td>
-          <td class="mono">{{ d.value }}</td>
+          <td class="mono"><a href="{{ url_for('attacker_page', ip=d.value) }}">{{ d.value }}</a></td>
           <td><span class="muted mono">{{ d.country or '—' }}</span></td>
           <td><span class="badge {{ d.fam }}">{{ d.scenario or '—' }}</span></td>
           <td class="muted">{{ d.origin }}</td>
@@ -96,18 +100,18 @@
   </div>
 
   <div class="panel" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
-    <h2 style="padding:16px 16px 0">World Map</h2>
+    <h2 style="padding:16px 16px 0">Attack origins <a class="more" href="{{ url_for('intel_page') }}">Threat intel &rarr;</a></h2>
     <div id="map" style="flex:1;min-height:380px;position:relative"></div>
   </div>
 </div>
 
 <div class="dash-row2">
   <div class="panel">
-    <h2>Top Scenarios (active)</h2>
+    <h2>Top detections <a class="more" href="{{ url_for('scenarios_page') }}">View all &rarr;</a></h2>
     <div id="top-scen">
       {% for s in top_scenarios %}
       <div style="display:grid;grid-template-columns:1fr 60px;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
-        <div><span class="badge {{ s.fam }}">{{ s.scenario or '—' }}</span></div>
+        <div><a href="{{ url_for('scenarios_page') }}" class="badge {{ s.fam }}">{{ s.scenario or '—' }}</a></div>
         <div class="mono right" style="text-align:right;color:var(--green)">{{ s.n }}</div>
       </div>
       {% else %}
@@ -117,7 +121,7 @@
   </div>
 
   <div class="panel">
-    <h2>Sync Activity (24h)</h2>
+    <h2>Sync activity <span class="muted" style="font-size:var(--fs-sm);font-weight:400">24h</span> <a class="more" href="{{ url_for('mikrotik_page') }}">Router &rarr;</a></h2>
     <svg id="sync-spark" viewBox="0 0 600 100" preserveAspectRatio="none" style="width:100%;height:120px"></svg>
     <div class="muted mono" style="font-size:11px;margin-top:6px">
       adds · removes — sparkline = adds per ~48-min bucket
@@ -155,12 +159,15 @@ function initMap(){
     // is over the map zooms the map instead of scrolling. Use +/- or dbl-click.
     scrollWheelZoom: false,
   }).setView([22, 10], 2);
-  // dark_all is CARTO's key-free tileset. The voyager/rastertiles
-  // endpoints return API-KEY-REQUIRED watermarks, so do not switch to
-  // them for a warmer basemap without a CARTO key.
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    subdomains: 'abcd', maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  // OSM standard tiles. CARTO's basemaps now bake an "API KEY REQUIRED"
+  // watermark into every keyless tile (verified 2026-09-04: identical bytes
+  // with and without a Referer, so it is not domain-gated) — dark_all included,
+  // which is why the map had started rendering watermarked. OSM is genuinely
+  // key-free; .map-tiles below inverts and warms it to match the theme, which
+  // also removes the need for a third-party dark tileset entirely.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, className: 'map-tiles',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(mapInst);
   clusterLayer = L.markerClusterGroup({
     chunkedLoading: true, chunkInterval: 200,
@@ -208,7 +215,7 @@ async function refreshFeed(){
       return `
       <tr data-key="${key}" class="feed-row ${isNew?'new':''}">
         <td class="mono muted">${escapeHtml(d.first_seen_rel)}</td>
-        <td class="mono">${escapeHtml(d.value)}</td>
+        <td class="mono"><a href="/attackers/${encodeURIComponent(d.value)}">${escapeHtml(d.value)}</a></td>
         <td><span class="muted mono">${escapeHtml(d.country || '—')}</span></td>
         <td><span class="badge ${d.fam}">${escapeHtml(d.scenario || '—')}</span></td>
         <td class="muted">${escapeHtml(d.origin || '')}</td>
