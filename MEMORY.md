@@ -84,9 +84,62 @@ pages including drill-down and previously-orphaned ones; **full palette clears
 WCAG AA on all three surfaces** (`--muted-low` was lifted from `#7A7069`, which
 failed at 3.26:1 on `--bg-raised`, to `#928779` at 4.97:1).
 
+### Follow-on work in the same session (after the three main commits)
+
+**`9e66978` — ruff caught dead code I did not.** `_nav_groups()` kept a `flask.g`
+lookup from an earlier draft (I had tried resolving the active page inside a
+context processor before realising one cannot see the view's `active` kwarg).
+Unused local, F841, CI red. **ruff is not in the prod venv**, so I had never run
+the lint step CI runs — installed it via `uv tool install ruff`; run
+`ruff check .` before pushing.
+
+**`e90cbfd` — README + all 16 screenshots regenerated.** They were dated
+2026-06-23, predating *both* the June redesign and the warm theme, so the public
+README showed a UI that had not existed for months.
+
+  **This was a near-miss worth remembering.** Rendering `/mikrotik`, `/settings`
+  and `/whitelist` reproduces the real router endpoint and RouterOS identity — so
+  screenshotting them as-is would have put straight back into the public repo the
+  identifiers scrubbed in `8c9121f`, and **images are not greppable**, so the
+  usual `git grep` safety net would not have caught it. Process used: render →
+  substitute infra identifiers for RFC 5737 documentation addresses → verify the
+  HTML is clean → *then* capture. Do this every time screenshots are refreshed.
+
+  Also corrected three false claims: the caption said "IPs blurred" (they never
+  were), and both README and `docs/UI.md` credited **Chart.js** for the
+  sparklines — Chart.js is not loaded anywhere and never has been; they are
+  hand-rolled inline SVG polylines.
+
+**`3a57628` — map escaped its panel on scroll; my regression.** The warm-dark
+filter was applied per tile via the tileLayer's `className`. Leaflet positions
+every tile with `translate3d`, so a per-tile filter promoted **each tile** to its
+own composited layer, and Chromium pins composited layers to the viewport during
+scroll — reintroducing, by a different route, exactly the bug `any3d=false`
+exists to prevent. Fix: filter **`.leaflet-tile-pane`** (one element, one
+stacking context, stays inside the panel's `overflow:hidden`) plus
+`#map{contain:paint}`. Bonus: markers live in a different pane, so they keep
+their real colours instead of inverting with the basemap.
+
+  Constraints for anyone revisiting the basemap: filtering the whole `#map`
+  inverts the markers, and there is **no key-free dark raster tileset left** —
+  CARTO watermarks all keyless tiles now (verified byte-identical with and
+  without a Referer, so not domain-gated). OSM + pane filter is the position.
+
+  **Not verified by me.** Headless capture of a scrolled, JS-driven map kept
+  producing transient states that were not real render output; the operator was
+  asked to confirm in a browser.
+
+**`d2b28f8` — brand assets.** `icon.svg`/`favicon.svg` were re-themed with the
+design system, but `logo-256.png` (the raster the README actually embeds) and
+`social-preview.png` were missed because they are **generated artefacts, not
+source**. Both regenerated from the warm SVGs via headless Chrome. Worth
+remembering as a category: re-theming source SVGs does not update their rasters.
+
 ### Not done
-`static/social-preview.svg` (the OG/marketing image) is still on the old
-cyan/navy palette — it is a branding asset, not app UI. Merging the ~734 inline
+Brand assets are now warm (done in `d2b28f8`), but `social-preview.svg` still
+reads "PROTEK 1.0 · v1.1 ARC 9 SHIPPED · 57 / 80 PHASES" — badly out of date
+against a roadmap past phase 99. That is marketing copy, so it was left as an
+operator decision. Merging the ~734 inline
 `style=` attributes onto the new scales is also outstanding; the scales now
 exist, but existing pages still carry literal sizes.
 
