@@ -37,11 +37,11 @@ load_dotenv(ROOT / ".env")
 from auth import (client_ip, ip_allowed, is_locked, login_required,
                   record_audit, record_failure, clear_failures, touch_session,
                   verify_password, verify_totp_for, record_user_login,
-                  role_required, has_role, seed_env_user,
+                  role_required, has_role, seed_env_user, safe_next,
                   list_users, add_user, set_user_disabled, set_user_role,
                   delete_user)  # noqa: E402
 from crowdsec import LAPIClient  # noqa: E402
-from db import get_conn, get_setting, init_db, set_setting  # noqa: E402
+from db import get_conn, get_setting, init_db, set_setting, stash_once, pop_once  # noqa: E402
 import federation  # noqa: E402
 from geo import GeoWorker, geo_for_ip, points_for_map  # noqa: E402
 import intel  # noqa: E402
@@ -193,35 +193,52 @@ def api_version():
 # Expose has_role() to all templates so they can hide affordances by role.
 @app.context_processor
 def _inject_role_helpers():
-    return {"has_role": has_role, "current_role": lambda: session.get("role", "viewer")}
+    return {"has_role": has_role, "current_role": lambda: session.get("role", "viewer"),
+            # admin_users.html redeems the one-time TOTP handle at render time
+            "pop_once": pop_once}
 
 
 @app.before_request
-def _upgrade_legacy_session():
-    """Sessions created before multi-admin landed have `logged_in=True` and
-    `username` but no `role` or `user_id`. Re-attach those from the users
-    table so the RBAC gates don't silently treat them as viewers.
+def _revalidate_session():
+    """Re-check the session's user against the DB on every authenticated request.
 
-    Runs cheaply — only does a DB lookup when role is missing AND we're
-    logged in, then never again until the next login."""
+    This used to return early whenever `role` and `user_id` were both present,
+    consulting the DB only to upgrade pre-multi-admin sessions. The consequence
+    was that **role changes never reached a live session**: demoting, disabling
+    or deleting a user had zero effect until they went idle for
+    SESSION_TIMEOUT_MIN or logged out voluntarily. There was no way to revoke
+    someone in a hurry.
+
+    Now the role is re-read from `users` each request, so a demotion takes effect
+    on the operator's next click, and a disabled or deleted account is logged out
+    immediately. Cost is one indexed lookup on a tiny table, skipped entirely for
+    anonymous requests and static assets.
+    """
     if not session.get("logged_in"):
         return
-    if "role" in session and "user_id" in session:
+    # Static assets would otherwise pay for this on every page load.
+    if request.endpoint == "static":
         return
-    uname = session.get("username", "")
-    if not uname:
-        return
+
+    uid = session.get("user_id")
     try:
-        from auth import get_user
-        u = get_user(uname)
+        from auth import get_user, get_user_by_id
+        u = get_user_by_id(uid) if uid else get_user(session.get("username", ""))
     except Exception:  # noqa: BLE001
-        u = None
-    if u:
-        session["user_id"] = u["id"]
-        session["role"] = u["role"]
-    else:
-        # Username doesn't resolve any more — force re-login.
+        # A DB hiccup must not log everyone out; fail open for this request and
+        # re-check on the next one.
+        return
+
+    if not u:
+        # Deleted, disabled, or the username no longer resolves.
         session.clear()
+        return
+
+    session["user_id"] = u["id"]
+    session["username"] = u["username"]
+    if session.get("role") != u["role"]:
+        # Demotion or promotion applied out from under a live session.
+        session["role"] = u["role"]
 
 def _envstr(name: str, default: str = "") -> str:
     """Read env var, tolerating inline-comment trailing whitespace."""
@@ -658,7 +675,10 @@ def login():
                 session["user_id"] = user["id"]
                 session["role"] = user["role"]
                 touch_session()
-                return redirect(request.args.get("next") or url_for("dashboard"))
+                # safe_next(): same-origin, path-only. An unvalidated ?next= let a
+                # phishing link show the real login form on the real domain and then
+                # hand the freshly-authenticated user to an attacker page.
+                return redirect(safe_next(request.args.get("next"), url_for("dashboard")))
             locked, lockout_mins = is_locked(ip)
 
     return render_template("login.html", error=error, locked=locked, lockout_mins=lockout_mins,
@@ -1886,13 +1906,15 @@ def admin_users_add():
         return redirect(url_for("admin_users_page"))
     _audit("user.add", target=username,
            after={"username": username, "role": role})
-    # Stash the one-time TOTP secret + URI in the session for the next render
-    # (NOT in flash — flash messages can be retrieved by re-rendering, and
-    # this is a one-shot secret we don't want lingering).
-    session["_pending_user_secret"] = {
+    # Park the one-time TOTP seed server-side and carry only an opaque handle
+    # in the session. Flask sessions are signed but NOT encrypted, so putting
+    # the seed itself in `session` published a second factor to the browser's
+    # cookie jar. (The original comment here correctly rejected `flash` for
+    # being retrievable — but `flash` *is* the session, so it had the same flaw.)
+    session["_pending_user_handle"] = stash_once({
         "username": result["username"], "totp_secret": result["totp_secret"],
         "totp_uri": result["totp_uri"], "role": result["role"],
-    }
+    })
     flash(f"User '{username}' created. TOTP secret shown below — capture now.", "info")
     return redirect(url_for("admin_users_page"))
 
@@ -2265,7 +2287,9 @@ def admin_tokens_page():
     import api_tokens as at
     tokens = at.list_tokens()
     # Pull one-time-display token from session if just created
-    new_token = session.pop("_just_created_token", None)
+    # Same rationale as the TOTP seed above: the raw token never enters the
+    # cookie, only a single-use handle to a server-side record.
+    new_token = pop_once(session.pop("_just_created_handle", None))
     return render_template("admin_tokens.html",
                            tokens=tokens, new_token=new_token,
                            active="admin_tokens")
@@ -2286,7 +2310,7 @@ def admin_tokens_add():
         flash(str(e), "error")
         return redirect(url_for("admin_tokens_page"))
     _audit("token.create", target=name, after={"scopes": scopes, "expires_at": expires})
-    session["_just_created_token"] = result
+    session["_just_created_handle"] = stash_once(result)
     flash(f"Token '{name}' created. Captured below — won't be shown again.", "info")
     return redirect(url_for("admin_tokens_page"))
 

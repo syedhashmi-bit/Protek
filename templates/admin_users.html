@@ -3,7 +3,7 @@
 {% block crumb %}ADMIN · <b>USERS</b>{% endblock %}
 {% block body %}
 
-{% set new = session.pop('_pending_user_secret', None) %}
+{% set new = pop_once(session.pop('_pending_user_handle', None)) %}
 {% if new %}
 <div class="panel" style="border-color:var(--cyan)">
   <h2 style="color:var(--cyan)">New user created — capture TOTP NOW</h2>

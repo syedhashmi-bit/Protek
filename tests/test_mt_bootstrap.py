@@ -33,16 +33,30 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     # across apps (phase 74). The test client serves from localhost, so
     # clear the domain to keep the cookie matching.
     app.app.config["SESSION_COOKIE_DOMAIN"] = None
+    # Insert a real user row. `_revalidate_session` re-reads the session's user
+    # from `users` on every request so that demoting or disabling an account
+    # takes effect immediately, which means a forged session must correspond to
+    # a real row — as any genuine session does, since login resolves the user.
+    now = datetime.now(timezone.utc).isoformat()
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO users (username, password_hash, totp_secret, role, "
+            "created_at, disabled) VALUES ('testop', 'x', 'y', 'operator', ?, 0)",
+            (now,),
+        )
+        uid = conn.execute(
+            "SELECT id FROM users WHERE username = 'testop'").fetchone()["id"]
+    finally:
+        conn.close()
+
     c = app.app.test_client()
     with c.session_transaction() as s:
         s["logged_in"] = True
         s["username"] = "testop"
         s["role"] = "operator"
-        # `_upgrade_legacy_session` before_request hook clears the
-        # session if role is set but user_id isn't resolvable from the
-        # users table. Setting both keys skips that path entirely.
-        s["user_id"] = 1
-        s["last_active"] = datetime.now(timezone.utc).isoformat()
+        s["user_id"] = uid
+        s["last_active"] = now
     return c
 
 
