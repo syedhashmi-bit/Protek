@@ -4,6 +4,94 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-09-03/04 — UI refresh: warm theme, 31 nav links → 12, dashboard made navigable
+
+**Operator brief:** "refine the UI, make it easy to navigate and not too
+complicated… looks very heavily vibe coded, make it a bit warm."
+
+### The premise was half out of date, and the remedy was not where it looked
+A de-vibe pass had already shipped (`401c148`, 2026-06-25): scanlines and glows
+removed, CSS extracted to `static/app.css`, every accent desaturated
+(`#00c8ff`→`#36c8ef`, `#00ff9d`→`#3ee6a8`). **The palette was not the problem.**
+`CLAUDE.md` and `docs/UI.md` simply still documented the pre-June colours, so
+the docs described a UI that had not shipped in months.
+
+What actually read as vibe-coded was **typography**: Rajdhani (a condensed techno
+display face) on all UI text, Share Tech Mono on non-tabular content (inputs,
+buttons, badges, labels, the command palette), and uppercase + `.08–.16em`
+tracking on ~24 rules. A warm palette over Rajdhani-in-caps still reads tactical.
+
+What actually made it hard to navigate was **not the link count**: 31 links
+covered ~20 concepts, three vocabularies described them (sidebar vs crumbs vs
+palette), and **`dashboard.html` contained zero links to other pages** — so every
+navigation went back through the sidebar.
+
+### Shipped in three commits
+1. **`7db1f1b` design system.** Warm charcoal surfaces; IBM Plex Sans/Mono; mono
+   confined to identifiers and figures; sentence case; **added the type and
+   spacing scales that never existed** (their absence is why 734 inline `style=`
+   attributes accumulated). Token *names* deliberately unchanged —
+   `--cyan`/`--green`/`--red`/`--amber` are aliases onto `--accent`/`--ok`/
+   `--danger`/`--warn`, because ~600 template references use the old names and a
+   rename would have meant sweeping 47 files for no user-visible gain.
+2. **`df77769` navigation.** 31 links → 12 destinations in 4 groups; facets of one
+   concept became tabs. `NAV` in `app.py` is now the single source of truth for
+   sidebar + tabs + crumb + palette. Tabs render in `base.html` from the view's
+   existing `active=` kwarg, so **no route signature or page template changed**
+   and every original URL still resolves.
+3. **`efdf7fd` drill-down + docs.** 38 outbound links on the dashboard; docs
+   reconciled with what ships.
+
+### Bugs found and fixed along the way
+- Detection Catalog **could never highlight** — nav tested `active=='catalog'`,
+  the route passed `active="scenarios"`.
+- `/attackers/<ip>` highlighted nothing; drill-down pages now map to a parent via
+  `NAV_ALIASES`.
+- `/honeypot`, `/admin/sso`, `/onboarding` had **no inbound link anywhere**.
+  Giving honeypot a home immediately exposed that it **500s** — it called
+  `url_for('admin_tokens')` but the endpoint is `admin_tokens_page`. Fixed.
+- Viewers were shown Notifications and Connection & Sync, then bounced with 403.
+  Nav is now role-filtered.
+- The command palette still used pre-June labels, so searching it for a label
+  visible on screen returned nothing; it also omitted 10 pages.
+- `templates/placeholder.html` deleted — unrouted dead code with a duplicate
+  `:root` block.
+- `templates/honeypot.html` broken `url_for` (above).
+
+### Two mistakes of mine, both caught by looking at the result
+1. Switched the basemap to CARTO `voyager_nolabels` for warmth — it returns
+   **API-KEY-REQUIRED watermarks**. Investigating showed **all** CARTO keyless
+   tiles now carry it, `dark_all` included (byte-identical with and without a
+   Referer, so not domain-gated) — the map had therefore started breaking
+   independently of this work. Now on OpenStreetMap tiles with a CSS
+   invert+warm filter: key-free, and no third-party dark tileset dependency.
+2. Added unicode glyph icons to the nav; they rendered as **tofu** in IBM Plex
+   Sans. Removed — 12 labelled destinations do not need them.
+
+### Contract changes
+`docs/STYLE-GUIDE.md` said "**Do NOT edit** `base.html`, `app.css`,
+`dashboard.html`". This work necessarily edits all three, so the rule was
+**replaced rather than quietly broken**: those files are the shared foundation
+and edits there are design changes, but a rule forbidding any re-theme is not a
+useful contract. `CLAUDE.md` + `docs/UI.md` now record that **Protek
+deliberately diverges from pipsqueeze/traverse** — a contract that had in any
+case been broken since June.
+
+### Verification
+195 tests pass at every step; all 33 nav destinations and tabs render 200;
+role filtering checked for admin/operator/viewer; crumbs verified across ten
+pages including drill-down and previously-orphaned ones; **full palette clears
+WCAG AA on all three surfaces** (`--muted-low` was lifted from `#7A7069`, which
+failed at 3.26:1 on `--bg-raised`, to `#928779` at 4.97:1).
+
+### Not done
+`static/social-preview.svg` (the OG/marketing image) is still on the old
+cyan/navy palette — it is a branding asset, not app UI. Merging the ~734 inline
+`style=` attributes onto the new scales is also outstanding; the scales now
+exist, but existing pages still carry literal sizes.
+
+---
+
 ## 2026-09-02 — Full security audit: 9 Critical/High fixed + systemd sandboxing
 
 Audit of the whole codebase (three parallel passes + a manual one). Every finding
