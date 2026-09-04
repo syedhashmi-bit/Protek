@@ -174,8 +174,8 @@ function initMap(){
   // watermark into every keyless tile (verified 2026-09-04: identical bytes
   // with and without a Referer, so it is not domain-gated) — dark_all included,
   // which is why the map had started rendering watermarked. OSM is genuinely
-  // key-free; .map-tiles below inverts and warms it to match the theme, which
-  // also removes the need for a third-party dark tileset entirely.
+  // key-free; the .leaflet-tile-pane filter above inverts and warms it to match
+  // the theme, which also removes the need for a third-party dark tileset.
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
