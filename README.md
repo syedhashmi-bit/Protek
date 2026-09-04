@@ -35,7 +35,7 @@
 
 ## What is Protek?
 
-Protek is a [CrowdSec](https://crowdsec.net) **bouncer with a NOC-style dashboard**. It pulls active decisions from one or more CrowdSec LAPIs, reconciles them into one or more firewalls (MikroTik, pfSense, OPNsense, iptables/ipset, Cloudflare), and gives you a single pane of glass over who is being blocked, why, where they came from, and which downstream targets are in sync.
+Protek is a [CrowdSec](https://crowdsec.net) **bouncer with an operations dashboard**. It pulls active decisions from one or more CrowdSec LAPIs, reconciles them into one or more firewalls (MikroTik, pfSense, OPNsense, iptables/ipset, Cloudflare), and gives you a single pane of glass over who is being blocked, why, where they came from, and which downstream targets are in sync.
 
 **The gap it fills:** CrowdSec ships first-party bouncers for nginx, iptables, Cloudflare, and a handful of others — but **not for MikroTik RouterOS**, and not as a coordinated multi-target hub. Protek is the polished, multi-bouncer, federation-capable version.
 
@@ -134,7 +134,7 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 - **N CrowdSec sources** (`sources` table) — add via `/federation`, health-probe-on-save, per-source backoff (2^streak min, cap 30), pause-without-delete.
 - **Decision union with dedup** by `(value, scope)`.
 - **Cross-source agreement scoring** — `ip_sources` table tracks every (ip, source, last_seen); threshold setting requires N distinct sources before a ban propagates.
-- **Topology + overlap matrix** — `/federation` page renders sources → PROTEK → targets as CSS topology + 4-level cyan-to-green overlap heatmap.
+- **Topology + overlap matrix** — `/federation` page renders sources → PROTEK → targets as CSS topology + 4-level overlap heatmap.
 - **Source reputation** — per-source scorecard (total / unique / shared / redundancy %); auto-recommendations ("highly redundant — consider pausing").
 
 ### Observability (Arc 6)
@@ -182,9 +182,15 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 
 ## Screenshots
 
-> All screenshots are sanitized (IPs blurred, secrets masked).
+> Screenshots regenerated 2026-09-04 against the warm theme.
+>
+> Sanitisation: this instance's own infrastructure identifiers (router endpoint,
+> host addresses, RouterOS identity) are replaced with RFC 5737 documentation
+> addresses and generic names. Attacker IPs are shown as-is — they are public
+> CrowdSec blocklist data, not operator infrastructure. No secret is rendered by
+> any page: credential fields are write-only and masked to `•••• <last4>`.
 
-### Dashboard — NOC overview
+### Dashboard — overview
 ![dashboard](docs/screenshots/dashboard.png)
 
 ### Decisions table
@@ -391,8 +397,8 @@ DR runbook in [`docs/DR-RUNBOOK.md`](docs/DR-RUNBOOK.md) — every failure mode 
 Backend:    Python 3.12 · Flask · SQLite (WAL mode, Litestream replicated)
 CrowdSec:   LAPI HTTP client (X-Api-Key bouncer auth); /v1/decisions + /v1/decisions/stream
 Bouncers:   routeros_api (MikroTik), requests (pfSense / OPNsense / Cloudflare), ipset shell-out
-Frontend:   Jinja2 server-rendered HTML; Chart.js sparklines; Leaflet 1.9 + MarkerCluster for the
-            world map; cyan/green NOC palette; Rajdhani + Share Tech Mono fonts (Google Fonts)
+Frontend:   Jinja2 server-rendered HTML; hand-rolled inline-SVG sparklines; Leaflet 1.9 +
+            MarkerCluster over OpenStreetMap tiles; warm dark palette; IBM Plex Sans + Mono
 Auth:       bcrypt + pyotp TOTP, Flask sessions, rate limiting, optional IP whitelist
 Notify:     Discord webhook · Telegram bot · SMTP MIME — all 8–10 s timeouts, SSRF guards
 Resilience: Off-box backup (S3 / B2 / MinIO) + Litestream WAL replication + synthetic self-test

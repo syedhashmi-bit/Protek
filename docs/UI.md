@@ -95,7 +95,7 @@ Rules:
 │  ACTIVE DECISIONS               │  ← IBM Plex Sans 500, sentence case, var(--muted), 11px
 │                                 │
 │  1,247                          │  ← IBM Plex Mono, 36px, var(--ok)
-│  ▁▂▃▄▅▆▇ 24h                   │  ← Chart.js sparkline, cyan stroke
+│  ▁▂▃▄▅▆▇ 24h                   │  ← inline-SVG sparkline, var(--ok) stroke
 └─────────────────────────────────┘
 ```
 
