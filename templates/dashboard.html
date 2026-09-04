@@ -9,8 +9,19 @@
 <style>
 .leaflet-container{background:var(--bg-deep)}
 /* Invert the light OSM raster to a dark ground, then warm and mute it so the
-   map sits inside the theme instead of glowing white. */
-.map-tiles{filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) sepia(.35) saturate(.6)}
+   map sits inside the theme instead of glowing white.
+
+   Filter the tile PANE, not the individual tiles. Leaflet positions each tile
+   with translate3d, so a per-tile filter made every tile its own composited
+   layer — and Chromium pins composited layers to the viewport during scroll,
+   which is exactly the "map floats out of its panel" bug that any3d=false was
+   added to fix. One filter on the pane is a single stacking context and stays
+   clipped by the panel. Markers live in a different pane, so they keep their
+   real colours instead of being inverted with the basemap. */
+.leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) sepia(.35) saturate(.6)}
+/* Belt and braces: keep painting inside the panel even if a descendant gets
+   promoted to its own layer. */
+#map{contain:paint}
 
 .marker-cluster-small{background:rgba(137,168,179,.20);color:var(--text)}
 .marker-cluster-small div{background:rgba(137,168,179,.34)}
@@ -166,7 +177,7 @@ function initMap(){
   // key-free; .map-tiles below inverts and warms it to match the theme, which
   // also removes the need for a third-party dark tileset entirely.
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19, className: 'map-tiles',
+    maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(mapInst);
   clusterLayer = L.markerClusterGroup({
