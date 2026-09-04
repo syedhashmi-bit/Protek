@@ -4,16 +4,16 @@
 <style>
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
 .login-card{width:380px}
-.login-brand{font-size:30px;font-weight:700;letter-spacing:.12em;color:var(--cyan);text-align:center}
-.login-sub{text-align:center;font-size:11px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin:6px 0 22px}
+.login-brand{font-size:var(--fs-2xl);font-weight:600;letter-spacing:.02em;color:var(--text);text-align:center}
+.login-sub{text-align:center;font-size:var(--fs-sm);color:var(--muted);margin:6px 0 22px}
 .login-card form > div{margin-bottom:14px}
 .row-btn{margin-top:20px}
 .row-btn .btn{width:100%}
 .err{background:var(--bg-raised);border-left:3px solid var(--red);color:var(--red);
-  padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:14px;font-family:'Share Tech Mono',monospace}
+  padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:14px;font-family:var(--font-mono)}
 .lock{background:var(--bg-raised);border-left:3px solid var(--amber);color:var(--amber);
-  padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:14px;font-family:'Share Tech Mono',monospace}
-.hint{font-size:10px;color:var(--muted-low);letter-spacing:.12em;text-transform:uppercase;text-align:center;margin-top:14px}
+  padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:14px;font-family:var(--font-mono)}
+.hint{font-size:var(--fs-sm);color:var(--muted);text-align:center;margin-top:14px}
 </style>
 <div class="login-wrap">
   <div class="login-card panel">
@@ -22,7 +22,7 @@
            style="width:64px;height:64px">
     </div>
     <div class="login-brand">PROTEK</div>
-    <div class="login-sub">crowdsec · mikrotik · noc</div>
+    <div class="login-sub">CrowdSec · MikroTik · NOC</div>
 
     {% if locked %}
       <div class="lock">IP locked. Retry in {{ lockout_mins }} min.</div>
@@ -49,12 +49,12 @@
       </div>
     </form>
     {% if sso_configured %}
-    <div style="text-align:center;margin:18px 0 6px;color:var(--muted);font-size:11px;letter-spacing:.2em">— or —</div>
+    <div style="text-align:center;margin:18px 0 6px;color:var(--muted);font-size:var(--fs-sm)">or</div>
     <div class="row-btn" style="margin-top:6px">
       <a class="btn sec" href="{{ url_for('sso_login') }}" style="display:block;text-align:center">Sign in with SSO</a>
     </div>
     {% endif %}
-    <div class="hint">2FA required · attempts logged</div>
+    <div class="hint">2FA required · attempts are logged</div>
   </div>
 </div>
 {% endblock %}

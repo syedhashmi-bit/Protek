@@ -25,7 +25,7 @@
   {% set CHART_H = 80 %}
   {% set CHART_W = chart.buckets|length * (BAR_W + BAR_GAP) %}
   <svg width="{{ CHART_W }}" height="{{ CHART_H + 24 }}"
-       style="display:block;font-family:'Share Tech Mono',monospace">
+       style="display:block;font-family:var(--font-mono)">
     {% for b in chart.buckets %}
       {% set x = loop.index0 * (BAR_W + BAR_GAP) %}
       {% if chart.max_value > 0 %}

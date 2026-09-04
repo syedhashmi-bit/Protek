@@ -64,7 +64,7 @@
         parameterized — the placeholder &lt;this-host&gt; should be replaced
         with a recognizable label (e.g. your VPS A's hostname).
       </p>
-<pre id="remote-bash" style="background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-family:'Share Tech Mono',monospace;font-size:12px;overflow:auto;white-space:pre-wrap"># 1. Install CrowdSec on the remote if it isn't already.
+<pre id="remote-bash" style="background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-family:var(--font-mono);font-size:12px;overflow:auto;white-space:pre-wrap"># 1. Install CrowdSec on the remote if it isn't already.
 curl -s https://install.crowdsec.net | sudo sh
 sudo apt install -y crowdsec
 sudo systemctl enable --now crowdsec
@@ -111,7 +111,7 @@ sudo ufw allow from {{ protek_host_ip or '&lt;protek-host-IP&gt;' }} to any port
         ↻ Run diagnostic probe (without saving)
       </button>
       <div id="fed-probe-result" style="display:none;background:var(--bg-deep);border:1px solid var(--border);
-                                         border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;font-family:'Share Tech Mono',monospace;font-size:12px">
+                                         border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;font-family:var(--font-mono);font-size:12px">
         <!-- filled by JS -->
       </div>
 
