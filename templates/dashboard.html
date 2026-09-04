@@ -7,28 +7,28 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <style>
-.leaflet-container{background:#06101c}
-.protek-glow{filter:drop-shadow(0 0 3px #36c8ef)}
-.marker-cluster-small{background:rgba(0,200,255,.18);color:#cfe8ff}
-.marker-cluster-small div{background:rgba(0,200,255,.32)}
-.marker-cluster-medium{background:rgba(0,255,157,.18)}
-.marker-cluster-medium div{background:rgba(0,255,157,.32)}
-.marker-cluster-large{background:rgba(255,56,96,.18)}
-.marker-cluster-large div{background:rgba(255,56,96,.32)}
+.leaflet-container{background:var(--bg-deep)}
+
+.marker-cluster-small{background:rgba(137,168,179,.20);color:var(--text)}
+.marker-cluster-small div{background:rgba(137,168,179,.34)}
+.marker-cluster-medium{background:rgba(227,179,65,.20)}
+.marker-cluster-medium div{background:rgba(227,179,65,.34)}
+.marker-cluster-large{background:rgba(212,115,106,.20)}
+.marker-cluster-large div{background:rgba(212,115,106,.34)}
 .poll-bar{position:relative;height:2px;background:var(--bg-deep);overflow:hidden;border-radius:1px}
-.poll-bar > i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--cyan),var(--green));
+.poll-bar > i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);
   width:0%;transition:width .15s linear}
 .feed-row.new{animation:slideflash .6s ease}
 @keyframes slideflash{
-  from{transform:translateX(-12px);background:rgba(0,200,255,.12)}
+  from{transform:translateX(-12px);background:var(--accent-dim)}
   to{transform:translateX(0);background:transparent}
 }
 .sync-toast{position:fixed;right:24px;bottom:24px;background:var(--bg-panel);border:1px solid var(--cyan);
-  border-radius:4px;padding:10px 14px;font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--cyan);
-  z-index:50;box-shadow:0 0 14px rgba(0,200,255,.18);opacity:0;pointer-events:none;transform:translateY(8px);
+  border-radius:4px;padding:10px 14px;font-family:var(--font-mono);font-size:12px;color:var(--cyan);
+  z-index:50;box-shadow:var(--shadow);opacity:0;pointer-events:none;transform:translateY(8px);
   transition:opacity .2s, transform .2s}
 .sync-toast.show{opacity:1;transform:translateY(0)}
-.sync-toast.err{border-color:var(--red);color:var(--red);box-shadow:0 0 14px rgba(255,56,96,.18)}
+.sync-toast.err{border-color:var(--danger);color:var(--danger);box-shadow:var(--shadow)}
 .spark{height:32px;width:100%;display:block}
 .dash-main{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--gap);margin-top:var(--gap)}
 .dash-row2{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-top:var(--gap)}
@@ -40,7 +40,7 @@
   <div class="kpi">
     <div class="k">LAPI Active</div>
     <div class="v" id="kpi-lapi">{{ kpis.lapi_active }}</div>
-    <svg class="spark" id="spark-lapi" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline fill="none" stroke="#3ee6a8" stroke-width="1.2"/></svg>
+    <svg class="spark" id="spark-lapi" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline fill="none" stroke="#86B27A" stroke-width="1.2"/></svg>
   </div>
   <div class="kpi">
     <div class="k">MT List Size</div>
@@ -139,12 +139,14 @@ let lastSyncId = {{ kpis.last_sync_event_id or 0 }};
 
 // ── World map ──────────────────────────────────────────────────────────────
 function initMap(){
-  // Keep the map off GPU-composited layers. This page has a position:fixed
-  // full-screen overlay (body::before scanlines), and Chromium leaves composited
-  // layers pinned to the viewport during scroll -- which made the map float in
-  // place and spill out of its panel as the page scrolled. Forcing 2D pane
-  // positioning (any3d=false) + SVG markers (preferCanvas=false) keeps the whole
-  // map on the normal paint path so it scrolls and clips with its container.
+  // Keep the map off GPU-composited layers. Chromium pins composited layers to
+  // the viewport during scroll, which made the map float in place and spill out
+  // of its panel. Forcing 2D pane positioning (any3d=false) + SVG markers
+  // (preferCanvas=false) keeps the map on the normal paint path so it scrolls
+  // and clips with its container.
+  // (The scanline overlay this originally worked around was removed in the
+  // 2026-06-25 pass; the fix is retained because the compositing behaviour is
+  // not specific to that overlay.)
   L.Browser.any3d = false;
   mapInst = L.map('map', {
     preferCanvas: false, worldCopyJump: true, attributionControl: true,
@@ -153,7 +155,7 @@ function initMap(){
     // is over the map zooms the map instead of scrolling. Use +/- or dbl-click.
     scrollWheelZoom: false,
   }).setView([22, 10], 2);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png', {
     subdomains: 'abcd', maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(mapInst);
@@ -179,8 +181,8 @@ async function refreshMap(){
       if(knownMapKeys.has(key)) continue;
       knownMapKeys.add(key);
       const m = L.circleMarker([p.lat, p.lon], {
-        radius:4.5, color:'#36c8ef', weight:1.5, fillColor:'#36c8ef', fillOpacity:.85
-      }).bindPopup(`<b>${escapeHtml(p.ip)}</b><br>${escapeHtml(p.city||p.country||'—')}<br>${escapeHtml(p.scenario||'')}<br><span style="color:#7d94ad">${escapeHtml(p.as_org||p.asn||'')}</span>`);
+        radius:4.5, color:'#D9975B', weight:1.5, fillColor:'#D9975B', fillOpacity:.85
+      }).bindPopup(`<b>${escapeHtml(p.ip)}</b><br>${escapeHtml(p.city||p.country||'—')}<br>${escapeHtml(p.scenario||'')}<br><span style="color:var(--muted)">${escapeHtml(p.as_org||p.asn||'')}</span>`);
       newMarkers.push(m);
     }
     if(newMarkers.length) clusterLayer.addLayers(newMarkers);
@@ -247,8 +249,8 @@ async function refreshSyncSpark(){
       const ah = (b.adds / maxv) * h;
       const rh = (b.rems / maxv) * h;
       svg.insertAdjacentHTML('beforeend',
-        `<rect x="${i*bw+1}" y="${h-ah}" width="${bw-2}" height="${ah}" fill="#3ee6a8" opacity=".8"/>` +
-        `<rect x="${i*bw+1+bw/2}" y="${h-rh}" width="${bw/2-1}" height="${rh}" fill="#ff5673" opacity=".7"/>`);
+        `<rect x="${i*bw+1}" y="${h-ah}" width="${bw-2}" height="${ah}" fill="#86B27A" opacity=".85"/>` +
+        `<rect x="${i*bw+1+bw/2}" y="${h-rh}" width="${bw/2-1}" height="${rh}" fill="#D4736A" opacity=".75"/>`);
     });
   }catch(e){}
 }

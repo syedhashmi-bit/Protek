@@ -1,19 +1,54 @@
 /* ===========================================================================
-   Protek — design system (refined NOC).
-   Extracted from base.html 2026-06-25. Keeps the suite's cyan/green identity
-   but strips the "vibe-coded" noise: no scanline overlay, minimal glow, calmer
-   typography, more whitespace. See docs/STYLE-GUIDE.md for the contract.
+   Protek — design system (warm).
+
+   2026-09-03. Successor to the 2026-06-25 "refined NOC" pass. That pass removed
+   the scanlines and glows and softened every accent; what still read as
+   "vibe-coded" was the *typography*, not the colour:
+
+     - Rajdhani (a condensed techno display face) doing all UI text
+     - Share Tech Mono on non-tabular content — inputs, buttons, badges, labels
+     - uppercase + .08-.16em tracking on ~24 rules, so every label shouted
+
+   So this pass: warm neutrals, IBM Plex Sans/Mono, sentence case, and mono
+   confined to identifiers and figures. Protek deliberately diverges from
+   pipsqueeze/traverse here — see CLAUDE.md and docs/UI.md.
+
+   TOKEN NAMING: the legacy names (--cyan/--green/--red/--amber) are retained as
+   aliases because ~600 references across 47 templates use them. New work should
+   use the semantic names (--accent/--ok/--danger/--warn). Do not rename the
+   legacy tokens without sweeping the templates.
    =========================================================================== */
 
 :root{
-  /* Surfaces */
-  --bg-deep:#0a1420; --bg-panel:#0e1b2b; --bg-raised:#152840;
-  --border:#1e3247; --border-soft:#16273b; --border-accent:#1f6f96;
-  /* Brand */
-  --cyan:#36c8ef; --green:#3ee6a8; --red:#ff5673; --amber:#f5b552; --info:#7fd1ff;
-  --cyan-dim:rgba(54,200,239,.14); --green-dim:rgba(62,230,168,.14);
+  /* Surfaces — warm charcoal. The warmth of the UI lives here, not in the
+     accents: semantic colours must keep meaning danger/safety in a security tool. */
+  --bg-deep:#14120F; --bg-panel:#1C1917; --bg-raised:#262220;
+  --border:#35302B; --border-soft:#282320; --border-accent:#4A4038;
+
+  /* Semantic */
+  --accent:#D9975B;   /* brand, active nav, primary action */
+  --ok:#86B27A;       /* sage — healthy, success */
+  --warn:#E3B341;     /* amber — attention */
+  --danger:#D4736A;   /* terracotta — error, ban, destructive */
+  --info:#89A8B3;     /* muted teal — links, informational */
+  --accent-dim:rgba(217,151,91,.14); --ok-dim:rgba(134,178,122,.14);
+
+  /* Legacy aliases — see header note. */
+  --cyan:var(--accent); --green:var(--ok); --red:var(--danger); --amber:var(--warn);
+  --cyan-dim:var(--accent-dim); --green-dim:var(--ok-dim);
+
   /* Text */
-  --text:#dce7f2; --muted:#8fa4ba; --muted-low:#5b7491;
+  --text:#EDE8E3; --muted:#A79E95; --muted-low:#928779; /* muted-low clears WCAG AA (4.97:1) on --bg-raised; #7A7069 did not */
+
+  /* Type scale — previously implicit; 11 hardcoded sizes were in use. */
+  --fs-xs:11px; --fs-sm:12px; --fs-base:14px; --fs-md:15px;
+  --fs-lg:18px; --fs-xl:24px; --fs-2xl:30px;
+  --font-ui:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  /* Spacing scale — previously only --gap/--pad existed; everything else was literal. */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+
   /* Geometry */
   --radius:8px; --radius-sm:5px;
   --gap:18px; --pad:20px;
@@ -24,9 +59,9 @@
 
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%;background:var(--bg-deep);color:var(--text);
-  font-family:'Rajdhani',sans-serif;font-size:15px;line-height:1.45;
+  font-family:var(--font-ui);font-size:var(--fs-base);line-height:1.5;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-a{color:var(--cyan);text-decoration:none}
+a{color:var(--accent);text-decoration:none}
 a:hover{color:var(--info);text-decoration:none}
 
 /* thin, on-theme scrollbars */
@@ -39,31 +74,33 @@ a:hover{color:var(--info);text-decoration:none}
 /* ── Topbar ───────────────────────────────────────────────────────────── */
 .topbar{position:sticky;top:0;z-index:20;height:var(--topbar-h);background:var(--bg-panel);
   border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:22px}
-.brand{display:inline-flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.12em;
-  color:var(--cyan);font-size:17px;text-decoration:none}
-.brand:hover{color:var(--cyan)}
+.brand{display:inline-flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.01em;
+  color:var(--text);font-size:var(--fs-lg);text-decoration:none}
+.brand:hover{color:var(--text)}
 .brand img{width:24px;height:24px;display:block}
-.crumb{color:var(--muted);font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+.crumb{color:var(--text);font-size:var(--fs-md);font-weight:600}
 .crumb b{color:var(--text);font-weight:600}
 .topbar .spacer{flex:1}
 .pills{display:flex;gap:8px;align-items:center}
 .pill{display:inline-flex;align-items:center;gap:6px;background:var(--bg-raised);
   border:1px solid var(--border);padding:3px 10px;border-radius:999px;
-  font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--muted)}
+  font-size:var(--fs-xs);color:var(--muted)}
 .pill::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--muted-low)}
-.pill.ok::before{background:var(--green)}
-.pill.warn::before{background:var(--amber)} .pill.warn{color:var(--amber)}
-.pill.down::before{background:var(--red)} .pill.down{color:var(--red)}
-.pill .lbl{color:inherit;text-transform:uppercase;letter-spacing:.08em;font-size:10px}
-.pill.dryrun{background:rgba(255,86,115,.14);border-color:var(--red);color:#ffd9e0}
-.pill.dryrun::before{background:var(--red);animation:pulse 1.6s infinite}
+.pill.ok::before{background:var(--ok)}
+.pill.warn::before{background:var(--warn)} .pill.warn{color:var(--warn)}
+.pill.down::before{background:var(--danger)} .pill.down{color:var(--danger)}
+.pill .lbl{color:inherit;font-size:var(--fs-xs)}
+.pill.dryrun{background:rgba(212,115,106,.16);border-color:var(--danger);color:#F2C9C4}
+/* The dry-run pulse is functional, not decorative: it marks a mode in which
+   nothing is actually being pushed to the firewall. Kept deliberately. */
+.pill.dryrun::before{background:var(--danger);animation:pulse 1.6s infinite}
 @keyframes pulse{50%{opacity:.4}}
-.topbar-link{font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:.08em;
-  text-transform:uppercase;padding:4px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);
-  color:var(--cyan);text-decoration:none;transition:border-color var(--ease)}
-.topbar-link:hover{border-color:var(--cyan)}
-.topbar-link.amber{color:var(--amber);border-color:var(--amber);background:rgba(245,181,82,.06)}
-.user{font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--muted)}
+.topbar-link{font-size:var(--fs-sm);padding:4px 12px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);color:var(--accent);text-decoration:none;
+  transition:border-color var(--ease)}
+.topbar-link:hover{border-color:var(--accent)}
+.topbar-link.amber{color:var(--warn);border-color:var(--warn);background:rgba(227,179,65,.08)}
+.user{font-size:var(--fs-sm);color:var(--muted)}
 .user a{color:var(--muted);margin-left:8px}
 
 /* ── Shell + sidebar ──────────────────────────────────────────────────── */
@@ -71,21 +108,23 @@ a:hover{color:var(--info);text-decoration:none}
 .side{width:var(--side-w);flex:0 0 var(--side-w);background:var(--bg-panel);
   border-right:1px solid var(--border);padding:14px 0 28px;position:sticky;top:var(--topbar-h);
   height:calc(100vh - var(--topbar-h));overflow-y:auto;overscroll-behavior:contain}
-.side a{display:flex;align-items:center;gap:10px;padding:9px 20px;color:#c4d3e4;
-  font-size:13px;letter-spacing:.02em;border-left:3px solid transparent;
+.side a{display:flex;align-items:center;gap:10px;padding:8px 14px;margin:0 8px;color:#C9C0B7;
+  font-size:var(--fs-base);border-radius:var(--radius-sm);
   transition:background var(--ease),color var(--ease)}
-.side a:hover{background:var(--bg-raised);color:#fff}
-.side a.active{border-left-color:var(--cyan);background:var(--bg-raised);color:var(--cyan)}
-.side a.sub{padding-left:38px;font-size:12px;color:#9fb2c7}
-.side a.sub:hover{color:#dce7f2}
-.side a.sub.active{color:var(--cyan)}
+.side a:hover{background:var(--bg-raised);color:var(--text)}
+.side a.active{background:var(--bg-raised);color:var(--text);font-weight:500}
+.side a.active .ic{opacity:1;color:var(--accent)}
+.side a .ic{display:inline-block;width:14px;text-align:center;opacity:.5;font-size:var(--fs-sm)}
+.side a.sub{padding-left:34px;font-size:var(--fs-sm);color:#A79E95}
+.side a.sub:hover{color:var(--text)}
+.side a.sub.active{color:var(--text)}
 
-/* collapsible groups */
+/* collapsible groups — sentence case, tight tracking (was .16em uppercase) */
 .side .group{display:flex;align-items:center;justify-content:space-between;cursor:pointer;
-  padding:13px 20px 6px;font-size:10px;letter-spacing:.16em;color:#7e96b0;
-  text-transform:uppercase;user-select:none}
-.side .group:hover{color:#c4d3e4}
-.side .group .chev{font-size:9px;transition:transform var(--ease);opacity:.7}
+  padding:14px 22px 6px;font-size:var(--fs-sm);letter-spacing:.02em;color:#8A7F74;
+  font-weight:600;user-select:none}
+.side .group:hover{color:var(--text)}
+.side .group .chev{font-size:9px;transition:transform var(--ease);opacity:.6}
 .side .group.collapsed .chev{transform:rotate(-90deg)}
 .side .section{overflow:hidden;transition:max-height var(--ease)}
 .side .section.collapsed{max-height:0 !important}
@@ -96,8 +135,9 @@ a:hover{color:var(--info);text-decoration:none}
 
 .panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);
   padding:var(--pad);box-shadow:var(--shadow)}
-.panel h2{margin:0 0 14px;font-size:12px;letter-spacing:.1em;color:var(--muted);
-  text-transform:uppercase;font-weight:600}
+.panel h2{margin:0 0 14px;font-size:var(--fs-md);color:var(--text);font-weight:600;
+  display:flex;align-items:center;gap:var(--sp-2)}
+.panel h2 .more{margin-left:auto;font-size:var(--fs-sm);font-weight:400;color:var(--accent)}
 .panel + .panel{margin-top:var(--gap)}
 
 /* generic responsive grids — pages use these instead of hardcoded fr columns */
@@ -107,77 +147,96 @@ a:hover{color:var(--info);text-decoration:none}
 .kpi-strip{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
 
 .kpi{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
-.kpi .k{font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
-.kpi .v{margin-top:8px;font-family:'Share Tech Mono',monospace;font-size:30px;color:var(--green);line-height:1}
-.kpi .v.cyan{color:var(--cyan)} .kpi .v.red{color:var(--red)} .kpi .v.amber{color:var(--amber)}
-.kpi .d{margin-top:7px;font-size:11px;color:var(--muted)}
+.kpi .k{font-size:var(--fs-sm);color:var(--muted)}
+.kpi .v{margin-top:8px;font-family:var(--font-mono);font-size:var(--fs-2xl);color:var(--text);
+  line-height:1;font-weight:500;letter-spacing:-.01em}
+/* Value colour is reserved for states that need attention. A healthy figure is
+   just text — previously every KPI was neon green, which flattened hierarchy. */
+.kpi .v.cyan{color:var(--text)} .kpi .v.red{color:var(--danger)} .kpi .v.amber{color:var(--warn)}
+.kpi .v.ok{color:var(--ok)}
+.kpi .d{margin-top:7px;font-size:var(--fs-sm);color:var(--muted)}
+a.kpi{text-decoration:none;transition:border-color var(--ease)}
+a.kpi:hover{border-color:var(--border-accent)}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────── */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:var(--gap);
+  overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs a{padding:9px 14px;font-size:var(--fs-base);color:var(--muted);white-space:nowrap;
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--ease)}
+.tabs a:hover{color:var(--text)}
+.tabs a.active{color:var(--text);border-bottom-color:var(--accent);font-weight:500}
 
 /* ── Tables ───────────────────────────────────────────────────────────── */
-table{width:100%;border-collapse:collapse;font-size:13px}
-thead th{background:var(--bg-deep);color:var(--muted);font-size:10px;letter-spacing:.1em;
-  text-transform:uppercase;text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:var(--fs-base)}
+thead th{background:var(--bg-deep);color:var(--muted);font-size:var(--fs-sm);
+  text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);font-weight:600}
 tbody td{padding:9px 12px;border-bottom:1px solid var(--border-soft);vertical-align:middle}
 tbody tr:hover{background:var(--bg-raised)}
-.mono{font-family:'Share Tech Mono',monospace}
+.mono{font-family:var(--font-mono);font-size:.95em}
 .muted{color:var(--muted)}
 .right{text-align:right}
 
 /* ── Badges ───────────────────────────────────────────────────────────── */
-.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;letter-spacing:.04em;
-  text-transform:uppercase;font-family:'Share Tech Mono',monospace;background:var(--bg-raised);
-  color:var(--muted);border:1px solid var(--border)}
-.badge.http{color:var(--cyan);border-color:rgba(54,200,239,.45)}
-.badge.ssh{color:var(--amber);border-color:rgba(245,181,82,.45)}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:var(--fs-sm);
+  background:var(--bg-raised);color:var(--muted);border:1px solid var(--border)}
+.badge.http{color:var(--info);border-color:rgba(137,168,179,.4)}
+.badge.ssh{color:var(--warn);border-color:rgba(227,179,65,.4)}
 .badge.list{color:var(--muted)}
-.badge.cs{color:var(--green);border-color:rgba(62,230,168,.4)}
-.badge.cust{color:#d39bff;border-color:rgba(211,155,255,.4)}
+.badge.cs{color:var(--ok);border-color:rgba(134,178,122,.4)}
+.badge.cust{color:#C79BD9;border-color:rgba(199,155,217,.4)}
 
 /* ── Buttons / forms ──────────────────────────────────────────────────── */
-.btn{display:inline-block;padding:8px 16px;border-radius:var(--radius-sm);font-size:11px;
-  letter-spacing:.08em;text-transform:uppercase;font-family:'Rajdhani',sans-serif;font-weight:600;
-  cursor:pointer;background:var(--cyan);color:var(--bg-deep);border:none;transition:filter var(--ease)}
+.btn{display:inline-block;padding:8px 16px;border-radius:var(--radius-sm);font-size:var(--fs-base);
+  font-family:var(--font-ui);font-weight:500;cursor:pointer;background:var(--accent);
+  color:#241A10;border:none;transition:filter var(--ease)}
 .btn:hover{filter:brightness(1.08)}
-.btn.sec{background:transparent;color:var(--cyan);border:1px solid var(--cyan)}
+.btn.sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}
 .btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
 .btn.ghost:hover{color:var(--text);border-color:var(--muted-low)}
-.btn.danger{background:var(--red);color:#fff}
+.btn.danger{background:var(--danger);color:#241A10}
 
 input[type=text],input[type=password],input[type=number],input[type=url],input[type=email],
 select,textarea{background:var(--bg-deep);border:1px solid var(--border);color:var(--text);
-  padding:9px 11px;font-family:'Share Tech Mono',monospace;font-size:13px;border-radius:var(--radius-sm);width:100%}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan-dim)}
-label{display:block;font-size:10px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
-.flash{padding:9px 13px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:13px;
-  background:var(--bg-raised);border-left:3px solid var(--cyan)}
-.flash.error{border-left-color:var(--red);color:#ffc4cf}
-.flash.warn{border-left-color:var(--amber);color:var(--amber)}
+  padding:9px 11px;font-family:var(--font-ui);font-size:var(--fs-base);
+  border-radius:var(--radius-sm);width:100%}
+/* Identifier fields stay monospace — IPs, CIDRs, keys, tokens. */
+input.mono,textarea.mono{font-family:var(--font-mono)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 2px var(--accent-dim)}
+label{display:block;font-size:var(--fs-sm);color:var(--muted);margin-bottom:6px;font-weight:500}
+.flash{padding:9px 13px;border-radius:var(--radius-sm);font-size:var(--fs-base);margin-bottom:13px;
+  background:var(--bg-raised);border-left:3px solid var(--accent)}
+.flash.error{border-left-color:var(--danger);color:#F2C9C4}
+.flash.warn{border-left-color:var(--warn);color:var(--warn)}
 
-.scenario-fam-http{color:var(--cyan)} .scenario-fam-ssh{color:var(--amber)}
-.scenario-fam-list{color:var(--muted)} .scenario-fam-cs{color:var(--green)}
-.scenario-fam-cust{color:#d39bff}
+.scenario-fam-http{color:var(--info)} .scenario-fam-ssh{color:var(--warn)}
+.scenario-fam-list{color:var(--muted)} .scenario-fam-cs{color:var(--ok)}
+.scenario-fam-cust{color:#C79BD9}
 
 /* ── Command palette ──────────────────────────────────────────────────── */
-.cmd-backdrop{display:none;position:fixed;inset:0;background:rgba(10,20,32,.74);
+.cmd-backdrop{display:none;position:fixed;inset:0;background:rgba(20,18,15,.76);
   backdrop-filter:blur(3px);z-index:60;align-items:flex-start;justify-content:center;padding-top:11vh}
 .cmd-backdrop.open{display:flex}
 .cmd-box{background:var(--bg-panel);border:1px solid var(--border-accent);border-radius:var(--radius);
   width:min(640px,92vw);box-shadow:0 18px 60px rgba(0,0,0,.5)}
 .cmd-box input{width:100%;background:var(--bg-deep);border:none;border-bottom:1px solid var(--border);
-  color:var(--text);padding:14px 18px;font-family:'Share Tech Mono',monospace;font-size:15px;border-radius:var(--radius) var(--radius) 0 0}
+  color:var(--text);padding:14px 18px;font-family:var(--font-ui);font-size:var(--fs-md);
+  border-radius:var(--radius) var(--radius) 0 0}
 .cmd-box input:focus{outline:none;box-shadow:none}
 .cmd-list{max-height:55vh;overflow:auto}
 .cmd-row{display:flex;align-items:center;gap:10px;padding:10px 18px;cursor:pointer;border-left:3px solid transparent}
-.cmd-row:hover,.cmd-row.sel{background:var(--bg-raised);border-left-color:var(--cyan);color:var(--cyan)}
-.cmd-row .kind{font-size:9px;letter-spacing:.12em;color:var(--muted-low);text-transform:uppercase;min-width:60px}
-.cmd-row .lbl{flex:1;font-size:13px}
-.cmd-row .hint{font-size:11px;color:var(--muted)}
-.cmd-empty{padding:20px 18px;color:var(--muted);font-size:12px;text-align:center}
+.cmd-row:hover,.cmd-row.sel{background:var(--bg-raised);border-left-color:var(--accent);color:var(--text)}
+.cmd-row .kind{font-size:var(--fs-xs);color:var(--muted-low);min-width:64px}
+.cmd-row .lbl{flex:1;font-size:var(--fs-base)}
+.cmd-row .hint{font-size:var(--fs-sm);color:var(--muted)}
+.cmd-empty{padding:20px 18px;color:var(--muted);font-size:var(--fs-sm);text-align:center}
 .kbd{display:inline-block;background:var(--bg-raised);border:1px solid var(--border);
-  padding:1px 6px;border-radius:4px;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--muted)}
+  padding:1px 6px;border-radius:4px;font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--muted)}
 
-.menu-toggle{display:none;background:transparent;color:var(--cyan);border:1px solid var(--border);
-  border-radius:var(--radius-sm);padding:4px 10px;font-family:'Share Tech Mono',monospace;font-size:14px;cursor:pointer}
-.menu-toggle:hover{border-color:var(--cyan)}
+.menu-toggle{display:none;background:transparent;color:var(--accent);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:4px 10px;font-size:var(--fs-md);cursor:pointer}
+.menu-toggle:hover{border-color:var(--accent)}
 
 /* ── Responsive ───────────────────────────────────────────────────────── */
 @media (max-width: 900px){
@@ -185,24 +244,24 @@ label{display:block;font-size:10px;letter-spacing:.1em;color:var(--muted);text-t
   .crumb{display:none}
   .menu-toggle{display:inline-block}
   .pills{flex-wrap:wrap;gap:4px}
-  .pill{font-size:10px;padding:2px 7px} .pill .lbl{font-size:9px}
-  .user{font-size:11px}
+  .pill{font-size:var(--fs-xs);padding:2px 7px} .pill .lbl{font-size:var(--fs-xs)}
+  .user{font-size:var(--fs-xs)}
   .shell{flex-direction:column}
   .side{width:100%;flex-basis:auto;position:fixed;top:var(--topbar-h);left:0;height:auto;
     max-height:calc(100vh - var(--topbar-h));transform:translateY(-110%);transition:transform var(--ease);
     z-index:19;box-shadow:0 8px 30px rgba(0,0,0,.6)}
   .side.open{transform:translateY(0)}
-  .side a{padding:12px 20px;font-size:13px;min-height:44px}
+  .side a{padding:12px 20px;font-size:var(--fs-base);min-height:44px}
   .main{padding:16px 14px}
   .panel{padding:14px}
-  .kpi .v{font-size:23px}
+  .kpi .v{font-size:var(--fs-xl)}
   table thead{display:none}
   table,table tbody,table tr,table td{display:block;width:100%}
   table tbody tr{border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:10px;padding:9px;background:var(--bg-panel)}
   table tbody tr:hover{background:var(--bg-panel)}
-  table tbody td{border:none;padding:5px 0;font-size:13px}
+  table tbody td{border:none;padding:5px 0;font-size:var(--fs-base)}
   table tbody td:before{content:attr(data-label);display:inline-block;min-width:110px;color:var(--muted);
-    font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;margin-right:8px}
+    font-size:var(--fs-sm);font-weight:600;margin-right:8px}
   table.keep-table thead{display:table-header-group}
   table.keep-table tbody td{display:table-cell;padding:9px 12px;border-bottom:1px solid var(--border-soft)}
   table.keep-table tbody td:before{display:none}
@@ -213,7 +272,7 @@ label{display:block;font-size:10px;letter-spacing:.1em;color:var(--muted);text-t
   form > div[style*="width:"]{width:100% !important}
 }
 @media (max-width: 480px){
-  .brand{font-size:14px;letter-spacing:.1em}
+  .brand{font-size:var(--fs-md)}
   .kpi-strip{grid-template-columns:1fr 1fr}
-  .kpi .v{font-size:18px}
+  .kpi .v{font-size:var(--fs-lg)}
 }

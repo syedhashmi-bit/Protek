@@ -17,7 +17,7 @@
   <div class="grid cols-2" style="margin-bottom:14px">
     <div>
       <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.12em">Current role</div>
-      <div style="font-family:'Share Tech Mono',monospace;font-size:28px;color:{{ role_color }};margin-top:4px">
+      <div style="font-family:var(--font-mono);font-size:28px;color:{{ role_color }};margin-top:4px">
         {{ summary.role | upper }}
       </div>
       <p class="muted" style="font-size:11px;margin:6px 0 0">
@@ -32,7 +32,7 @@
       <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.12em">Heartbeat</div>
       {% set lag = summary.heartbeat_lag_seconds %}
       {% set lag_color = 'var(--green)' if (lag is not none and lag <= summary.heartbeat_stale_threshold) else 'var(--red)' %}
-      <div style="font-family:'Share Tech Mono',monospace;font-size:28px;color:{{ lag_color }};margin-top:4px">
+      <div style="font-family:var(--font-mono);font-size:28px;color:{{ lag_color }};margin-top:4px">
         {% if lag is none %}—{% else %}{{ lag }}s{% endif %}
       </div>
       <p class="muted" style="font-size:11px;margin:6px 0 0">

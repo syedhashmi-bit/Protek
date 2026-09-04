@@ -3,7 +3,7 @@
 {% block crumb %}<b>INTEL</b>{% endblock %}
 {% block head %}
 <style>
-.intel-heat{display:grid;gap:1px;font-family:'Share Tech Mono',monospace;font-size:11px}
+.intel-heat{display:grid;gap:1px;font-family:var(--font-mono);font-size:11px}
 .intel-heat .c{aspect-ratio:1.6;background:var(--bg-deep);text-align:center;line-height:30px;color:var(--muted)}
 .intel-heat .c.lvl-1{background:rgba(54,200,239,.18);color:var(--text)}
 .intel-heat .c.lvl-2{background:rgba(54,200,239,.36);color:#fff}
@@ -131,7 +131,7 @@
           ↻ test
         </button>
       </div>
-      <div class="intel-test-result" style="display:none;margin-top:8px;font-family:'Share Tech Mono',monospace;font-size:11px"></div>
+      <div class="intel-test-result" style="display:none;margin-top:8px;font-family:var(--font-mono);font-size:11px"></div>
     </div>
     {% endfor %}
   </div>

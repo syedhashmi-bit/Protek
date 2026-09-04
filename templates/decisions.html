@@ -72,7 +72,7 @@
     </tbody>
   </table>
   {% if pages > 1 %}
-  <div style="margin-top:14px;display:flex;justify-content:space-between;font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--muted)">
+  <div style="margin-top:14px;display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:12px;color:var(--muted)">
     <div>page {{ page }} / {{ pages }} · {{ total }} total</div>
     <div>
       {% if page > 1 %}<a class="btn ghost" href="?page={{ page-1 }}{% if q %}&q={{ q }}{% endif %}">← prev</a>{% endif %}

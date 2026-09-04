@@ -20,7 +20,7 @@
     <div style="display:flex;align-items:center;gap:10px">
       <span style="font-size:18px">{% if status.configured %}<span style="color:var(--green)">●</span>{% else %}<span style="color:var(--muted)">○</span>{% endif %}</span>
       <div>
-        <div style="font-family:'Share Tech Mono',monospace;letter-spacing:.1em;text-transform:uppercase;font-size:12px;color:{% if status.configured %}var(--green){% else %}var(--muted){% endif %}">
+        <div style="font-family:var(--font-mono);letter-spacing:.1em;text-transform:uppercase;font-size:12px;color:{% if status.configured %}var(--green){% else %}var(--muted){% endif %}">
           {% if status.configured %}configured{% else %}not configured{% endif %}
         </div>
         <div class="muted" style="font-size:11px;margin-top:2px">
@@ -36,7 +36,7 @@
 
   {% if test_result %}
   <div style="background:var(--bg-raised);border-left:3px solid {% if test_result.ok %}var(--green){% else %}var(--red){% endif %};border-radius:var(--radius-sm);padding:14px;margin-bottom:14px">
-    <div style="font-family:'Share Tech Mono',monospace;letter-spacing:.1em;text-transform:uppercase;font-size:12px;color:{% if test_result.ok %}var(--green){% else %}var(--red){% endif %};margin-bottom:8px">
+    <div style="font-family:var(--font-mono);letter-spacing:.1em;text-transform:uppercase;font-size:12px;color:{% if test_result.ok %}var(--green){% else %}var(--red){% endif %};margin-bottom:8px">
       {% if test_result.ok %}✓ test login succeeded{% else %}✗ test login failed{% endif %}
     </div>
     {% if test_result.ok %}

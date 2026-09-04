@@ -98,7 +98,7 @@
 </div>
 
 <div class="panel" style="margin-top:14px">
-  <h2>Current targets <span class="muted" style="font-size:11px;font-family:'Share Tech Mono',monospace">(first {{ targets|length }})</span></h2>
+  <h2>Current targets <span class="muted" style="font-size:11px;font-family:var(--font-mono)">(first {{ targets|length }})</span></h2>
   {% if targets %}
   <pre class="mono" style="background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-size:11px;max-height:300px;overflow-y:auto;color:var(--info)">{% for ip in targets %}{{ ip }}
 {% endfor %}</pre>
