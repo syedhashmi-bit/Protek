@@ -434,13 +434,9 @@ def _nav_visible(entry) -> bool:
 
 
 def _nav_groups():
-    """Sidebar structure + the tab strip for the current page, role-filtered."""
-    active = None
-    try:
-        from flask import g
-        active = getattr(g, "_nav_active", None)
-    except Exception:  # noqa: BLE001
-        pass
+    """Sidebar structure, role-filtered. The tab strip is resolved separately in
+    base.html via nav_tabs_for(), because a context processor cannot see the
+    view's `active` kwarg."""
     out = []
     for grp in NAV:
         items = []
