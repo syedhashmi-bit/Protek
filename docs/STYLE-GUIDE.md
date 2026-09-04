@@ -1,16 +1,24 @@
-# Protek UI Style Guide (refined NOC)
+# Protek UI Style Guide (warm)
 
-Contract for restyling templates. Goal: keep the suite's cyan/green NOC identity
-but remove the "vibe-coded" noise — calmer, cleaner, more whitespace. The design
-system lives in **`static/app.css`** (loaded by `base.html`). Pages should *use*
-those classes/variables, not reinvent them.
+Contract for building and restyling templates. The design system lives in
+**`static/app.css`** (loaded by `base.html`). Pages should *use* those
+classes/variables, not reinvent them.
+
+Updated 2026-09-03. The previous revision described a cyan/green "refined NOC"
+theme; the palette is now warm and the fonts are IBM Plex. Protek deliberately
+no longer matches pipsqueeze/traverse.
 
 ## Hard rules
-- **Do NOT edit** `templates/base.html`, `static/app.css`, or `templates/dashboard.html`.
-  Those are the shared foundation; only the foundation owner touches them.
+- `templates/base.html`, `static/app.css` and `templates/dashboard.html` are the
+  shared foundation. Changing them re-themes or re-navigates the whole app, so
+  treat edits there as a design change, not a page tweak — but they are not
+  frozen. (The earlier "do NOT edit" wording made the 2026-09-03 warm pass
+  technically a rule violation, which is not a useful contract.)
 - Every page `{% extends "base.html" %}` and renders inside `{% block body %}`.
 - Use the CSS **variables** for all colors/spacing — never hardcode hex.
-  Palette: `--cyan #36c8ef`, `--green #3ee6a8`, `--red #ff5673`, `--amber #f5b552`,
+  Palette (semantic names preferred): `--accent #D9975B`, `--ok #86B27A`,
+  `--warn #E3B341`, `--danger #D4736A`, `--info #89A8B3`. `--cyan`/`--green`/
+  `--red`/`--amber` still resolve, as aliases, for the ~600 existing references;
   text `--text`, `--muted`, `--muted-low`; surfaces `--bg-deep/-panel/-raised`;
   borders `--border`, `--border-soft`; spacing `--gap` (18px), `--pad` (20px);
   radius `--radius` (8px), `--radius-sm` (5px).
@@ -35,11 +43,32 @@ those classes/variables, not reinvent them.
 - No inline `<style>` blobs duplicating what `app.css` already provides. Small
   page-specific tweaks in a `{% block head %}<style>…</style>` are fine, but use
   variables and keep them minimal.
-- Don't introduce new fonts. Rajdhani (UI) + Share Tech Mono (`.mono`, numbers).
+- Don't introduce new fonts. IBM Plex Sans (UI) + IBM Plex Mono (`.mono`, identifiers
+  and figures only).
 
 ## Quick conversions you'll hit
 - `style="display:grid;grid-template-columns:1fr 1fr;gap:16px"` → `class="grid cols-2"`
-- hardcoded `#00c8ff` → `var(--cyan)`, `#00ff9d` → `var(--green)`, `#ff3860` → `var(--red)`,
+- hardcoded hex → the tokens: `var(--accent)`, `var(--ok)`, `var(--danger)`,
   `#ffb547` → `var(--amber)`, `#0a1626`/`#06101c` → `var(--bg-panel)`/`var(--bg-deep)`.
 - `border:1px solid #1b3050` → `border:1px solid var(--border)`.
 - `border-radius:4px` → `var(--radius-sm)`; big cards `var(--radius)`.
+
+
+## Typography (2026-09-03)
+- **IBM Plex Sans** for UI, **IBM Plex Mono** for identifiers and figures only —
+  IPs, CIDRs, counts, timestamps, durations, tokens. Not buttons, labels, inputs
+  or prose. Pervasive monospace on non-tabular content was the main reason the UI
+  read as "vibe-coded".
+- **Sentence case.** No `text-transform:uppercase` on labels, headers or nav.
+  If you need an eyebrow, cap letter-spacing at `.06em`.
+- Use the scales: `--fs-xs|sm|base|md|lg|xl|2xl` and `--sp-1..6`. Do not add new
+  hardcoded sizes — the absence of these scales is why ~734 inline `style=`
+  attributes accumulated.
+- Colour on a figure means "this needs attention". A healthy number is just
+  `--text`; reserve `--warn`/`--danger` for states that warrant a look.
+
+## Navigation
+- `NAV` in `app.py` is the single source of truth for the sidebar, tab strips,
+  crumb and command palette. Add pages there.
+- A page joins a tab group by passing the matching `active=` kwarg — no template
+  change needed. Drill-down pages map to a parent via `NAV_ALIASES`.
