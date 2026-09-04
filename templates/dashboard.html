@@ -155,7 +155,10 @@ function initMap(){
     // is over the map zooms the map instead of scrolling. Use +/- or dbl-click.
     scrollWheelZoom: false,
   }).setView([22, 10], 2);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png', {
+  // dark_all is CARTO's key-free tileset. The voyager/rastertiles
+  // endpoints return API-KEY-REQUIRED watermarks, so do not switch to
+  // them for a warmer basemap without a CARTO key.
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     subdomains: 'abcd', maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(mapInst);

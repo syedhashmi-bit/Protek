@@ -20,7 +20,11 @@
     <img src="{{ url_for('static', filename='icon.svg') }}" alt="">
     <span>PROTEK</span>
   </a>
-  <div class="crumb">{% block crumb %}DASHBOARD{% endblock %}</div>
+  {# Prefer the nav-derived label so the crumb cannot drift from the sidebar;
+     the per-page block remains the fallback for pages outside NAV (e.g. an
+     attacker detail view). #}
+  {% set _crumb = nav_label_for(active) %}
+  <div class="crumb">{% if _crumb %}{{ _crumb }}{% else %}{% block crumb %}Overview{% endblock %}{% endif %}</div>
   <div class="spacer"></div>
   <div class="pills" id="health-pills">
     <span class="pill" id="pill-lapi"><span class="lbl">LAPI</span></span>
@@ -50,65 +54,22 @@
 </div>
 
 <div class="shell">
+  {# Resolve once: which sidebar entry owns this page, and its sibling tabs. #}
+  {% set nav_active = nav_owner_of(active) %}
+  {% set nav_tabs = nav_tabs_for(active) %}
   <nav class="side" id="side-nav">
-    <div class="group" data-sec="overview"><span>Overview</span><span class="chev">▾</span></div>
-    <div class="section" data-sec="overview">
-      <a href="{{ url_for('dashboard') }}" class="{% if active=='dashboard' %}active{% endif %}">Dashboard</a>
-      <a href="{{ url_for('decisions_page') }}" class="{% if active=='decisions' %}active{% endif %}">Blocked IPs</a>
-      <a href="{{ url_for('alerts_page') }}" class="{% if active=='alerts' %}active{% endif %}">Alerts</a>
-      <a href="{{ url_for('scenarios_page') }}" class="{% if active=='scenarios' %}active{% endif %}">Detections</a>
-      <a href="{{ url_for('scenarios_catalog') }}" class="sub {% if active=='catalog' %}active{% endif %}">Detection Catalog</a>
-      <a href="{{ url_for('intel_page') }}" class="{% if active=='intel' %}active{% endif %}">Threat Intel</a>
-      <a href="{{ url_for('asn_escalations_page') }}" class="sub {% if active=='asn_escalations' %}active{% endif %}">ASN Escalations</a>
-      {% if session.get('role','viewer') == 'admin' %}
-      <a href="{{ url_for('intel_publish_page') }}" class="sub {% if active=='intel_publish' %}active{% endif %}">Publish Feed</a>
-      {% endif %}
-      <a href="{{ url_for('crowdsec_page') }}" target="_blank" class="{% if active=='crowdsec' %}active{% endif %}">CrowdSec ↗</a>
+    {# Rendered from NAV in app.py — one source of truth shared with the tab
+       strips and the command palette, so the three can no longer drift apart. #}
+    {% for grp in nav_groups %}
+    <div class="group" data-sec="{{ grp.group|lower }}"><span>{{ grp.group }}</span><span class="chev">▾</span></div>
+    <div class="section" data-sec="{{ grp.group|lower }}">
+      {% for it in grp['items'] %}
+      <a href="{{ url_for(it.ep) }}" class="{% if nav_active == it.key %}active{% endif %}"
+         {% if it.tabs %}title="{{ it.tabs|map(attribute='label')|join(' · ') }}"{% endif %}>
+        {{ it.label }}</a>
+      {% endfor %}
     </div>
-
-    <div class="group" data-sec="rules"><span>Protection Rules</span><span class="chev">▾</span></div>
-    <div class="section" data-sec="rules">
-      <a href="{{ url_for('whitelist_page') }}" class="{% if active=='whitelist' %}active{% endif %}">Whitelist</a>
-      <a href="{{ url_for('approvals_page') }}" class="{% if active=='approvals' %}active{% endif %}">Approvals</a>
-    </div>
-
-    <div class="group" data-sec="routers"><span>Routers &amp; Sync</span><span class="chev">▾</span></div>
-    <div class="section" data-sec="routers">
-      <a href="{{ url_for('mikrotik_page') }}" class="{% if active=='mikrotik' %}active{% endif %}">MikroTik Router</a>
-      <a href="{{ url_for('bouncers_page') }}" class="{% if active=='bouncers' %}active{% endif %}">Bouncers</a>
-      <a href="{{ url_for('fleet_page') }}" class="{% if active=='fleet' %}active{% endif %}">Fleet</a>
-      <a href="{{ url_for('federation_page') }}" class="{% if active=='federation' %}active{% endif %}">Federation</a>
-      <a href="{{ url_for('peers_page') }}" class="{% if active=='peers' %}active{% endif %}">Peers</a>
-    </div>
-
-    <div class="group" data-sec="settings"><span>Settings</span><span class="chev">▾</span></div>
-    <div class="section" data-sec="settings">
-      <a href="{{ url_for('notifications_page') }}" class="{% if active=='notifications' %}active{% endif %}">Notifications</a>
-      <a href="{{ url_for('security_page') }}" class="{% if active=='security' %}active{% endif %}">Security</a>
-      <a href="{{ url_for('settings_page') }}" class="{% if active=='settings' %}active{% endif %}">Connection &amp; Sync</a>
-    </div>
-
-    <div class="group" data-sec="advanced"><span>Advanced</span><span class="chev">▾</span></div>
-    <div class="section" data-sec="advanced">
-      <a href="{{ url_for('perf_page') }}" class="{% if active=='perf' %}active{% endif %}">Performance</a>
-      <a href="{{ url_for('alerts_rules_page') }}" class="{% if active=='alerts_rules' %}active{% endif %}">Alert Rules</a>
-      <a href="{{ url_for('siem_page') }}" class="{% if active=='siem' %}active{% endif %}">SIEM Export</a>
-      <a href="{{ url_for('webhooks_page') }}" class="{% if active=='webhooks' %}active{% endif %}">Webhooks</a>
-      <a href="{{ url_for('audit_page') }}" class="{% if active=='audit' %}active{% endif %}">Audit Log</a>
-      <a href="{{ url_for('synthetic_page') }}" class="{% if active=='synthetic' %}active{% endif %}">Synthetic Checks</a>
-    </div>
-
-    {% if session.get('role','viewer') == 'admin' %}
-    <div class="group" data-sec="admin"><span>Admin</span><span class="chev">▾</span></div>
-    <div class="section" data-sec="admin">
-      <a href="{{ url_for('admin_users_page') }}" class="{% if active=='admin_users' %}active{% endif %}">Users</a>
-      <a href="{{ url_for('admin_tokens_page') }}" class="{% if active=='admin_tokens' %}active{% endif %}">API Tokens</a>
-      <a href="{{ url_for('admin_backup_page') }}" class="{% if active=='admin_backup' %}active{% endif %}">Backup — Config</a>
-      <a href="{{ url_for('admin_backup_automation_page') }}" class="{% if active=='admin_backup_auto' %}active{% endif %}">Backup — Off-box</a>
-      <a href="{{ url_for('admin_dr_drill_page') }}" class="{% if active=='dr_drill' %}active{% endif %}">DR Drill</a>
-      <a href="{{ url_for('admin_ha') }}" class="{% if active=='admin_ha' %}active{% endif %}">High Availability</a>
-    </div>
-    {% endif %}
+    {% endfor %}
   </nav>
   <main class="main">
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -116,6 +77,13 @@
         <div class="flash {{ cat }}">{{ msg }}</div>
       {% endfor %}
     {% endwith %}
+    {% if nav_tabs %}
+    <div class="tabs">
+      {% for t in nav_tabs %}
+      <a href="{{ url_for(t.ep) }}" class="{% if active == t.key %}active{% endif %}">{{ t.label }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% block body %}{% endblock %}
   </main>
 </div>
@@ -223,33 +191,22 @@ setInterval(refreshPills, 5000);
   var input    = document.getElementById('cmd-input');
   var list     = document.getElementById('cmd-list');
   if(!backdrop) return;
-  // Catalog of jumpable destinations. Order = priority. Each: {kind, label, hint, href}.
+  // Generated from NAV in app.py — the same structure that renders the sidebar
+  // and the tab strips. Previously this was a hand-maintained list that had
+  // drifted: it still said "Decisions"/"Scenarios"/"Intel" after the sidebar was
+  // renamed to "Blocked IPs"/"Detections"/"Threat intel", so searching for a
+  // label you could see on screen returned nothing. It also omitted Fleet,
+  // Peers, ASN escalations, Synthetic, Publish feed, Backup, DR, HA, Honeypot
+  // and SSO entirely. Role filtering is applied server-side by _nav_visible().
   var ITEMS = [
-    {kind:'page', label:'Dashboard',          hint:'live attack feed + map',      href:'{{ url_for("dashboard") }}'},
-    {kind:'page', label:'Decisions',          hint:'browse / search bans',        href:'{{ url_for("decisions_page") }}'},
-    {kind:'page', label:'Alerts',             hint:'event-context view',          href:'{{ url_for("alerts_page") }}'},
-    {kind:'page', label:'Scenarios',          hint:'heatmap + top-N',              href:'{{ url_for("scenarios_page") }}'},
-    {kind:'page', label:'Scenarios · Catalog',hint:'hub browser',                  href:'{{ url_for("scenarios_catalog") }}'},
-    {kind:'page', label:'Intel',              hint:'attacker ASN/country heatmaps',href:'{{ url_for("intel_page") }}'},
-    {kind:'page', label:'Whitelist',          hint:'exception rules',              href:'{{ url_for("whitelist_page") }}'},
-    {kind:'page', label:'Approvals',          hint:'semi-auto queue',              href:'{{ url_for("approvals_page") }}'},
-    {kind:'page', label:'MikroTik',           hint:'bouncer status',               href:'{{ url_for("mikrotik_page") }}'},
-    {kind:'page', label:'Bouncers',           hint:'all targets',                  href:'{{ url_for("bouncers_page") }}'},
-    {kind:'page', label:'Federation',         hint:'sources + overlap matrix',     href:'{{ url_for("federation_page") }}'},
-    {kind:'page', label:'Performance',        hint:'p50/p95/p99 + SLOs',           href:'{{ url_for("perf_page") }}'},
-    {kind:'page', label:'Alert Rules',        hint:'composite alerts + silences',  href:'{{ url_for("alerts_rules_page") }}'},
-    {kind:'page', label:'SIEM',               hint:'forwarder + replay',           href:'{{ url_for("siem_page") }}'},
-    {kind:'page', label:'Webhooks',           hint:'outbound subscribers + DLQ',   href:'{{ url_for("webhooks_page") }}'},
-    {kind:'page', label:'Audit',              hint:'operator action log',          href:'{{ url_for("audit_page") }}'},
-    {kind:'page', label:'Notifications',      hint:'Discord/Telegram/Email creds', href:'{{ url_for("notifications_page") }}'},
-    {kind:'page', label:'Security',           hint:'login audit, locked IPs',      href:'{{ url_for("security_page") }}'},
-    {kind:'page', label:'Settings',           hint:'runtime knobs',                href:'{{ url_for("settings_page") }}'},
-    {% if session.get('role') == 'admin' %}
-    {kind:'admin',label:'Users',              hint:'multi-admin mgmt',             href:'{{ url_for("admin_users_page") }}'},
-    {kind:'admin',label:'API Tokens',         hint:'CLI + webhook input creds',    href:'{{ url_for("admin_tokens_page") }}'},
-    {% endif %}
-    {kind:'act',  label:'Force sync now',     hint:'trigger an immediate reconcile cycle',   href:'__act:sync'},
-    {kind:'act',  label:'Logout',             hint:'end session',                  href:'{{ url_for("logout") }}'},
+    {% for grp in nav_groups %}{% for it in grp['items'] %}
+    {kind:'{{ grp.group|lower }}', label:'{{ it.label }}', hint:'{{ (it.tabs|map(attribute="label")|join(" · ")) if it.tabs else grp.group }}', href:'{{ url_for(it.ep) }}'},
+    {% for t in it.tabs %}{% if t.key != it.key %}
+    {kind:'{{ it.label|lower }}', label:'{{ t.label }}', hint:'{{ it.label }}', href:'{{ url_for(t.ep) }}'},
+    {% endif %}{% endfor %}
+    {% endfor %}{% endfor %}
+    {kind:'act',  label:'Force sync now', hint:'trigger an immediate reconcile cycle', href:'__act:sync'},
+    {kind:'act',  label:'Logout',         hint:'end session',                         href:'{{ url_for("logout") }}'},
   ];
   var sel = 0, filtered = ITEMS;
 

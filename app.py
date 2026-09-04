@@ -331,7 +331,183 @@ def _inject_globals():
     return {
         "active": "",
         "dry_run": DRY_RUN,
+        "nav_groups": _nav_groups(),
+        # base.html derives the sidebar highlight and the tab strip from the
+        # view's own `active` kwarg via these, so no route signature or page
+        # template had to change to gain tabs.
+        "nav_owner_of": nav_owner_of,
+        "nav_tabs_for": nav_tabs_for,
+        "nav_label_for": nav_label_for,
     }
+
+
+# ── Navigation ──────────────────────────────────────────────────────────────
+# ONE source of truth for the sidebar, the per-page tab strips, and the command
+# palette. Before 2026-09-03 these were three separate lists that had drifted:
+# the sidebar said "Blocked IPs" while the palette still said "Decisions", so
+# searching the palette for a sidebar label found nothing. The crumbs named a
+# fourth taxonomy ("OBSERVABILITY", "INTELLIGENCE") that appeared nowhere else.
+#
+# Structure: 12 destinations in 4 groups. Pages that are facets of one concept
+# become tabs under a single destination rather than separate sidebar entries —
+# 31 links previously covered ~20 concepts (Bouncers/MikroTik/Fleet were three
+# views of one thing; Federation/Peers two views of another).
+#
+# Every original URL still resolves; nothing was moved or removed. `key` matches
+# the `active=` kwarg each route already passes.
+NAV: list[dict] = [
+    {"group": "Monitor", "items": [
+        {"key": "dashboard",  "label": "Overview",     "ep": "dashboard"},
+        {"key": "decisions",  "label": "Blocked IPs",  "ep": "decisions_page"},
+        {"key": "alerts",     "label": "Alerts",       "ep": "alerts_page", "tabs": [
+            {"key": "alerts",       "label": "Alerts",      "ep": "alerts_page"},
+            {"key": "alerts_rules", "label": "Alert rules", "ep": "alerts_rules_page"},
+        ]},
+        {"key": "scenarios",  "label": "Detections",   "ep": "scenarios_page", "tabs": [
+            {"key": "scenarios", "label": "Firing now", "ep": "scenarios_page"},
+            {"key": "catalog",   "label": "Catalog",    "ep": "scenarios_catalog"},
+        ]},
+        {"key": "intel",      "label": "Threat intel", "ep": "intel_page", "tabs": [
+            {"key": "intel",            "label": "Overview",        "ep": "intel_page"},
+            {"key": "asn_escalations",  "label": "ASN escalations", "ep": "asn_escalations_page"},
+            {"key": "intel_publish",    "label": "Publish feed",    "ep": "intel_publish_page", "role": "admin"},
+        ]},
+    ]},
+    {"group": "Enforce", "items": [
+        {"key": "bouncers", "label": "Targets", "ep": "bouncers_page", "tabs": [
+            {"key": "bouncers", "label": "All targets", "ep": "bouncers_page"},
+            {"key": "mikrotik", "label": "MikroTik",    "ep": "mikrotik_page"},
+            {"key": "fleet",    "label": "Fleet",       "ep": "fleet_page"},
+        ]},
+        {"key": "federation", "label": "Sources", "ep": "federation_page", "tabs": [
+            {"key": "federation", "label": "Federation", "ep": "federation_page"},
+            {"key": "peers",      "label": "Peers",      "ep": "peers_page"},
+        ]},
+        {"key": "whitelist", "label": "Rules", "ep": "whitelist_page", "tabs": [
+            {"key": "whitelist", "label": "Whitelist", "ep": "whitelist_page"},
+            {"key": "approvals", "label": "Approvals", "ep": "approvals_page"},
+        ]},
+    ]},
+    {"group": "Operate", "items": [
+        # Audit was buried in a collapsed "Advanced" drawer despite being a
+        # daily-use page. Promoted.
+        {"key": "audit", "label": "Activity", "ep": "audit_page", "tabs": [
+            {"key": "audit",     "label": "Audit log",   "ep": "audit_page"},
+            {"key": "perf",      "label": "Performance", "ep": "perf_page"},
+            {"key": "synthetic", "label": "Synthetic checks", "ep": "synthetic_page"},
+        ]},
+        {"key": "webhooks", "label": "Integrations", "ep": "webhooks_page", "tabs": [
+            {"key": "webhooks", "label": "Webhooks",    "ep": "webhooks_page"},
+            {"key": "siem",     "label": "SIEM export", "ep": "siem_page"},
+        ]},
+    ]},
+    {"group": "Admin", "items": [
+        {"key": "settings", "label": "Settings", "ep": "settings_page", "role": "operator", "tabs": [
+            {"key": "settings",      "label": "Connection & sync", "ep": "settings_page",      "role": "operator"},
+            {"key": "notifications", "label": "Notifications",     "ep": "notifications_page", "role": "operator"},
+            {"key": "security",      "label": "Security",          "ep": "security_page"},
+            # Honeypot and SSO had no inbound link anywhere in the UI before this.
+            {"key": "honeypot",      "label": "Honeypot",          "ep": "honeypot_page",      "role": "operator"},
+            {"key": "admin_sso",     "label": "Single sign-on",    "ep": "admin_sso",     "role": "admin"},
+            {"key": "onboarding",    "label": "Setup guide",       "ep": "onboarding"},
+        ]},
+        {"key": "admin_users", "label": "Access & backup", "ep": "admin_users_page", "role": "admin", "tabs": [
+            {"key": "admin_users",       "label": "Users",           "ep": "admin_users_page"},
+            {"key": "admin_tokens",      "label": "API tokens",      "ep": "admin_tokens_page"},
+            {"key": "admin_backup",      "label": "Backup (config)", "ep": "admin_backup_page"},
+            {"key": "admin_backup_auto", "label": "Backup (off-box)","ep": "admin_backup_automation_page"},
+            {"key": "dr_drill",          "label": "DR drill",        "ep": "admin_dr_drill_page"},
+            {"key": "admin_ha",          "label": "High availability","ep": "admin_ha"},
+        ]},
+    ]},
+]
+
+
+def _nav_visible(entry) -> bool:
+    """Hide what the current role cannot open.
+
+    Previously Notifications and Connection & Sync were shown to viewers, who
+    then got bounced by role_required with a 403 — two dead links per session.
+    """
+    need = entry.get("role")
+    return True if not need else has_role(need)
+
+
+def _nav_groups():
+    """Sidebar structure + the tab strip for the current page, role-filtered."""
+    active = None
+    try:
+        from flask import g
+        active = getattr(g, "_nav_active", None)
+    except Exception:  # noqa: BLE001
+        pass
+    out = []
+    for grp in NAV:
+        items = []
+        for it in grp["items"]:
+            if not _nav_visible(it):
+                continue
+            tabs = [t for t in it.get("tabs", []) if _nav_visible(t)]
+            items.append({**it, "tabs": tabs})
+        if items:
+            out.append({"group": grp["group"], "items": items})
+    return out
+
+
+# Pages reached by drilling down rather than from the sidebar. Without this,
+# /attackers/<ip> — the richest page in the app — highlighted nothing at all.
+NAV_ALIASES = {
+    "attackers": "decisions",       # reached from the Blocked IPs table
+    "bouncers_add": "bouncers",
+    "bouncers_edit": "bouncers",
+    "mt_bootstrap": "bouncers",
+    "federation_add": "federation",
+    "scenarios_editor": "catalog",
+}
+
+
+def nav_tabs_for(active_key: str):
+    """The sibling tabs for whichever destination owns `active_key`, or []."""
+    active_key = NAV_ALIASES.get(active_key, active_key)
+    for grp in NAV:
+        for it in grp["items"]:
+            tabs = it.get("tabs") or []
+            if any(t["key"] == active_key for t in tabs):
+                return [t for t in tabs if _nav_visible(t)]
+    return []
+
+
+def nav_label_for(active_key: str) -> str:
+    """Human label for a page, from the same NAV the sidebar uses.
+
+    The topbar crumb used to be a fourth, independent vocabulary: pages
+    announced themselves as "OBSERVABILITY · SIEM FORWARDING" or "BOUNCERS ·
+    Multi-Target" while the sidebar called them "SIEM export" and "Targets", and
+    the command palette used a third set of names again. Deriving the crumb here
+    means a page cannot drift from the nav that points at it.
+    """
+    key = NAV_ALIASES.get(active_key, active_key)
+    for grp in NAV:
+        for it in grp["items"]:
+            for t in (it.get("tabs") or []):
+                if t["key"] == key:
+                    # On a tab, show the destination then the tab.
+                    return f"{it['label']} · {t['label']}" if t["key"] != it["key"] else it["label"]
+            if it["key"] == key:
+                return it["label"]
+    return ""
+
+
+def nav_owner_of(active_key: str) -> str:
+    """Which sidebar destination should highlight for `active_key`."""
+    active_key = NAV_ALIASES.get(active_key, active_key)
+    for grp in NAV:
+        for it in grp["items"]:
+            if it["key"] == active_key:
+                return it["key"]
+            if any(t["key"] == active_key for t in (it.get("tabs") or [])):
+                return it["key"]
+    return active_key
 
 
 @app.after_request
@@ -3698,7 +3874,7 @@ def scenarios_catalog():
         "scenarios_catalog.html",
         items=items, active_cat=cat, categories=categories,
         counts=counts, custom_files=custom_files,
-        active="scenarios",
+        active="catalog",
     )
 
 
