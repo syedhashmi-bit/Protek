@@ -534,6 +534,59 @@ def init_db() -> None:
 
 # ── Settings convenience ────────────────────────────────────────────────────
 
+def stash_once(payload: dict, ttl_sec: int = 300) -> str:
+    """Park a one-time secret server-side and return an opaque handle.
+
+    Flask sessions are signed, NOT encrypted — anything put in `session` is
+    readable by whoever holds the cookie and lands in the browser's cookie jar
+    on disk. Freshly-minted API tokens and new users' TOTP seeds were being
+    round-tripped that way, which undid the care api_tokens.py takes to store
+    only sha256(token).
+
+    Backed by the settings table rather than a module dict because gunicorn runs
+    three workers — the POST and the follow-up GET frequently land on different
+    ones, so an in-process store would lose the value at random.
+    """
+    import json as _json, secrets as _secrets
+    from datetime import datetime, timezone, timedelta
+    handle = _secrets.token_urlsafe(24)
+    expires = (datetime.now(timezone.utc) + timedelta(seconds=ttl_sec)).isoformat()
+    set_setting(f"once.{handle}", _json.dumps({"exp": expires, "v": payload}))
+    return handle
+
+
+def pop_once(handle: str) -> dict | None:
+    """Fetch and delete a one-time secret. Returns None if absent or expired."""
+    import json as _json
+    from datetime import datetime, timezone
+    if not handle or not isinstance(handle, str) or "/" in handle:
+        return None
+    key = f"once.{handle}"
+    raw = get_setting(key)
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+        # Opportunistic sweep so abandoned handles cannot accumulate.
+        now = datetime.now(timezone.utc).isoformat()
+        for r in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'once.%'").fetchall():
+            try:
+                if _json.loads(r["value"]).get("exp", "") < now:
+                    conn.execute("DELETE FROM settings WHERE key = ?", (r["key"],))
+            except Exception:  # noqa: BLE001
+                conn.execute("DELETE FROM settings WHERE key = ?", (r["key"],))
+    finally:
+        conn.close()
+    if not raw:
+        return None
+    try:
+        rec = _json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return None
+    if rec.get("exp", "") < datetime.now(timezone.utc).isoformat():
+        return None
+    return rec.get("v")
+
+
 def get_setting(key: str, default: str | None = None) -> str | None:
     conn = get_conn()
     try:

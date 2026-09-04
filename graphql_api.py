@@ -300,14 +300,40 @@ def _requires_bearer(view_func):
         elif request.headers.get("X-Protek-Token"):
             raw = request.headers.get("X-Protek-Token", "").strip()
         tok = at.lookup(raw) if raw else None
-        # Sessions also work — admin/operator/viewer in /api/graphql/explorer
+
+        # Session auth is also accepted (the explorer uses it). It must go
+        # through the SAME controls as every other session-authenticated page.
+        # Previously it did not: the idle timeout and the IP allowlist live
+        # inside auth.login_required, which this endpoint never called — so a
+        # stolen session cookie worked here indefinitely and IP_WHITELIST simply
+        # did not apply to /api/graphql.
         from flask import session
-        is_session_user = session.get("logged_in") and session.get("role") in (
-            "viewer", "operator", "admin")
+        import auth as _a
+        is_session_user = False
+        if session.get("logged_in"):
+            if not _a.ip_allowed(_a.client_ip()):
+                return jsonify(errors=[{"message": "forbidden"}]), 403
+            if _a.session_expired():
+                session.clear()
+                return jsonify(errors=[{"message": "session expired"}]), 401
+            _a.touch_session()
+            is_session_user = session.get("role") in ("viewer", "operator", "admin")
+
         if not (tok or is_session_user):
             return jsonify(errors=[{"message": "unauthorized"}]), 401
         if tok and not at.has_scope(tok, "read"):
             return jsonify(errors=[{"message": "token lacks read scope"}]), 403
+
+        # CSRF: the endpoint is csrf-exempt so bearer clients work. A
+        # session-authenticated *state-changing* request must therefore be
+        # rejected unless it carries a token — otherwise adding a mutation to
+        # the schema would silently open a CSRF hole. Reads are safe: the schema
+        # is query-only and SameSite=Lax blocks cross-site cookie POSTs.
+        if request.method == "POST" and is_session_user and not tok:
+            body = request.get_data(as_text=True) or ""
+            if "mutation" in body:
+                return jsonify(errors=[{"message":
+                    "mutations require a bearer token, not session auth"}]), 403
         return view_func(*args, **kwargs)
     return wrapper
 
@@ -318,8 +344,10 @@ def register(app, csrf) -> None:
     api_view = GraphQLView.as_view(
         "graphql_api", schema=schema, graphql_ide="graphiql",
     )
-    # CSRF exempt — GraphQL endpoints authenticate via Bearer header, not session,
-    # so a CSRF token isn't applicable in the standard XHR-from-browser case.
+    # CSRF exempt so bearer-token clients work without a token round-trip.
+    # NOTE: session auth is ALSO accepted here (see _requires_bearer), so the
+    # exemption is not self-evidently safe — the wrapper compensates by
+    # rejecting session-authenticated mutations.
     csrf.exempt(api_view)
     app.add_url_rule(
         "/api/graphql",

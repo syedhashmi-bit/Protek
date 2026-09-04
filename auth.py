@@ -15,6 +15,7 @@ import ipaddress
 import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from urllib.parse import urlparse
 from typing import Any
 
 import bcrypt
@@ -216,6 +217,44 @@ def touch_session() -> None:
     session["last_active"] = _now_iso()
 
 
+def safe_next(target: str | None, fallback: str = "/") -> str:
+    """Validate a `?next=` redirect target.
+
+    Only same-origin, path-only targets are allowed. Everything else falls back.
+    Without this, /login?next=https://evil.example/ rendered the genuine login
+    form on the genuine domain and then handed the freshly-authenticated user to
+    an attacker's page — a convincing phishing chain precisely because the
+    credential prompt is real.
+
+    Rejects, in order: empty, non-string, anything with a scheme or netloc,
+    protocol-relative "//host", backslash variants that some browsers normalise
+    to "/", and control characters (CR/LF header-splitting shapes).
+    """
+    if not target or not isinstance(target, str):
+        return fallback
+    t = target.strip()
+    if not t or any(c in t for c in "\r\n\t\x00"):
+        return fallback
+    # Reject scheme-bearing and protocol-relative forms outright.
+    if "://" in t or t.startswith("//") or t.startswith("\\"):
+        return fallback
+    if t.startswith("/\\") or t.startswith("/%5C") or t.startswith("/%5c"):
+        return fallback
+    parsed = urlparse(t)
+    if parsed.scheme or parsed.netloc:
+        return fallback
+    return t if t.startswith("/") else fallback
+
+
+def session_expired() -> bool:
+    """Public alias for the idle-timeout check.
+
+    Exposed so non-login_required entry points (GraphQL, which accepts session
+    auth) can apply the same timeout instead of quietly skipping it.
+    """
+    return _session_expired()
+
+
 def login_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
@@ -270,6 +309,24 @@ def seed_env_user() -> None:
             )
     finally:
         conn.close()
+
+
+def get_user_by_id(uid: int) -> dict[str, Any] | None:
+    """Look up a user by id, excluding disabled accounts.
+
+    Used by the per-request session revalidation: the session carries user_id,
+    and a username lookup would miss a rename.
+    """
+    if not uid:
+        return None
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE id = ? AND disabled = 0", (uid,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
 
 
 def get_user(username: str) -> dict[str, Any] | None:
