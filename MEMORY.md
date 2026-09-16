@@ -4,6 +4,64 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-09-16 — Dashboard map: tile servers abandoned for a self-hosted outline
+
+**Operator brief:** "map says access blocked, can u fix this" — the map was a
+grid of refusal tiles.
+
+### Every keyless tile provider has a catch
+OpenStreetMap returns **200 to the server but blocks browser traffic** under its
+tile usage policy ("App is not following the tile usage policy"). This is not a
+reachability problem, so curl from the VPS looks healthy and tells you nothing —
+check what the *browser* gets. CARTO (the previous basemap) bakes an
+"API KEY REQUIRED" watermark into keyless tiles; verified 2026-09-04 that the
+bytes are identical with and without a Referer, so it is not domain-gated and
+cannot be worked around. Stadia 401s without a key.
+
+Swapping one broken provider for the next was not converging, so the dependency
+was removed instead. **The markers are the data**; the basemap only has to say
+which continent traffic came from. Street detail was never meaningful here.
+
+### What shipped (`ee3c547`)
+- `static/world.geo.json` — Natural Earth 1:110m land + country borders (public
+  domain), 150 KB / ~50 KB gzipped, fetched once, drawn with one `L.geoJSON`
+  call in theme colours.
+- `scripts/build_world_geojson.py` — regenerates the asset from world-atlas
+  TopoJSON, so it is reproducible rather than an opaque committed blob.
+- The `.leaflet-tile-pane` CSS filter is gone. It existed only to force a light
+  raster into a dark theme, and it was the cause of the "map floats out of its
+  panel" bug (a filter promotes each tile to its own composited layer, and
+  Chromium pins composited layers to the viewport during scroll). Drawing in
+  our own colours retires that hazard entirely. `L.Browser.any3d = false` and
+  `#map{contain:paint}` are retained.
+
+### The antimeridian, which cost most of the time here
+Natural Earth stores a shape crossing 180° as **one ring** running
+`…+179, −179…`. An equirectangular renderer fills that jump as a band straight
+across the map — Russia's Chukotka does it twice.
+
+**Rings are cyclic.** Cutting at each crossing as if the ring were a line leaves
+the first and last pieces open, and closing them against each other draws a
+*diagonal* across the map (this is exactly what my first attempt produced, i.e.
+a worse artefact than the one being fixed). The fix is to **rotate the ring to
+begin just after a crossing first**; N crossings then yield N closed parts, each
+sealed along its own ±180 edge by a vertical segment hidden at the map border.
+Antarctica has a single crossing (its bottom seam at lat −84.71) with no partner
+to pair with, and is deliberately left alone.
+
+Two earlier "fixes" were wrong and are recorded so they are not retried: hiding
+the band by dropping small wide-spanning rings (loses Fiji and Wrangel Island
+and does nothing for Russia), and the unrotated split above.
+
+### Verifying a map change
+`file://` + an absolute static URL makes the `fetch` cross-origin, so the map
+comes back **empty** and the screenshot proves nothing. Serve the test page from
+the app (`static/_maptest.html`, then delete it) so the origin matches, and
+replicate the dashboard's real Leaflet config — `L.Browser.any3d = false`,
+`preferCanvas: false` — or you are testing a different renderer than ships.
+
+Tests: 194 passed, 1 skipped. Attribution for Natural Earth added to the map.
+
 ## 2026-09-03/04 — UI refresh: warm theme, 31 nav links → 12, dashboard made navigable
 
 **Operator brief:** "refine the UI, make it easy to navigate and not too
