@@ -123,6 +123,16 @@ class Poller:
         and tick 0 fires immediately so a restart onto an already-full disk
         alerts at once rather than 60s later.
         """
+        # WAL guard runs every cycle, unthrottled — it is a stat() call
+        # unless the WAL is already over the soft threshold, and the whole
+        # point (2026-10-15) is catching runaway growth within one cycle
+        # rather than waiting up to disk.check_every_cycles.
+        try:
+            import disk_watchdog
+            disk_watchdog.check_wal_guard()
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.warning("WAL guard failed: %s", e)
+
         try:
             disk_every = int(_gs("disk.check_every_cycles") or "6")
         except (TypeError, ValueError):

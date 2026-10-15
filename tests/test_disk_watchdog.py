@@ -343,7 +343,136 @@ def test_auto_rebaseline_requires_stage_majority(
     assert "not present" in out["reason"]
 
 
-# ── 4. Live tmpfs end-to-end (manual; needs root) ──────────────────────────
+# ── 4. WAL guard (2026-10-15 — runaway 36 GB WAL incident) ─────────────────
+
+
+def _patch_popen(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Capture subprocess.Popen calls without actually invoking systemctl."""
+    calls: list[list[str]] = []
+
+    class _FakeProc:
+        pass
+
+    def _fake_popen(args, **kwargs):
+        calls.append(args)
+        return _FakeProc()
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+    return calls
+
+
+def test_wal_guard_below_soft_does_nothing(monkeypatch: pytest.MonkeyPatch,
+                                            tmp_path: Path):
+    _setup_db(monkeypatch, tmp_path)
+    import disk_watchdog
+    monkeypatch.setattr(disk_watchdog, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(disk_watchdog, "wal_bytes", lambda: 10 * 1024 * 1024)
+    popen_calls = _patch_popen(monkeypatch)
+
+    out = disk_watchdog.check_wal_guard()
+
+    assert out["checkpointed"] is False
+    assert out["fired"] == []
+    assert popen_calls == []
+
+
+def test_wal_guard_soft_checkpoints_but_no_alert(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Between soft and hard: opportunistic PASSIVE checkpoint, no alert,
+    no stop. The real sqlite3.connect runs against the live test DB — a
+    valid, mostly-empty database, so the checkpoint is a trivial no-op
+    regardless of what wal_bytes() (mocked) claims the WAL size is."""
+    _setup_db(monkeypatch, tmp_path)
+    import disk_watchdog
+    monkeypatch.setattr(disk_watchdog, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(disk_watchdog, "wal_bytes", lambda: 300 * 1024 * 1024)
+    notes: list[dict] = []
+    _patch_notifications(monkeypatch, notes)
+    popen_calls = _patch_popen(monkeypatch)
+
+    out = disk_watchdog.check_wal_guard()
+
+    assert out["checkpointed"] is True
+    assert out["fired"] == []
+    assert notes == []
+    assert popen_calls == []
+
+
+def test_wal_guard_hard_alerts_and_stops_once(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """At/above hard cap: fires the critical alert and invokes a detached
+    `systemctl stop protek` exactly once per breach (edge-triggered, same
+    hysteresis-free latch pattern as disk.critical_alerted)."""
+    _setup_db(monkeypatch, tmp_path)
+    import disk_watchdog
+    monkeypatch.setattr(disk_watchdog, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(disk_watchdog, "wal_bytes", lambda: 3 * 1024 ** 3)
+    notes: list[dict] = []
+    _patch_notifications(monkeypatch, notes)
+    popen_calls = _patch_popen(monkeypatch)
+
+    first = disk_watchdog.check_wal_guard()
+    second = disk_watchdog.check_wal_guard()
+
+    assert "wal_critical" in first["fired"]
+    assert "auto_stop" in first["fired"]
+    assert len(notes) == 1  # not repeated on the second call
+    assert popen_calls == [["systemctl", "stop", "protek"]] * 2  # auto_stop fires every breach, alert latches
+    assert "wal_critical" not in second["fired"]
+    assert "auto_stop" in second["fired"]
+
+
+def test_wal_guard_auto_stop_can_be_disabled(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    _setup_db(monkeypatch, tmp_path)
+    import disk_watchdog
+    monkeypatch.setattr(disk_watchdog, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(disk_watchdog, "wal_bytes", lambda: 3 * 1024 ** 3)
+    _patch_notifications(monkeypatch, [])
+    popen_calls = _patch_popen(monkeypatch)
+
+    from db import set_setting
+    set_setting("disk.wal_auto_stop", "0")
+
+    out = disk_watchdog.check_wal_guard()
+
+    assert "wal_critical" in out["fired"]
+    assert "auto_stop" not in out["fired"]
+    assert popen_calls == []
+
+
+def test_wal_guard_recovery_clears_alert_latch(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    _setup_db(monkeypatch, tmp_path)
+    import disk_watchdog
+    monkeypatch.setattr(disk_watchdog, "DB_PATH", tmp_path / "test.db")
+    _patch_notifications(monkeypatch, [])
+    _patch_popen(monkeypatch)
+
+    monkeypatch.setattr(disk_watchdog, "wal_bytes", lambda: 3 * 1024 ** 3)
+    disk_watchdog.check_wal_guard()
+    from db import get_setting
+    assert get_setting("disk.wal_alerted") == "1"
+
+    monkeypatch.setattr(disk_watchdog, "wal_bytes", lambda: 10 * 1024 * 1024)
+    disk_watchdog.check_wal_guard()
+    assert get_setting("disk.wal_alerted") == "0"
+
+
+def test_wal_bytes_reads_real_file_size(monkeypatch: pytest.MonkeyPatch,
+                                        tmp_path: Path):
+    _setup_db(monkeypatch, tmp_path)
+    import disk_watchdog
+    monkeypatch.setattr(disk_watchdog, "DB_PATH", tmp_path / "test.db")
+
+    assert disk_watchdog.wal_bytes() == 0  # no -wal file yet
+
+    (tmp_path / "test.db-wal").write_bytes(b"x" * 12345)
+    assert disk_watchdog.wal_bytes() == 12345
+
+
+# ── 5. Live tmpfs end-to-end (manual; needs root) ──────────────────────────
 
 
 @pytest.mark.skip(
