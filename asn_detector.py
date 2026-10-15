@@ -167,13 +167,23 @@ def decide(escalation_id: int, decision: str, decided_by: str = "",
             try:
                 import time as _t
                 synth_id = int(_t.time() * 1000)
+                # ON CONFLICT: decisions is keyed on (origin_source, value,
+                # scope, scenario) (see db.py) — re-approving the same ASN
+                # refreshes the existing ban instead of raising a UNIQUE
+                # violation (which this try/except would otherwise swallow
+                # as a silent no-op).
                 conn.execute(
                     """INSERT INTO decisions
                          (origin_source, lapi_id, value, scope, type, scenario,
-                          origin, duration, until, first_seen_at, last_seen_at)
+                          origin, duration, until, first_seen_at, last_seen_at, deleted_at)
                        VALUES ('asn_detector', ?, ?, 'AS', 'ban',
                                'asn_detector/escalation', 'asn_detector',
-                               '720h', ?, ?, ?)""",
+                               '720h', ?, ?, ?, NULL)
+                       ON CONFLICT(origin_source, value, scope, scenario) DO UPDATE SET
+                           lapi_id      = excluded.lapi_id,
+                           until        = excluded.until,
+                           last_seen_at = excluded.last_seen_at,
+                           deleted_at   = NULL""",
                     (synth_id, row["asn"],
                      (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
                      now, now),

@@ -2499,11 +2499,21 @@ def api_external_decisions():
             qid = cur.lastrowid
         else:
             qid = None
+            # ON CONFLICT: decisions is keyed on (origin_source, value, scope,
+            # scenario) (see db.py) — a repeated external ban for the same
+            # IP+scenario refreshes this row instead of raising a UNIQUE
+            # violation.
             conn.execute(
                 """INSERT INTO decisions
                      (origin_source, lapi_id, value, scope, type, scenario, origin,
-                      duration, until, first_seen_at, last_seen_at)
-                   VALUES (?, ?, ?, ?, 'ban', ?, 'external', ?, ?, ?, ?)""",
+                      duration, until, first_seen_at, last_seen_at, deleted_at)
+                   VALUES (?, ?, ?, ?, 'ban', ?, 'external', ?, ?, ?, ?, NULL)
+                   ON CONFLICT(origin_source, value, scope, scenario) DO UPDATE SET
+                       lapi_id      = excluded.lapi_id,
+                       duration     = excluded.duration,
+                       until        = excluded.until,
+                       last_seen_at = excluded.last_seen_at,
+                       deleted_at   = NULL""",
                 (origin_source, synthetic_id, ip_val, scope, scenario, duration,
                  until, now, now),
             )

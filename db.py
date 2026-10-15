@@ -60,7 +60,15 @@ SCHEMA = [
         first_seen_at   TEXT    NOT NULL,
         last_seen_at    TEXT    NOT NULL,
         deleted_at      TEXT    DEFAULT NULL,
-        UNIQUE (origin_source, lapi_id)
+        -- Current-state key (2026-10-15, see MEMORY.md "lighter database"
+        -- redesign). Was UNIQUE(origin_source, lapi_id) — but CrowdSec issues
+        -- a fresh lapi_id on every re-ban of the same IP+scenario, so that
+        -- constraint never deduplicated churn: it inserted a new row forever.
+        -- Keying on the decision's actual identity means a re-ban updates the
+        -- existing row (lapi_id, duration, until, last_seen_at refreshed) in
+        -- place instead of appending, so the live table tracks current state
+        -- (tens of thousands of rows) rather than all-time history (millions).
+        UNIQUE (origin_source, value, scope, scenario)
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_decisions_active ON decisions (deleted_at, value)",

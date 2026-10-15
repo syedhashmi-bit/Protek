@@ -630,24 +630,28 @@ class Poller:
         now = datetime.now(timezone.utc).isoformat()
         decisions = client.decisions(scope="Ip") + client.decisions(scope="Range")
         log.info("bootstrap: pulled %d decisions from %s", len(decisions), client.name)
-        seen_keys: set[tuple[str, int]] = set()
+        # Keyed on decision identity, not lapi_id — matches the UNIQUE
+        # constraint on `decisions` (see db.py). A row whose identity isn't
+        # in this fresh full pull is no longer active and gets tombstoned.
+        seen_keys: set[tuple[str, str, str]] = set()
         conn = get_conn()
         try:
             for d in decisions:
-                key = (client.name, int(d["id"]))
+                key = (str(d.get("value") or ""), str(d.get("scope") or "Ip"),
+                       str(d.get("scenario") or ""))
                 seen_keys.add(key)
                 _upsert_decision(conn, client.name, d, now)
             rows = conn.execute(
-                "SELECT origin_source, lapi_id FROM decisions "
+                "SELECT value, scope, scenario FROM decisions "
                 "WHERE origin_source = ? AND deleted_at IS NULL",
                 (client.name,),
             ).fetchall()
-            for src_name, lid in ((r[0], r[1]) for r in rows):
-                if (src_name, lid) not in seen_keys:
+            for val, scope, scenario in ((r[0], r[1], r[2]) for r in rows):
+                if (val, scope, scenario) not in seen_keys:
                     conn.execute(
                         "UPDATE decisions SET deleted_at = ? "
-                        "WHERE origin_source = ? AND lapi_id = ?",
-                        (now, src_name, lid),
+                        "WHERE origin_source = ? AND value = ? AND scope = ? AND scenario = ?",
+                        (now, client.name, val, scope, scenario),
                     )
             # Phase-10: per-IP source tracking — every distinct IP now seen by this source.
             for d in decisions:
@@ -732,17 +736,19 @@ def _in_backoff(src: Source) -> bool:
 
 
 def _upsert_decision(conn, origin_source: str, d: dict[str, Any], now: str) -> None:
+    # ON CONFLICT target is the decision's identity (origin_source, value,
+    # scope, scenario), not lapi_id — a re-ban reuses this row (refreshing
+    # lapi_id/duration/until/last_seen_at) instead of inserting a new one.
+    # See db.py's SCHEMA comment on `decisions` for why.
     conn.execute(
         """
         INSERT INTO decisions
             (origin_source, lapi_id, value, scope, type, scenario, origin, duration, until,
              first_seen_at, last_seen_at, deleted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-        ON CONFLICT(origin_source, lapi_id) DO UPDATE SET
-            value      = excluded.value,
-            scope      = excluded.scope,
+        ON CONFLICT(origin_source, value, scope, scenario) DO UPDATE SET
+            lapi_id    = excluded.lapi_id,
             type       = excluded.type,
-            scenario   = excluded.scenario,
             origin     = excluded.origin,
             duration   = excluded.duration,
             until      = excluded.until,
