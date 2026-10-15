@@ -398,6 +398,113 @@ def maybe_auto_rebaseline() -> dict[str, Any]:
     return out
 
 
+DEFAULT_WAL_SOFT_MB = 256
+DEFAULT_WAL_HARD_MB = 2048
+DEFAULT_WAL_AUTO_STOP = "1"
+
+
+def wal_bytes() -> int:
+    """Size of protek.db-wal, pure — no DB dependency (must work when the
+    disk watchdog's own writes would fail).
+
+    Computed from DB_PATH at call time, not a frozen module constant —
+    tests monkeypatch `disk_watchdog.DB_PATH` the same way they already
+    monkeypatch it for other functions in this module.
+    """
+    try:
+        return Path(str(DB_PATH) + "-wal").stat().st_size
+    except OSError:
+        return 0
+
+
+def check_wal_guard() -> dict[str, Any]:
+    """Circuit breaker for the 2026-10-15 incident: a reconcile query held a
+    read snapshot open across many write cycles, so no WAL checkpoint could
+    ever complete, and the WAL grew to 36 GB and filled the disk (36G WAL on
+    a 75G root volume). journal_size_limit (db.py) bounds growth once a
+    checkpoint *can* run; this is the belt-and-suspenders for when one can't:
+
+      soft (`disk.wal_soft_mb`, default 256 MB): opportunistically run a
+      PASSIVE checkpoint. Passive never blocks a reader/writer and never
+      fails loudly — it just does whatever partial work is currently
+      possible, so it is always safe to call every poller cycle.
+
+      hard (`disk.wal_hard_mb`, default 2048 MB): the passive checkpoint
+      above is clearly not keeping up. Fire a critical alert and, if
+      `disk.wal_auto_stop` is enabled (default ON — unlike auto-rebaseline,
+      stopping Protek is not destructive, and the alternative is the whole
+      host going ENOSPC), stop protek.service via a detached, non-waiting
+      subprocess so a self-referential `systemctl stop` from inside this
+      same process can never deadlock the poller thread.
+    """
+    wb = wal_bytes()
+    soft = _setting_float("disk.wal_soft_mb", DEFAULT_WAL_SOFT_MB) * 1024 * 1024
+    hard = _setting_float("disk.wal_hard_mb", DEFAULT_WAL_HARD_MB) * 1024 * 1024
+    out: dict[str, Any] = {"wal_bytes": wb, "soft_bytes": soft, "hard_bytes": hard,
+                            "checkpointed": False, "fired": []}
+
+    if wb < soft:
+        if (get_setting("disk.wal_alerted") or "0") == "1":
+            try:
+                set_setting("disk.wal_alerted", "0")
+            except Exception:  # noqa: BLE001
+                pass
+        return out
+
+    # Opportunistic PASSIVE checkpoint — never blocks, never raises past here.
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(DB_PATH), timeout=5.0)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            out["checkpointed"] = True
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        log.warning("WAL guard: passive checkpoint attempt failed", exc_info=True)
+
+    if wb < hard:
+        return out
+
+    wal_alerted = (get_setting("disk.wal_alerted") or "0") == "1"
+    if not wal_alerted:
+        msg = (f"protek.db-wal is {wb / (1024**3):.2f} GB (hard cap "
+               f"{hard / (1024**3):.1f} GB) — a read is holding a WAL "
+               f"checkpoint back. This is how the 2026-10-15 disk-full "
+               f"incident started.")
+        try:
+            import notifications as nmod
+            nmod.send("sync_error", msg, subject="[Protek] WAL runaway — critical")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            _audit("disk.wal_critical", {"wal_bytes": wb, "hard_bytes": hard})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            set_setting("disk.wal_alerted", "1")
+        except Exception:  # noqa: BLE001
+            pass
+        out["fired"].append("wal_critical")
+
+    auto_stop = (get_setting("disk.wal_auto_stop") or DEFAULT_WAL_AUTO_STOP) == "1"
+    if auto_stop:
+        log.critical("WAL guard: stopping protek.service — WAL at %.2f GB",
+                      wb / (1024 ** 3))
+        try:
+            # Popen, not run(): never wait on a stop of our own service.
+            subprocess.Popen(
+                ["systemctl", "stop", "protek"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            out["fired"].append("auto_stop")
+        except Exception:  # noqa: BLE001
+            log.exception("WAL guard: could not invoke systemctl stop")
+
+    return out
+
+
 def _dir_size(path: Path) -> int:
     """Total bytes under `path`, following the same accounting `du -shx`
     uses (single filesystem, no symlink-follow). Cheap on the Protek tree

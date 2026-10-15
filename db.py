@@ -30,6 +30,12 @@ def get_conn() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
+    # Added 2026-10-15 after the WAL grew to 36 GB and filled the host's disk
+    # (see MEMORY.md). journal_size_limit does not stop growth mid-transaction,
+    # but it guarantees that the *next* checkpoint that manages to run truncates
+    # the WAL back down to this size instead of leaving it however large it grew.
+    # Without this, a single slow reconcile cycle could repeat the incident.
+    conn.execute("PRAGMA journal_size_limit = 134217728")  # 128 MB
     return conn
 
 

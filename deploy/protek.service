@@ -20,6 +20,13 @@ ExecStart=/var/www/Protek/venv/bin/gunicorn -w 3 -b 127.0.0.1:8090 --timeout 60 
 Restart=on-failure
 RestartSec=5
 
+# Resource limits (2026-10-15): a runaway reconcile query once drove Protek
+# to a 5.2G memory peak on a shared host. MemoryHigh throttles before MemoryMax
+# hard-kills, so Restart= recovers the service instead of the host OOMing.
+# Size these to your box.
+MemoryHigh=1536M
+MemoryMax=2560M
+
 # Sandboxing. Protek still runs as root (see above), so these directives are
 # what bounds the damage a file-write bug can do — a path-traversal in the
 # scenario editor was a write-anywhere-as-root primitive until 2026-09-02.
