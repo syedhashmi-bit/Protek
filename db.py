@@ -10,6 +10,7 @@ migration block (PRAGMA-guarded ADD COLUMN). See CLAUDE.md.
 
 from __future__ import annotations
 
+import fcntl
 import os
 import sqlite3
 from pathlib import Path
@@ -515,6 +516,21 @@ EXTRA_TABLES = [
 
 
 def init_db() -> None:
+    # Serialised across processes (2026-10-15). All three gunicorn workers run
+    # init_db() at import on a cold boot; the PRAGMA-check-then-ALTER below is
+    # a check-then-act, so two workers could both see a column missing and the
+    # loser crashed with "duplicate column name: asn". Same race class as the
+    # 2026-09-01 concurrent index build. A blocking flock beside the DB makes
+    # the workers take turns — the later ones see the finished schema.
+    lock_fd = os.open(f"{DB_PATH}.init.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        _init_db_locked()
+    finally:
+        os.close(lock_fd)  # closing the fd releases the flock
+
+
+def _init_db_locked() -> None:
     conn = get_conn()
     try:
         for stmt in SCHEMA:
