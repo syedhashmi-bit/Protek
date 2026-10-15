@@ -125,12 +125,22 @@ def _insert_synth_decision(lapi_id: int) -> int:
     until = (now + timedelta(minutes=15)).isoformat()
     conn = get_conn()
     try:
+        # SYNTH_IP/SYNTH_SCENARIO are constants, so every run targets the same
+        # (origin_source, value, scope, scenario) identity (see db.py) —
+        # upsert rather than plain INSERT so a prior run's row that wasn't
+        # purged (e.g. a crash between tests) refreshes instead of raising a
+        # UNIQUE violation.
         cur = conn.execute(
             """
             INSERT INTO decisions
                 (origin_source, lapi_id, value, scope, type, scenario, origin,
-                 duration, until, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, 'Ip', 'ban', ?, ?, '15m', ?, ?, ?)
+                 duration, until, first_seen_at, last_seen_at, deleted_at)
+            VALUES (?, ?, ?, 'Ip', 'ban', ?, ?, '15m', ?, ?, ?, NULL)
+            ON CONFLICT(origin_source, value, scope, scenario) DO UPDATE SET
+                lapi_id      = excluded.lapi_id,
+                until        = excluded.until,
+                last_seen_at = excluded.last_seen_at,
+                deleted_at   = NULL
             """,
             (SYNTH_ORIGIN, lapi_id, SYNTH_IP, SYNTH_SCENARIO, SYNTH_ORIGIN,
              until, now.isoformat(), now.isoformat()),
