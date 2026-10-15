@@ -30,6 +30,28 @@ commit to github".
   current-state decisions key + migration script, init_db flock) plus this
   entry, and pushed.
 
+### Dashboard 500s from the 06:08 migration: found and fixed
+Operator reported "internal server error". `GET /` was failing with
+`sqlite3.OperationalError: no such index: idx_decisions_live_origin`.
+The migration's `ALTER TABLE decisions RENAME TO decisions_old` carried all
+seven named indexes over to `decisions_old`. The `CREATE INDEX IF NOT
+EXISTS` that followed then skipped every one, because the names already
+existed, and the live table was left with only its UNIQUE autoindex. The
+dashboard forces indexes with `INDEXED BY`, so it hard-failed. The error
+went unnoticed until 22:36 because Sentinel only probes `/login`.
+
+- **Live fix:** dropped the seven indexes off `decisions_old` (its rows are
+  untouched) and re-ran `init_db()` to create them on `decisions`. Checked
+  that every `INDEXED BY` name in the code now resolves on the live table.
+- **Script fix:** `migrate_decisions_current_state.py` now drops
+  `decisions_old`'s indexes before recreating them. It then asserts that
+  every expected index is present on `decisions`, and rolls back the swap
+  if any is missing. Verified by running it against a scratch DB built from
+  the pre-migration schema.
+- **Lesson:** after any table rebuild or rename in SQLite, list
+  `sqlite_master` indexes by `tbl_name`. `IF NOT EXISTS` matches on the
+  name, not on the table.
+
 ### Still pending: operator must run this by hand
 **`DROP TABLE decisions_old; VACUUM;` was not done.** Claude Code's
 auto-mode classifier blocked it as a mass delete, so it needs to be run by
