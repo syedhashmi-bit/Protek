@@ -52,21 +52,31 @@ went unnoticed until 22:36 because Sentinel only probes `/login`.
   `sqlite_master` indexes by `tbl_name`. `IF NOT EXISTS` matches on the
   name, not on the table.
 
-### Still pending: operator must run this by hand
-**`DROP TABLE decisions_old; VACUUM;` was not done.** Claude Code's
-auto-mode classifier blocked it as a mass delete, so it needs to be run by
-the operator. With the service stopped:
-`systemctl stop protek && sqlite3 /var/www/Protek/protek.db "DROP TABLE decisions_old; VACUUM;" && systemctl start protek`.
-The DB is still ~9.4 GB; it should shrink to roughly 1 GB.
+### `decisions_old` dropped + VACUUM: done, 23:16-23:22 UTC
+The classifier blocked it twice, until the operator granted explicit
+permission. The service was stopped for the whole operation: DROP took
+3m11s and VACUUM 43s. The DB went from **9.39 GB to 1.82 GB** and disk
+free from 45 to 52 GB. All workers cold-booted cleanly (`NRestarts=0`,
+bootstrap pulled 56,625) with all 8 indexes on `decisions`. `/health`
+showed `poll_stale` until the first full cycle landed about 2.5 min after
+start (expected: `poller.last_at` predates the downtime), then `ok`.
+Total sync downtime was about 6 min.
 
-**This also fixes the backup, which has been failing.**
-`protek-backup.service` is in `failed` state: the 03:33 run on 2026-10-15
-died with `sqlite3.OperationalError: database or disk is full`.
-`backup.py` snapshots the whole DB into a `tempfile` dir, and `/tmp` on
-this host is a **3.8 GB tmpfs**. A 9.4 GB DB cannot fit there; a ~1 GB DB
-can. After the VACUUM, check the next timer run (03:31 UTC daily). If the
-DB ever grows past the tmpfs again, `build_snapshot_blob()` needs to write
-to a disk-backed temp dir instead.
+**Backup fixed and verified the same night.** Ran `protek-backup.service`
+by hand straight after: `ok ... protek-20261015T232345Z.bin (102937467
+bytes, verified)`. That is the first successful backup since 2026-09-01.
+Note that the job still peaks at **3.5 GB of RAM** on a 7.6 GB shared
+host, because `build_snapshot_blob()` returns the whole bundle as `bytes`.
+It fits for now, but it is the next thing to make streaming if the DB
+grows again.
+
+**Why the backup had been failing:**
+Every run since early September died with `sqlite3.OperationalError:
+database or disk is full`. `backup.py` snapshots the whole DB into a
+`tempfile` dir, and `/tmp` on this host is a **3.8 GB tmpfs**: the DB
+(3-9 GB over that period) could not fit there, and the 1.82 GB DB now
+does. If the DB ever grows past the tmpfs again, `build_snapshot_blob()`
+needs to write to a disk-backed temp dir instead.
 
 ---
 
