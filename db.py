@@ -77,6 +77,12 @@ SCHEMA = [
     "ON decisions (origin_source) WHERE deleted_at IS NULL",
     "CREATE INDEX IF NOT EXISTS idx_decisions_lastseen_value "
     "ON decisions (last_seen_at, value)",
+    # Added 2026-10-15 — this was the one KPI query left unhinted in the
+    # 2026-09-01 pass; it was the follow-up #1 noted then and had since
+    # grown into the dominant cost of the post-login dashboard render
+    # (86-95s observed) as the table grew 3.0 -> 8.2 GB.
+    "CREATE INDEX IF NOT EXISTS idx_decisions_lastseen_scenario "
+    "ON decisions (last_seen_at, scenario)",
 
     # Alerts (richer event context) — populated when a machine credential is
     # available; with only a bouncer credential this table stays empty.

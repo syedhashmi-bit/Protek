@@ -1302,9 +1302,10 @@ def dashboard():
         ).fetchone()[0] or 1
         scen_24h = conn.execute(
             "SELECT COUNT(DISTINCT scenario) FROM decisions "
+            "INDEXED BY idx_decisions_lastseen_scenario "
             "WHERE last_seen_at > datetime('now','-1 day')"
         ).fetchone()[0]
-        # INDEXED BY is deliberate on the four KPI aggregates below. The DB has
+        # INDEXED BY is deliberate on the five KPI aggregates here. The DB has
         # no ANALYZE stats (no sqlite_stat1 — verified 2026-09-01), so the
         # planner falls back to heuristics and keeps choosing the older, wider
         # indexes: they do not carry the filtered column, so each of the ~7M
@@ -1313,11 +1314,15 @@ def dashboard():
         #   COUNT(DISTINCT value)     19.2s -> 0.15s
         #   COUNT(DISTINCT origin)    25.6s -> 0.67s
         #   GROUP BY scenario         22.3s -> 1.15s
+        # `scen_24h` above was left unhinted in that pass — the follow-up item
+        # noted but not actioned; by 2026-10-15 the table had grown 3.0 -> 8.2
+        # GB and this single query was the dominant cost of the post-login
+        # dashboard render (86-95s observed). Hinted now too.
         # These indexes are created in db.py's SCHEMA so they are always
         # present; if one is ever removed this raises loudly instead of
         # silently regressing to the 20s path. Running ANALYZE would let the
         # planner pick them unaided, but that changes plans process-wide and
-        # was not worth the blast radius for four known queries.
+        # was not worth the blast radius for five known queries.
         attk_24h = conn.execute(
             "SELECT COUNT(DISTINCT value) FROM decisions "
             "INDEXED BY idx_decisions_lastseen_value "
