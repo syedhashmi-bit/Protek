@@ -250,8 +250,26 @@ def main() -> int:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("ALTER TABLE decisions RENAME TO decisions_old")
             conn.execute("ALTER TABLE decisions_new RENAME TO decisions")
+            # RENAME carries the old table's indexes with it, names and all,
+            # so CREATE INDEX IF NOT EXISTS below would silently skip every
+            # one and leave the live table unindexed. The app forces several
+            # of these via INDEXED BY, which then fails with "no such index"
+            # (dashboard 500s, 2026-10-15). Drop them off decisions_old first.
+            for (name,) in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index' "
+                    "AND tbl_name='decisions_old' AND sql IS NOT NULL").fetchall():
+                conn.execute(f'DROP INDEX "{name}"')
             for stmt in INDEXES:
                 conn.execute(stmt)
+            have = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND tbl_name='decisions'")}
+            want = {s.split()[5] for s in INDEXES}  # CREATE INDEX IF NOT EXISTS <name>
+            if want - have:
+                conn.execute("ROLLBACK")
+                log(f"!! indexes missing on new decisions table: {sorted(want - have)}"
+                    " — swap rolled back, original table untouched")
+                return 1
             if args.drop_old:
                 conn.execute("DROP TABLE decisions_old")
             conn.execute("COMMIT")
