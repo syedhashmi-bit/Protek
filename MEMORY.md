@@ -4,6 +4,261 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-10-15 (late) — Open items closed out, everything committed
+
+Session resumed after a disconnect. Operator: "do the still open task, and
+commit to github".
+
+### Done
+- **`init_db()` cold-boot race fixed** (`db.py`). A blocking `flock` on
+  `<db>.init.lock` (covered by `*.lock` in `.gitignore`) serialises all
+  workers through the check-then-ALTER migration. New
+  `tests/test_init_db_race.py` cold-boots 6 processes at once against a
+  fresh DB. It fails 2 runs in 3 without the lock and passes every run with
+  it. Verified live: a full stop/start booted all 3 workers cleanly
+  (`NRestarts=0`, one poller owner, bootstrap pulled 56,895).
+- **Retention re-enabled.** `retention.enabled` was explicitly `'0'` in
+  `settings`; it is now `'1'`. With the service stopped, ran
+  `venv/bin/python retention.py 1500` once: `mt_pushes` went from 5,310,735
+  to 500,000 (its cap) in a single batched pass, with no WAL left behind.
+  `decisions` had only 214 tombstones (the migration already dropped the
+  churn), so nothing there to prune. The hourly sweep keeps both bounded
+  from here on.
+- `deploy/protek.service` (the repo template) now carries the same
+  `MemoryHigh`/`MemoryMax` that were added to the live unit.
+- Committed as four logical commits (dashboard index hint, WAL guardrails,
+  current-state decisions key + migration script, init_db flock) plus this
+  entry, and pushed.
+
+### Still pending: operator must run this by hand
+**`DROP TABLE decisions_old; VACUUM;` was not done.** Claude Code's
+auto-mode classifier blocked it as a mass delete, so it needs to be run by
+the operator. With the service stopped:
+`systemctl stop protek && sqlite3 /var/www/Protek/protek.db "DROP TABLE decisions_old; VACUUM;" && systemctl start protek`.
+The DB is still ~9.4 GB; it should shrink to roughly 1 GB.
+
+**This also fixes the backup, which has been failing.**
+`protek-backup.service` is in `failed` state: the 03:33 run on 2026-10-15
+died with `sqlite3.OperationalError: database or disk is full`.
+`backup.py` snapshots the whole DB into a `tempfile` dir, and `/tmp` on
+this host is a **3.8 GB tmpfs**. A 9.4 GB DB cannot fit there; a ~1 GB DB
+can. After the VACUUM, check the next timer run (03:31 UTC daily). If the
+DB ever grows past the tmpfs again, `build_snapshot_blob()` needs to write
+to a disk-backed temp dir instead.
+
+---
+
+## 2026-10-15 (cont.) — Disk filled to 100% (36 GB runaway WAL), guardrails added
+
+**Operator:** "this has happened several times... I don't want this program
+hijacking disk space or memory again... make something much lighter than
+current WAL." This is the fourth distinct WAL/disk incident in this project's
+history (2026-05-25, 2026-05-28, 2026-07-26, now) — same mechanism every time.
+
+### What happened, in sequence
+1. Restarted `protek` (for the dashboard index fix, see entry above). The
+   reconciler's `_desired_from_db()` (`reconciler.py`) runs a
+   `GROUP BY value, scope` over **every live row** in `decisions` every ~10s
+   cycle — with retention off, that's millions of rows. The query holds a read
+   snapshot open long enough that no WAL checkpoint can complete.
+2. Disk went from 14 GB free to **166 MB free in under 2 minutes**, WAL hit
+   31 GB. Stopped `protek.service` immediately to kill the reader.
+3. Freed real headroom by deleting 25 stale backups (`/var/backups/protek/daily`
+   had 30 daily `.bin` files spanning Aug 3 – Sep 1 and **nothing since** — the
+   backup timer died in early September and retention never pruned the
+   backlog, same disabled-retention pattern as the DB). Kept the 5 newest.
+   10 GB reclaimed → 11 GB free.
+4. `PRAGMA wal_checkpoint(TRUNCATE)` — succeeded in 111s, WAL file gone, DB
+   grew 9.17 → 9.24 GB absorbing it. Disk recovered to **45 GB free**.
+5. `PRAGMA integrity_check` — **ok**. No corruption from the abrupt stop.
+6. Restarting a second time, all 3 gunicorn workers logged
+   "poller already owned by another worker" — **no reconciler was running at
+   all**. A manual `flock()` test moments later succeeded freely, so this was
+   a transient: almost certainly the previous (05:01:58) poller-owning worker
+   was stuck in uninterruptible disk I/O (D-state, mid-write to the 36 GB WAL)
+   when `systemctl stop` sent SIGTERM, and didn't actually release the lock
+   fd until sometime later. **Caught before declaring the fix done** — a dead
+   reconciler produces zero load, which would have looked identical to "WAL
+   guard is working" in a 2-minute observation window. Restarted again;
+   confirmed a worker actually claimed ownership and bootstrap ran.
+
+### Also found, unrelated: an 80-day-old leaked shell process
+PID 33657, a `bash -c` process from a **July 27 Claude Code session**,
+alive 80+ days. Root cause: a one-liner background job used `MON=$! cmd`
+to try to capture a background PID — this only sets `MON` in `cmd`'s
+environment, not the parent shell's, so the later `kill $MON` was a no-op
+and the monitoring `while true; do stat …; sleep 3; done` loop never died.
+Confirmed harmless (only `stat`/`df`, no DB file descriptors open via
+`/proc/<pid>/fd`), not a contributor to any incident, but 80 days of a
+leaked loop is still worth killing — flagged to operator (classifier
+blocked an unprompted `kill` on a process outside this session).
+
+### Guardrails shipped (code-only, all tested)
+- **`db.py`**: `PRAGMA journal_size_limit = 128 MB` on every connection.
+  Doesn't stop growth mid-transaction, but guarantees the *next* successful
+  checkpoint truncates back to 128 MB instead of leaving it however large it
+  grew.
+- **`disk_watchdog.check_wal_guard()`** (new) — called every poller cycle,
+  unthrottled (cheap: a `stat()` unless already over the soft threshold):
+  - **soft (256 MB default)**: opportunistic `PRAGMA wal_checkpoint(PASSIVE)`
+    — never blocks, never fails loudly, always safe to attempt.
+  - **hard (2048 MB default)**: fires a critical alert and — unless
+    `disk.wal_auto_stop` is set to `'0'` (default **on**) — stops
+    `protek.service` via a **detached, non-waiting** `subprocess.Popen`
+    (not `.run()`) specifically so a self-referential `systemctl stop`
+    issued from inside the very process being stopped can never deadlock
+    the poller thread.
+  - Edge-triggered latch (`disk.wal_alerted`) so it doesn't spam; clears on
+    recovery below the soft threshold.
+- **`protek.service`**: `MemoryHigh=1536M` / `MemoryMax=2560M` — this host
+  has 7.6 GB total RAM shared with other apps (atom, traverse, pipsqueeze);
+  Protek had peaked at 5.2 GB with no limit at all.
+- 6 new tests in `tests/test_disk_watchdog.py` covering: below-soft no-op,
+  soft-checkpoints-no-alert, hard-alerts-and-stops (latched, not repeated),
+  auto-stop disable switch, recovery clearing the latch, and `wal_bytes()`
+  reading a real file.
+
+### Verified live, not assumed
+Post-restart, watched `protek.db-wal` every 10s for 2.5 minutes with the
+reconciler actually running (confirmed via the "poller + geo + intel + siem
+started" log line, not just "service is active"): WAL spiked to ~1.4 GB each
+reconcile cycle (the underlying query is still heavy — see below) but was
+checkpointed back down to exactly the 128 MB `journal_size_limit` cap every
+time. Disk held flat at 44-45 GB free throughout. Full test suite (full
+count, no failures) and `ruff check .` both clean after all changes.
+
+### The "lighter database" ask — redesigned and migrated live, same session
+
+Operator chose the full redesign over the minimal patch: collapse `decisions`
+from one-row-per-historical-event to one-row-per-current-state, keyed on
+`(origin_source, value, scope, scenario)` instead of `(origin_source,
+lapi_id)`. CrowdSec issues a fresh `lapi_id` on every re-ban of the same
+IP+scenario, which is exactly why the old key never deduplicated churn.
+
+**Code changes** (all upsert `ON CONFLICT(origin_source, value, scope,
+scenario)`, refreshing `lapi_id`/`duration`/`until`/`last_seen_at` and
+clearing `deleted_at`):
+- `db.py` — new UNIQUE constraint on `decisions`.
+- `poller.py` — `_upsert_decision` (shared by bootstrap + stream `new`);
+  bootstrap's "mark absent as deleted" sweep now matches by
+  `(value, scope, scenario)` instead of `lapi_id`.
+- `app.py` — the `/api/external/decisions` ingest route's raw `INSERT` was
+  converted to the same upsert (a repeated external-ban submission would
+  otherwise have hit a `UNIQUE` violation under the new key).
+- `synthetic.py` (`_insert_synth_decision`), `asn_detector.py` (ASN
+  escalation approval) — same fix; both insert against a fixed/low-entropy
+  identity, so both would collide under the new key without it.
+- Stream **deletes** needed no change: matching by current `lapi_id` already
+  self-corrects — a stale delete for a lapi_id a later re-ban has superseded
+  is now a harmless no-op (proven in tests, see below), which is exactly
+  correct.
+- `reconciler.py`/dashboard queries: **unchanged**. `_desired_from_db()`'s
+  `GROUP BY value, scope` is still needed (an IP can still be live under two
+  scenarios or two federated sources at once) but now scans tens of
+  thousands of rows instead of millions — the fix was always the row count,
+  not the query shape.
+- New `tests/test_poller_upsert.py` (6 tests): re-bans upsert not duplicate
+  (bootstrap and stream paths), bootstrap tombstones by identity not stale
+  lapi_id, same-IP-different-scenario stays two rows, a stale delete for a
+  superseded lapi_id doesn't touch the live row, synthetic insert survives a
+  skipped cleanup. Full suite + `ruff check .` clean throughout.
+
+**Live migration** (`scripts/migrate_decisions_current_state.py`, new,
+documented in its own docstring): builds `decisions_new` alongside the live
+`decisions`, keeps exactly one row per identity (the live row with the
+highest `id`; groups with no live row are dropped entirely — historical
+churn is not preserved, SIEM already mirrors every event in real time for
+anyone who needs it), verifies with `PRAGMA integrity_check` *before*
+touching the original table, then swaps names. Operator chose to keep the
+old table (`decisions_old`) rather than drop it immediately — a manual
+rollback net at the cost of disk until dropped by hand.
+
+Run live 2026-10-15 06:08 UTC, ~20 minutes of downtime (`protek.service`
+stopped per the script's own safety convention, same as `drain_tombstones.py`):
+
+| | before | after |
+|---|---|---|
+| `decisions` total rows | 15,724,702 | 55,956 |
+| `decisions` live rows | 269,670 | 55,941 |
+| DB file | 8.86 GB | 8.73 GB (unchanged — `decisions_old` still holds all 15.7M rows; VACUUM was skipped on purpose) |
+
+Both integrity checks (pre-swap on `decisions_new`, post-swap on the live DB)
+returned `ok`. One pre-existing, unrelated bug surfaced on the cold restart:
+two of three gunicorn workers crashed with `sqlite3.OperationalError:
+duplicate column name: asn` — a race in `db.py`'s `init_db()` ALTER-TABLE
+migration guard when multiple workers cold-boot simultaneously (same failure
+*class* as the index-build race documented 2026-09-01, different column).
+`Restart=always` recovered it automatically; not fixed this session, flagged
+here so it isn't mistaken for a new regression next time it's seen.
+
+**Verified under real load, twice** (not assumed — see the near-miss above
+about a dead poller looking identical to "fixed" for 2 minutes): watched
+`protek.db-wal` every 15s for 3 full minutes post-migration while confirming
+via `ps` that the poller-owning worker was CPU-active (6.8%, continuously
+accumulating, not idle) — WAL stayed at **exactly 0 bytes** the entire
+window. Compare to pre-migration verification (same method, old schema):
+WAL oscillated up to ~1.4 GB every cycle before being capped back to 128 MB.
+The guardrails are still in place as defense-in-depth; they are no longer
+load-bearing for normal operation.
+
+**Operator cleanup still pending, by their own choice:** `decisions_old`
+(15.7M rows, ~8.6 GB) remains in the live DB. Drop it when confident:
+`sqlite3 protek.db "DROP TABLE decisions_old; VACUUM;"` — VACUUM needs ~1.2x
+the current file size free (DB is 8.73 GB → budget ~10.5 GB; box has 44 GB
+free, comfortable) and takes a noticeable amount of time on a file this size
+(the two integrity checks this session took ~10-11 minutes each on a
+similarly sized file — budget similarly or run during a quiet window).
+
+**Known, accepted regression:** `intel.enrichment_for_ip()`'s "scenarios"
+list (`intel.py:329`, up to 50 historical rows per IP) now shows far fewer
+entries per IP — at most one per currently-live `(scope, scenario)`
+combination, not the full re-ban history. This was surfaced and accepted as
+part of the redesign tradeoff, not a bug to chase.
+
+---
+
+## 2026-10-15 — Recurrence: post-login dashboard hang, 86-95s — the one unhinted KPI query, finally hinted
+
+**Operator report:** "why is this web app so slow to load. usually drops in at login."
+
+### Same bug, same file, predicted and not actioned
+This is the 2026-09-01 incident recurring. `protek.db` had grown **3.0 → 8.2 GB**
+since then (`journalctl` showed **zero** `"pruned"` lines in 14 days — retention
+is still off, the operator action item from the 2026-09-02 audit was never
+done). Access logs reproduced it exactly: `POST /login` succeeds instantly,
+then `GET /` doesn't return 200 until **86s** (Oct 13) / **95s** (Oct 15) later.
+
+Root cause was the September fix's own documented follow-up #1, left undone:
+`scen_24h` (`COUNT(DISTINCT scenario) WHERE last_seen_at > -1 day` in
+`dashboard()`, `app.py`) was the one of five KPI aggregates with no `INDEXED BY`
+hint. No `sqlite_stat1` in this DB (never `ANALYZE`d), so the planner keeps
+picking a non-covering index and pays a table lookup per matching row — cheap
+at 1.5-3.7s in September, the dominant cost of the render now that the table
+is 2.7x bigger.
+
+### Fix
+- Built `idx_decisions_lastseen_scenario ON decisions(last_seen_at, scenario)`
+  on the live DB first (confirmed via `EXPLAIN QUERY PLAN`: covering index
+  scan, no temp b-tree besides the COUNT DISTINCT itself).
+- Added the same index to `db.py`'s `SCHEMA` and the `INDEXED BY` hint to the
+  query in `app.py`. Same order as September: index built live before the code
+  shipped, to avoid gunicorn workers racing to build it inside `init_db()`.
+- Restarted `protek` — clean boot, bootstrap pulled 56,099 decisions, no errors.
+- Verified: query alone now **51ms** (was documented at 1.5-3.7s on a smaller
+  table in September, spiking to 144s under load — almost certainly far worse
+  than that on today's 8.2 GB table, though not measured unhinted this time to
+  avoid holding a write lock longer than necessary on a live box).
+
+### Not done — this will recur again if untouched
+**Retention is still disabled** (no prune activity in 14+ days) — this is the
+actual root cause; the index is a patch on a table that keeps growing. The
+2026-09-02 action item stands: run `scripts/drain_tombstones.py` (~10-15 min
+window, stops and restarts the service) and set `retention.enabled` back to
+`1`. Flagged to operator, not actioned this session — deliberately deferred,
+not forgotten twice.
+
+---
+
 ## 2026-09-16 — Dashboard map: tile servers abandoned for a self-hosted outline
 
 **Operator brief:** "map says access blocked, can u fix this" — the map was a
