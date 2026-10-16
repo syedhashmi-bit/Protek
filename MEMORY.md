@@ -4,6 +4,44 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-10-16 — Alerts for the slow, silent failures (`hygiene.py`)
+
+**Operator:** "okay do it then". This follows a discussion of whether the
+disk incident can recur. The cause is fixed; the remaining gap was that
+nothing alerted on the *quiet* failures that let it build up.
+
+- **New `hygiene.py`**, run hourly from the poller's maintenance slot (next
+  to retention, off its own counter, so a failing cycle can't starve it).
+  It checks outcomes rather than events:
+  - `backup_stale`: newest successful daily backup older than 36h
+    (`hygiene.backup_max_age_h`). Catches failing runs *and* runs that
+    never happened.
+  - `backup_unverified`: `backup.last_test_ok == '0'`.
+  - `retention_disabled`: `retention.enabled != '1'`.
+
+  Each one alerts once, re-alerts every 24h (`hygiene.renag_h`) while it
+  persists, and sends one recovery message when it clears. Latch state
+  lives in `settings`, so restarts don't re-alert. Alerts go out via the
+  `sync_error` event, the same as backup.py's own failure notices.
+- **`/health` gained a `warnings` field** listing those findings. It
+  deliberately does **not** 503 on them, because nginx upstream checks key
+  off the status code. Note that Sentinel probes `/login`, not `/health`,
+  so this field is for external monitors and humans, not Sentinel.
+- **Skipped the planned systemd `OnFailure=` hook.** It would be
+  redundant: backup.py already notifies on in-Python failures, and
+  staleness catches everything else (wrapper crash, dead timer) within 36h.
+- Verified: 6 tests in `tests/test_hygiene.py`; live `/health` shows
+  `warnings: []`; a test message to Discord (the only configured channel)
+  returned `ok`.
+
+**Unresolved:** there is no record of whether backup failure alerts were
+sent during September. The journal has a hole from about 2026-09-02 to
+2026-10-12 (rotated out), and there is no backup file from that window.
+backup.py's failure alerts were wired to Discord with `sync_error` on, so
+either the runs never happened or the alerts went unseen.
+
+---
+
 ## 2026-10-15 (late) — Open items closed out, everything committed
 
 Session resumed after a disconnect. Operator: "do the still open task, and

@@ -1705,11 +1705,16 @@ def health_public():
     if ha_role == "standby" and "poll_stale" in issues:
         issues.remove("poll_stale")
     code = 503 if issues else 200
+    # Slow-failure warnings (stale backup, retention off) are reported but
+    # deliberately do NOT 503 — nginx upstream checks key off the status
+    # code, and a missed backup must not take the dashboard out of rotation.
+    import hygiene
     return jsonify(
         status="degraded" if issues else "ok",
         phase=6,
         service="protek",
         issues=issues,
+        warnings=hygiene.warnings(),
         dry_run=DRY_RUN,
         ha_role=ha_role,
     ), code

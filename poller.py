@@ -104,6 +104,13 @@ class Poller:
             retention.prune()
         except Exception as e:  # noqa: BLE001 — never break the cycle
             log.warning("retention sweep failed: %s", e)
+        # Same slot, same reason: alerts on stale backups and disabled
+        # retention must not depend on the rest of the cycle succeeding.
+        try:
+            import hygiene
+            hygiene.check_and_alert()
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.warning("hygiene check failed: %s", e)
 
     def _check_disk(self, _gs, tick_no: int) -> None:
         """Disk watchdog. Runs at the TOP of tick(), before anything else.
