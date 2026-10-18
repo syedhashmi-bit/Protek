@@ -33,7 +33,7 @@
     <div style="width:200px">
       <label>Scopes (comma-separated)</label>
       <input type="text" name="scopes" required value="read"
-             placeholder="read,write,admin">
+             placeholder="e.g. stats or read">
     </div>
     <div style="width:200px">
       <label>Expires (ISO, optional)</label>
@@ -42,8 +42,10 @@
     <button class="btn" type="submit">Create</button>
   </form>
   <p class="muted" style="margin:12px 0 0;font-size:11px">
-    Scopes: <b>read</b> = GETs on /api/v1/* · <b>write</b> = POST decisions / sync / whitelist ·
-    <b>admin</b> = full (incl. user + token mgmt). Higher scopes imply lower ones.
+    Scopes: <b>stats</b> = GET /api/v1/stats only (counts, no IPs; for a site that publishes them) ·
+    <b>read</b> = GETs on /api/v1/* · <b>write</b> = POST decisions / sync / whitelist ·
+    <b>admin</b> = full (incl. user + token mgmt). Higher scopes imply lower ones;
+    <b>stats</b> implies nothing else.
   </p>
 </div>
 

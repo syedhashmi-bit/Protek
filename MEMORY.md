@@ -4,6 +4,102 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-10-16 — `GET /api/v1/stats` (counts only) + `stats` token scope for Hangar
+
+Requested via a workflow run for the "hangar" site, which wants headline
+numbers it can publish. **Not committed yet (commit only when asked)**:
+`api_v1.py`, `api_tokens.py`, `app.py`, `templates/admin_tokens.html`,
+`README.md` and `docs/USER_GUIDE.md` are modified, and
+`tests/test_api_v1_stats.py` is new.
+
+- **Route**: `GET /api/v1/stats`, `@at.require_token("stats")` (401 without a
+  valid token). The body is counts only. It has no IPs, scenarios, origins or
+  source names, so a caller can publish it as-is:
+  `{"active_bans": int, "new_bans_7d": int, "countries_7d": int|null,
+  "generated_at": "<UTC ISO8601 Z>"}`. It is in `OPENAPI_SPEC` with a schema,
+  the semantics below, and its 401/403 responses.
+  - `active_bans`: **distinct** banned values (IPs/ranges) with an active
+    decision, all sources. It is `poller.active_total` (the poller's
+    per-cycle `COUNT(DISTINCT value) WHERE deleted_at IS NULL`), so it is the
+    same number as `/tile/summary` `active_bans` and `/sync/status`
+    `active_decisions`, as of the last poller cycle. The first draft counted
+    decision rows. At 04:29 UTC the live first-draft `/stats` said 57,936 and
+    `/tile/summary` said 47,479 for the same moment. The review asked for
+    either a rename to `active_decisions` or this. Renaming was rejected
+    because `/sync/status` already uses `active_decisions` for the
+    distinct-IP number. Reading the setting is also cheaper than the
+    COUNT(*) it replaces.
+  - `new_bans_7d`: **decisions** (one per origin_source + value + scope +
+    scenario) with `first_seen_at` in the last 7 days, deleted ones included.
+    These are decisions, not distinct IPs, so the number can exceed
+    `active_bans`. Since the 2026-10-15 current-state key, a re-ban of the
+    same identity keeps its `first_seen_at`, so this means "new identity in
+    the window".
+  - **`new_bans_7d` is inflated until about 2026-10-22 06:08 UTC.** The
+    2026-10-15 06:08 migration kept, for each identity, the row of its latest
+    re-ban, and that row's `first_seen_at` is the re-ban time, not the
+    identity's true first sighting. Any identity re-banned in the 7 days
+    before the migration therefore counts as "new" until its carried-over
+    `first_seen_at` falls out of the window. Hangar publishes this field, so
+    the 63,041 to 64,608 seen on 2026-10-16 overstates real new bans.
+  - `countries_7d`: distinct `geo_cache.country_code` among those same
+    new-ban rows. The geo cache was chosen over `alerts.source_country` so
+    that every origin and federated source is covered, and so a bouncer-only
+    install does not report 0. IPs not yet geolocated are not counted. The
+    value is null only if the schema has no geo table or column.
+- **Scope change**: `api_tokens.SCOPE_ORDER` is now `stats 0 < read 1 <
+  write 2 < admin 3`. `has_scope` is rank-based: a granted scope satisfies
+  any required scope of equal or lower rank. A `stats` token passes only
+  `require_token("stats")`, which is only `/api/v1/stats` (and its `/api/v2`
+  alias). A read/write/admin token still passes `/stats`. Scope strings not in
+  `SCOPE_ORDER` match only themselves. The GraphQL wrapper already demanded
+  `has_scope(tok, "read")`. `/api/external/introspect` used to accept any
+  valid token and now demands `read`, so a stats token opens nothing else.
+  The scope is documented in the `api_tokens` and `api_v1` docstrings, the
+  `OPENAPI_SPEC` info description, the `/admin/tokens` help text and
+  placeholder, `README.md` and `docs/USER_GUIDE.md`. `SECURITY.md` and
+  `CLAUDE.md` list no token scopes, so they are unchanged.
+- **Indexes**: every DB query uses `INDEXED BY`, following the dashboard KPI
+  rule. EXPLAIN QUERY PLAN on the live DB:
+  - new: there is no `first_seen_at` index, so the query adds a redundant
+    `last_seen_at >= cutoff` bound. This is safe because every writer inserts
+    `first_seen_at = last_seen_at = now` and only ever moves `last_seen_at`
+    forward. Plan: `SEARCH ... idx_decisions_lastseen_value (last_seen_at>?)`.
+  - countries: the same range search, plus a `geo_cache` PK lookup.
+  - Timing (first draft, which also had the active COUNT): about 0.42 s cold
+    and 2.5 ms cached. If a writer is ever added that sets
+    `first_seen_at > last_seen_at`, the new-ban bound breaks.
+- **Cache**: in-process, 60 s (`STATS_TTL_SEC`), behind a lock, so each
+  gunicorn worker computes at most once per minute. `generated_at` is the
+  compute time, so a cached reply shows its real age.
+- **Token**: the first draft minted `create_token("hangar-stats", "read",
+  "hangar")`, which is api_tokens id 1. That full-read token could read
+  `/api/v1/decisions`, `/alerts`, `/whitelist`, `/sources`,
+  `/feed/banned-ips` and GraphQL. A live check on 2026-10-16 returned 200 on
+  all of them. It is to be replaced by a `stats`-only token (same name and
+  `created_by`), written to `/etc/hangar/protek.token` (root, 0600), and id 1
+  revoked with `api_tokens.revoke_token(1)`. **DONE 2026-10-16 04:55 UTC**:
+  protek restarted onto the new code (04:54:54, NRestarts=0, no warnings);
+  stats-only token minted as **id 2** and installed in
+  `/etc/hangar/protek.token`; **id 1 revoked**. Live proof: id 2 → 200 on
+  `/api/v1/stats` and 403 on decisions, whitelist, alerts, sources,
+  feed/banned-ips, tile/summary, /api/v2/decisions, external/introspect and
+  GraphQL; id 1 → 401 on all of them. To rotate again: mint with
+  `api_tokens.create_token("hangar-stats", "stats", "hangar")`, prove it on
+  `/api/v1/stats`, write the file atomically (0600), then revoke the old id.
+- **Verified** (code + live, after the 04:54 restart):
+  - `tests/test_api_v1_stats.py` has 34 cases. They cover auth, shape, int
+    counts, `active_bans` equal to `/tile/summary` and `/sync/status`, no
+    identifiers in the body, the `X-Protek-Token` header, and that all four
+    scopes open `/stats`. A stats token gets 403 on 20 other routes: every
+    read GET, `/api/v2/decisions`, the v1 write POSTs, the three
+    `/api/external/*` POSTs, and GraphQL GET and POST. They also cover a
+    read-token control, the `has_scope` matrix, `create_token` accepting
+    `stats`, revocation, and the TTL.
+  - Full suite: 248 passed, 1 skipped. `ruff check .` is clean.
+
+---
+
 ## 2026-10-16 — Alerts for the slow, silent failures (`hygiene.py`)
 
 **Operator:** "okay do it then". This follows a discussion of whether the

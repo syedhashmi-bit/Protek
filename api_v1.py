@@ -6,6 +6,8 @@ Contract:
   - Bearer-token auth via Authorization or X-Protek-Token headers
     (see api_tokens.require_token).
   - Reads need `read` scope, writes need `write`, admin ops need `admin`.
+    GET /stats alone accepts the narrow `stats` scope (or any of those three);
+    a `stats` token is refused by every other route.
   - JSON in, JSON out. Errors as {"error": "<key>", ...}.
 
 Routes live under a Flask blueprint registered in app.py.
@@ -13,7 +15,10 @@ Routes live under a Flask blueprint registered in app.py.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import sqlite3
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from flask import Blueprint, g, jsonify, request
@@ -272,6 +277,117 @@ def v1_tile_summary():
     )
 
 
+STATS_TTL_SEC = 60.0
+_stats_lock = threading.Lock()
+_stats_cache: dict[str, Any] = {}
+_clock = time.monotonic  # indirection so tests can move time without patching `time`
+
+
+@bp.route("/stats")
+@at.require_token("stats")
+def v1_stats():
+    """Aggregate counts for public "bans this week" style displays.
+
+    Auth: the narrow `stats` scope, which no other route accepts, so a token
+    handed to a publishing site cannot read decisions, alerts, the whitelist,
+    sources, the feed or GraphQL. read/write/admin tokens also pass.
+
+    Counts only, by design: no IPs, scenarios, origins or source names, so the
+    caller can publish the body as-is. Shape:
+      {"active_bans": int, "new_bans_7d": int, "countries_7d": int | null,
+       "generated_at": "<ISO8601 UTC of when the counts were computed>"}
+
+    Semantics:
+      - active_bans: DISTINCT banned values (IPs/ranges) with an active
+        decision, across all sources. It is `poller.active_total`, the same
+        number as /tile/summary `active_bans` and /sync/status
+        `active_decisions`, as of the poller's last cycle. One IP banned by two
+        scenarios counts once.
+      - new_bans_7d: decisions (one per origin_source + value + scope +
+        scenario) first seen in the last 7 days, expired ones included. These
+        are decisions, not distinct IPs, so the number can exceed active_bans.
+      - countries_7d: distinct geo_cache country codes among those new
+        decisions; IPs not yet geolocated are skipped. null only when the
+        schema has no geo table/column.
+    Cached in-process for STATS_TTL_SEC (per gunicorn worker), so a caller
+    hammering it costs at most one computation per worker per minute.
+    """
+    now = _clock()
+    with _stats_lock:
+        cached = _stats_cache.get("body")
+        if cached is not None and now - _stats_cache.get("at", 0.0) < STATS_TTL_SEC:
+            return jsonify(cached)
+        body = _compute_stats()
+        _stats_cache["body"] = body
+        _stats_cache["at"] = now
+    return jsonify(body)
+
+
+def _reset_stats_cache() -> None:
+    """Drop the cached /stats body (tests use this)."""
+    with _stats_lock:
+        _stats_cache.clear()
+
+
+def _compute_stats() -> dict[str, Any]:
+    # Every query is pinned with INDEXED BY, as on the dashboard KPIs (see the
+    # comment in app.py dashboard()): there are no ANALYZE stats, so planner
+    # heuristics could drift onto a full scan of the (GB-sized) table; a hint
+    # fails loudly instead if the index is ever dropped.
+    gen = datetime.now(timezone.utc)
+    # Same format the writers use for first_seen_at (datetime.isoformat() in
+    # UTC), so the string comparison below is chronological.
+    cutoff = (gen - timedelta(days=7)).isoformat()
+    # Active = distinct banned values, read from the poller's per-cycle
+    # COUNT(DISTINCT value) WHERE deleted_at IS NULL (poller._count_active).
+    # Reusing it costs one settings read and keeps this number identical to
+    # /tile/summary's active_bans and /sync/status's active_decisions; an
+    # earlier draft counted decision rows here, which disagreed with both.
+    active = get_setting("poller.active_total") or "0"
+    conn = get_conn()
+    try:
+        # There is no index on first_seen_at. Every writer (poller, external
+        # API, asn_detector, synthetic) inserts first_seen_at = last_seen_at
+        # = now and only ever moves last_seen_at forward, so first_seen_at >=
+        # cutoff implies last_seen_at >= cutoff. The redundant last_seen_at
+        # bound turns a full table scan into a range search on
+        # idx_decisions_lastseen_value. Deleted rows count too: a ban that was
+        # new this week and has since expired was still a new ban.
+        new_7d = conn.execute(
+            "SELECT COUNT(*) FROM decisions INDEXED BY idx_decisions_lastseen_value "
+            "WHERE last_seen_at >= ? AND first_seen_at >= ?",
+            (cutoff, cutoff),
+        ).fetchone()[0]
+        # Countries of those same new bans, via the geo cache (geo.py fills it
+        # for IP-scope decisions). Chosen over alerts.source_country so that
+        # every origin and federated source is covered, and so a bouncer-only
+        # install (no machine credential, empty alerts table) does not report
+        # a misleading 0. IPs not yet geolocated are simply not counted.
+        try:
+            countries: int | None = int(conn.execute(
+                "SELECT COUNT(DISTINCT g.country_code) "
+                "FROM decisions d INDEXED BY idx_decisions_lastseen_value "
+                "JOIN geo_cache g ON g.ip = d.value "
+                "WHERE d.last_seen_at >= ? AND d.first_seen_at >= ? "
+                "AND g.country_code IS NOT NULL AND g.country_code != ''",
+                (cutoff, cutoff),
+            ).fetchone()[0])
+        except sqlite3.OperationalError as e:
+            # Only "the schema has no geo data" means null; anything else
+            # (locked DB, I/O) is a real error and must not read as "unknown".
+            if "no such table" not in str(e) and "no such column" not in str(e):
+                raise
+            countries = None
+    finally:
+        conn.close()
+    return {
+        "active_bans": int(active),
+        "new_bans_7d": int(new_7d),
+        "countries_7d": countries,
+        "generated_at": gen.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+
+
 def _sync_lag() -> float:
     last_at = get_setting("poller.last_at") or ""
     if not last_at:
@@ -291,7 +407,12 @@ OPENAPI_SPEC: dict[str, Any] = {
         "title": "Protek API",
         "version": "1.0.0",
         "description": "Bouncer + observability API. All endpoints (except /ping) "
-                       "require a bearer token with the appropriate scope.",
+                       "require a bearer token with the appropriate scope. "
+                       "Scopes, lowest to highest: `stats` (GET /stats only), "
+                       "`read` (every GET), `write` (adds decision, sync and "
+                       "whitelist changes), `admin` (everything). A scope "
+                       "implies the ones below it, never the ones above: a "
+                       "`stats` token gets 403 on every route except /stats.",
     },
     "servers": [{"url": "/api/v1"}],
     "components": {
@@ -340,6 +461,32 @@ OPENAPI_SPEC: dict[str, Any] = {
                               "responses": {"200": {"description": "list"}}}},
         "/tile/summary": {"get": {"summary": "Compact JSON for cross-app dashboard tiles",
                                    "responses": {"200": {"description": "summary"}}}},
+        "/stats": {"get": {
+            "summary": "Counts only: active bans, new bans and "
+                       "source countries over 7 days (cached 60s)",
+            "description": (
+                "Requires the `stats` scope (read/write/admin also work). "
+                "No IPs, scenarios, origins or source names. "
+                "`active_bans`: distinct banned values (IPs/ranges) with an "
+                "active decision, all sources, as of the poller's last cycle; "
+                "the same number as /tile/summary `active_bans`. "
+                "`new_bans_7d`: decisions (one per source + value + scope + "
+                "scenario) first seen in the last 7 days, expired ones "
+                "included; decisions, not distinct IPs, so it can exceed "
+                "`active_bans`. `countries_7d`: distinct country codes among "
+                "those new decisions (ungeolocated IPs skipped; null when the "
+                "install has no geo data). `generated_at`: UTC compute time."),
+            "responses": {
+                "200": {"description": "counts", "content": {"application/json": {
+                    "schema": {"type": "object", "properties": {
+                        "active_bans": {"type": "integer"},
+                        "new_bans_7d": {"type": "integer"},
+                        "countries_7d": {"type": "integer", "nullable": True},
+                        "generated_at": {"type": "string", "format": "date-time"},
+                    }}}}},
+                "401": {"description": "missing or unknown token"},
+                "403": {"description": "token lacks the stats scope"},
+            }}},
     },
 }
 

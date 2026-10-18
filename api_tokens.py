@@ -7,9 +7,16 @@ we return the plaintext token ONCE; the operator captures it then. Subsequent
 reads can only show prefix + last_used metadata.
 
 Scopes are comma-separated strings. Recognised values:
+    stats   — GET /api/v1/stats only (aggregate counts, no identifiers). For
+              tokens handed to a publishing site; it does NOT imply `read`.
     read    — GET /api/v1/* (decisions, alerts, sync status, metrics-ish reads)
     write   — POST /api/external/decisions, POST /api/v1/sync/run, whitelist mgmt
     admin   — user/token management, settings updates
+
+Each scope implies the ones below it in SCOPE_ORDER (admin > write > read >
+stats), never the ones above: a `stats` token is refused by every
+`require_token("read")` route, while a read/write/admin token still passes
+`require_token("stats")`.
 
 `require_token(scope)` is the decorator routes use to gate themselves. It also
 stamps `last_used_at` + `last_used_ip` on every successful auth.
@@ -27,7 +34,9 @@ from flask import g, jsonify, request
 
 from db import get_conn
 
-SCOPE_ORDER = {"read": 1, "write": 2, "admin": 3}
+# Rank of each scope. A granted scope satisfies any required scope of equal or
+# lower rank. `stats` sits below `read` so that it implies nothing else.
+SCOPE_ORDER = {"stats": 0, "read": 1, "write": 2, "admin": 3}
 
 
 def _hash(token: str) -> str:
@@ -139,17 +148,19 @@ def lookup(raw_token: str) -> dict[str, Any] | None:
 
 
 def has_scope(token: dict[str, Any], required: str) -> bool:
-    """A token granted `admin` also implies `write` + `read`. A `write` token
-    implies `read`. Explicit scopes are still the source of truth for any
-    custom granularity later."""
+    """A granted scope satisfies every scope ranked at or below it in
+    SCOPE_ORDER: `admin` implies `write` + `read` + `stats`, `write` implies
+    `read` + `stats`, `read` implies `stats`. A `stats` token satisfies only
+    `stats`. A scope string not in SCOPE_ORDER (granted or required) matches
+    only itself, so explicit scopes stay the source of truth for any custom
+    granularity later."""
     granted = token.get("scope_set") or set()
     if required in granted:
         return True
-    if required == "read" and ("write" in granted or "admin" in granted):
-        return True
-    if required == "write" and "admin" in granted:
-        return True
-    return False
+    need = SCOPE_ORDER.get(required)
+    if need is None:
+        return False
+    return any(SCOPE_ORDER.get(s, -1) >= need for s in granted)
 
 
 def require_token(scope: str):

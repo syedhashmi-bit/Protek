@@ -81,7 +81,9 @@ at any time. User #1 (the env-anchored admin) can't be demoted or deleted.
 
 ### Generate an API token (for `protekctl` or a webhook)
 
-`/admin/tokens` → name + scopes (`read`, `write`, `admin`; higher implies lower).
+`/admin/tokens` → name + scopes (`stats`, `read`, `write`, `admin`; higher implies lower).
+`stats` opens only `GET /api/v1/stats` (counts, no IPs) and is refused everywhere
+else; use it for a site that publishes those numbers.
 The plaintext token is shown ONCE. Store immediately. We only persist its sha256.
 
 ### Wire an external system to push bans

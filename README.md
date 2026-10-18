@@ -166,7 +166,7 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 ### Integration & extensibility (Arc 8, Arc 12)
 - **Webhook outputs** — every decision event POSTs to configured webhook(s), HMAC-signed, retry with backoff, DLQ.
 - **Webhook inputs** — `/api/external/decisions` accepts bans from external systems (atom, custom scripts) with API-token auth; optional approval queue.
-- **REST API v1** — full OpenAPI spec at `/api/openapi.json`, scoped tokens (read / write / admin), expiry, last-used.
+- **REST API v1** — full OpenAPI spec at `/api/openapi.json`, scoped tokens (stats / read / write / admin), expiry, last-used. `stats` opens only the counts-only `GET /api/v1/stats` and implies nothing else; each higher scope implies the ones below it.
 - **GraphQL** — `/api/graphql` alongside REST, GraphiQL explorer for admins.
 - **Plugin SDK** — publish the `Bouncer` protocol as documented public interface; hot-load adapters from `~/.config/protek/adapters/*.py`; cookiecutter template for community adapters.
 - **OAuth / SAML SSO** — OIDC providers + SAML 2.0 SP; per-domain restriction; fallback to local user table for break-glass.

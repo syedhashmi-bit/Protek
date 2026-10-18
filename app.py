@@ -2569,7 +2569,8 @@ def api_external_introspect():
     use as `ip`) without persisting anything. Lets the operator validate
     their n8n/Zapier/Make template before sending real bans.
 
-    Auth: any valid bearer token (read scope is enough).
+    Auth: a bearer token with `read` scope (or higher). A `stats`-only token
+    is refused: that scope is meant to open GET /api/v1/stats and nothing else.
     """
     import api_tokens as at
     raw = ""
@@ -2582,6 +2583,8 @@ def api_external_introspect():
     if not tok:
         return jsonify(error="unauthorized",
                        hint="set Authorization: Bearer <token> header"), 401
+    if not at.has_scope(tok, "read"):
+        return jsonify(error="insufficient_scope", required="read"), 403
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify(error="body must be JSON object",
