@@ -162,6 +162,11 @@ function initMap(){
     // Don't hijack the mouse wheel: otherwise scrolling the page while the cursor
     // is over the map zooms the map instead of scrolling. Use +/- or dbl-click.
     scrollWheelZoom: false,
+    // MarkerCluster needs a map maxZoom; a tile layer used to supply it. Since
+    // the tiles were replaced by the GeoJSON outline (ee3c547), nothing did, so
+    // L.markerClusterGroup threw "Map has no maxZoom specified" and stopped the
+    // whole dashboard script (no map points, no live feed). Set it here.
+    minZoom: 1, maxZoom: 10,
   }).setView([22, 10], 2);
   // No tile server. Every keyless raster source turned out to have a catch:
   // CARTO bakes an "API KEY REQUIRED" watermark into keyless tiles, OSM's

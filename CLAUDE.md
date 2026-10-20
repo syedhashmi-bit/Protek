@@ -46,7 +46,7 @@ systemctl status protek                             # check running state
 journalctl -u protek -n 50 --no-pager               # view recent errors
 ```
 
-HTML templates take effect immediately (Jinja2 reloads on request) — no restart needed.
+HTML templates are cached in production (no TEMPLATES_AUTO_RELOAD) — restart `protek` after editing a template too.
 
 ## Python Environment
 
