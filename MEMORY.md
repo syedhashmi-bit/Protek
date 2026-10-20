@@ -4,6 +4,39 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-10-20 — Screenshots leaked the operator's IP; redacted and history rewritten
+
+The 2026-09-04 screenshot refresh (`e90cbfd`) scrubbed the infra identifiers
+but not the **operator's own public IP in data rows**: `dashboard.png` and
+`decisions.png` (first blocked row), `whitelist.png` (the rule, its ISP note
+and every recent hit) and `security.png` (login audit). `security.png` also
+had the live host's IPv6, and `mikrotik.png` the router's live RouterOS
+version. The May set (`c092474`) had the RouterOS identity in `mikrotik.png`.
+
+- **Redacted in place** (Pillow, IBM Plex fonts fitted to the originals): the
+  IPs became `198.51.100.23` / `2001:db8::1`, the ISP note became `operator`,
+  and the version became `7.x`. File names are unchanged.
+- **History rewritten** with `git filter-repo`. Every historical version of
+  `docs/screenshots/*.png` was replaced by the scrubbed current one, and
+  `--replace-text` swapped the `docs/HOSTS.local.md` values for their
+  placeholders. Main had no text hits; the old tag line did. Main went from
+  `2df63b2` to `64fda4f` (39 commits, same authors and dates; every commit
+  from `c092474` on has a new SHA). The `protect-main` ruleset was disabled
+  for the push and re-enabled straight after.
+- **Not reachable by a force-push:** GitHub keeps `refs/pull/N/head`
+  forever. PRs #1–#10 point at the pre-rewrite history (MikroTik endpoint,
+  server IPs and hostname in plain text), and #12/#13 at the leaky
+  screenshots. These need a GitHub Support request. #11/#14 now point at
+  clean commits.
+- **Tag `v1.0.0` was not pushed:** it still points at the old line, which has
+  the identifiers in plain text in `MEMORY.md`. A rewritten copy was prepared,
+  and the owner decides whether to force-update the tag.
+- **Next screenshot refresh:** scrub data rows for the operator's own IPs as
+  well as the infra identifiers, then open every PNG before committing.
+  Images are not greppable.
+- Old local worktree branches (`claude/*`) still carry pre-rewrite commits.
+  Never push them.
+
 ## 2026-10-16 — `GET /api/v1/stats` (counts only) + `stats` token scope for Hangar
 
 Requested via a workflow run for the "hangar" site, which wants headline

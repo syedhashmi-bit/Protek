@@ -185,8 +185,9 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 > Screenshots regenerated 2026-09-04 against the warm theme.
 >
 > Sanitisation: this instance's own infrastructure identifiers (router endpoint,
-> host addresses, RouterOS identity) are replaced with RFC 5737 documentation
-> addresses and generic names. Attacker IPs are shown as-is — they are public
+> host addresses, RouterOS identity and version) and the operator's own IPs are
+> replaced with RFC 5737 / RFC 3849 documentation addresses and generic names.
+> Attacker IPs are shown as-is — they are public
 > CrowdSec blocklist data, not operator infrastructure. No secret is rendered by
 > any page: credential fields are write-only and masked to `•••• <last4>`.
 
