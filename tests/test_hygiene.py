@@ -75,5 +75,8 @@ def test_never_backed_up_install_is_not_nagged(env):
 
 def test_warnings_lists_current_findings(env):
     db, hygiene, sent = env
+    # warnings() judges against the real clock, not NOW, so the fixture's
+    # "2h before NOW" backup goes stale once NOW is a few days in the past.
+    db.set_setting("backup.last_daily_at", datetime.now(timezone.utc).isoformat())
     db.set_setting("retention.enabled", "0")
     assert hygiene.warnings() == ["retention_disabled"]
