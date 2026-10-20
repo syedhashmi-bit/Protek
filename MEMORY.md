@@ -28,9 +28,11 @@ version. The May set (`c092474`) had the RouterOS identity in `mikrotik.png`.
   server IPs and hostname in plain text), and #12/#13 at the leaky
   screenshots. These need a GitHub Support request. #11/#14 now point at
   clean commits.
-- **Tag `v1.0.0` was not pushed:** it still points at the old line, which has
-  the identifiers in plain text in `MEMORY.md`. A rewritten copy was prepared,
-  and the owner decides whether to force-update the tag.
+- **Tag `v1.0.0` force-updated** (`e2e8734` → `5ece8d2`, commit `b0fb00b`).
+  Its old line had the identifiers in plain text in `MEMORY.md`; those 3 lines
+  now carry placeholders, and the tag message is unchanged. The old commit
+  `fac6e27` still opens by SHA through PRs #1–#10, so it belongs in the same
+  Support request.
 - **Next screenshot refresh:** scrub data rows for the operator's own IPs as
   well as the infra identifiers, then open every PNG before committing.
   Images are not greppable.
