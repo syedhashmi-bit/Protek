@@ -26,7 +26,7 @@ version. The May set (`c092474`) had the RouterOS identity in `mikrotik.png`.
 - **Not reachable by a force-push:** GitHub keeps `refs/pull/N/head`
   forever. PRs #1–#10 point at the pre-rewrite history (MikroTik endpoint,
   server IPs and hostname in plain text), and #12/#13 at the leaky
-  screenshots. These need a GitHub Support request. #11/#14 now point at
+  screenshots. A GitHub Support request to drop them was filed on 2026-10-20 (via Repository features, not Deletes, which is the whole-repo purge form). It is done when `e90cbfd` and `fac6e27` 404 on github.com. #11/#14 now point at
   clean commits.
 - **Tag `v1.0.0` force-updated** (`e2e8734` → `5ece8d2`, commit `b0fb00b`).
   Its old line had the identifiers in plain text in `MEMORY.md`; those 3 lines
