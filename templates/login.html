@@ -14,6 +14,13 @@
 .lock{background:var(--bg-raised);border-left:3px solid var(--amber);color:var(--amber);
   padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:14px;font-family:var(--font-mono)}
 .hint{font-size:var(--fs-sm);color:var(--muted);text-align:center;margin-top:14px}
+.google-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px}
+.google-btn img{width:18px;height:18px;background:var(--text);border-radius:50%;padding:2px;box-sizing:content-box}
+.alt-login{margin-top:18px}
+.alt-login > summary{cursor:pointer;text-align:center;font-size:var(--fs-sm);color:var(--muted);
+  list-style:none;margin-bottom:14px}
+.alt-login > summary::-webkit-details-marker{display:none}
+.alt-login > summary:hover{color:var(--text)}
 </style>
 <div class="login-wrap">
   <div class="login-card panel">
@@ -30,11 +37,21 @@
       <div class="err">{{ error }}</div>
     {% endif %}
 
+    {% if google_configured %}
+    <a class="btn google-btn"
+       href="{% if next %}{{ url_for('google_login', next=next) }}{% else %}{{ url_for('google_login') }}{% endif %}">
+      <img src="{{ url_for('static', filename='google-g.svg') }}" alt="">
+      Sign in with Google
+    </a>
+    {# Break-glass: password + TOTP still works whatever Google's state. #}
+    <details class="alt-login"{% if local_open %} open{% endif %}>
+      <summary>Use a password and 2FA code instead</summary>
+    {% endif %}
     <form method="POST" autocomplete="off">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div>
         <label>Username</label>
-        <input type="text" name="username" value="{{ username or '' }}" autofocus required>
+        <input type="text" name="username" value="{{ username or '' }}"{% if not google_configured or local_open %} autofocus{% endif %} required>
       </div>
       <div>
         <label>Password</label>
@@ -45,9 +62,12 @@
         <input type="text" name="totp" pattern="[0-9]{6}" inputmode="numeric" maxlength="6" required>
       </div>
       <div class="row-btn">
-        <button class="btn" type="submit">Authenticate</button>
+        <button class="btn{% if google_configured %} sec{% endif %}" type="submit">Authenticate</button>
       </div>
     </form>
+    {% if google_configured %}
+    </details>
+    {% endif %}
     {% if sso_configured %}
     <div style="text-align:center;margin:18px 0 6px;color:var(--muted);font-size:var(--fs-sm)">or</div>
     <div class="row-btn" style="margin-top:6px">

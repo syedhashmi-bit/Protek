@@ -6,6 +6,48 @@
 <div style="max-width:800px">
 
 <div class="panel">
+  <h2>Google sign-in</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0;line-height:1.6">
+    The same model as Othoni and RiMM: a <b>Sign in with Google</b> button on
+    <span class="mono">/login</span>, and an email allowlist in <span class="mono">.env</span>
+    that decides who gets in and with which role. Any other Google account is turned away.
+    Edit <span class="mono">.env</span> and restart Protek to change it. The allowlist is
+    re-checked on every request, so a removed email is signed out on its next click.
+    Password + TOTP stays available under the button as break-glass.
+  </p>
+
+  <div style="background:var(--bg-raised);border-left:3px solid {% if google_active %}var(--ok){% elif google.problems %}var(--warn){% else %}var(--border){% endif %};border-radius:var(--radius-sm);padding:14px;margin-bottom:14px">
+    <div style="font-family:var(--font-mono);font-size:12px;color:{% if google_active %}var(--ok){% elif google.problems %}var(--warn){% else %}var(--muted){% endif %}">
+      {% if google_active %}● on: the button is live on /login{% elif google.problems %}● half-configured, so it's off{% else %}○ not configured{% endif %}
+    </div>
+    {% if google.problems %}
+    <ul class="mono" style="font-size:12px;margin:8px 0 0;padding-left:18px;color:var(--warn)">
+      {% for p in google.problems %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+    {% elif not google_active and not google.configured %}
+    <div class="muted" style="font-size:12px;margin-top:6px;line-height:1.6">
+      In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--accent)">Google Cloud Console</a>,
+      create an OAuth client of type <b>Web application</b> and add the redirect URI below. Then set
+      <span class="mono">GOOGLE_CLIENT_ID</span>, <span class="mono">GOOGLE_CLIENT_SECRET</span> and
+      <span class="mono">GOOGLE_ADMIN_EMAILS</span> in <span class="mono">.env</span> and restart Protek.
+    </div>
+    {% endif %}
+  </div>
+
+  <table>
+    <thead><tr><th>Setting</th><th>Value (from .env)</th></tr></thead>
+    <tbody>
+      <tr><td>Redirect URI to register</td>                <td class="mono cyan">{{ google_callback_url }}</td></tr>
+      <tr><td class="mono">GOOGLE_CLIENT_ID</td>            <td class="mono">{{ google.client_id }}</td></tr>
+      <tr><td class="mono">GOOGLE_CLIENT_SECRET</td>        <td class="muted">{% if google.secret_set %}set (never displayed){% else %}(unset){% endif %}</td></tr>
+      <tr><td class="mono">GOOGLE_ADMIN_EMAILS</td>         <td class="mono">{{ google.emails.admin|join(', ') or '(none)' }}</td></tr>
+      <tr><td class="mono">GOOGLE_OPERATOR_EMAILS</td>      <td class="mono">{{ google.emails.operator|join(', ') or '(none)' }}</td></tr>
+      <tr><td class="mono">GOOGLE_VIEWER_EMAILS</td>        <td class="mono">{{ google.emails.viewer|join(', ') or '(none)' }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
   <h2>OpenID Connect SSO</h2>
   <p class="muted" style="margin:0 0 14px;font-size:12px;text-transform:none;letter-spacing:0;line-height:1.6">
     OIDC configuration lives in <span class="mono">.env</span> (read at boot, never displayed

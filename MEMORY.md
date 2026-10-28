@@ -4,6 +4,59 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-10-28 — Sign in with Google (same model as Othoni / RiMM)
+
+Committed on branch `claude/google-auth-integration-64378c`. **Not merged to
+main or deployed yet**, and the live `.env` has no `GOOGLE_*` values. The
+button stays hidden until they are set.
+
+- **Model lifted from the siblings.** Othoni (`server/google-auth.js`) and RiMM
+  (`internal/server/auth.go`) both run Google OIDC with state, nonce and PKCE
+  S256, require `email_verified`, use `prompt=select_account`, and decide
+  access with a per-role email allowlist in `.env`. Protek now does the same.
+  The difference is that Protek keeps password + TOTP as break-glass, folded
+  under the button. Both siblings are Google-only.
+- **`google_auth.py`** sits on the Authlib client `oidc.py` already used, so
+  there is no new dependency. Authlib keeps state in the signed session cookie
+  and checks the ID token's signature (JWKS), `aud`, `exp` and nonce. We pass
+  `iss` ∈ {`https://accounts.google.com`, `accounts.google.com`} and require
+  `email_verified is True`. Discovery is lazy, so a network blip at boot does
+  not disable the button.
+- **Env:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ADMIN_EMAILS`,
+  `GOOGLE_OPERATOR_EMAILS`, `GOOGLE_VIEWER_EMAILS`. The button needs the ID,
+  the secret and at least one email. A half-filled config logs a warning, is
+  shown on `/admin/sso`, and stays off. It does not refuse to boot, because a
+  login typo must never stop the reconcile loop.
+- **Routes:** `/auth/google` and `/auth/google/callback`. The redirect URI to
+  register in Google Cloud is `https://<host>/auth/google/callback`, and
+  `/admin/sso` prints it. Both routes apply the IP allowlist and the lockout.
+  `not_allowed`, `unverified` and `disabled` count as failures (record_failure);
+  cancel and expired state do not. Errors come back as `/login?error=<code>`
+  and only known codes render. `?next=` survives the round trip through
+  `safe_next`.
+- **Role source for Google users is `.env`, not `/admin/users`.**
+  `_revalidate_session` re-reads the allowlist on every request for sessions
+  with `auth_source == "google"`. Removing an email and restarting signs that
+  person out on their next click, and a demotion lands at once. The `users` row
+  role only refreshes at the next sign-in. Disabling in `/admin/users` still
+  blocks.
+- **Bug fixed in passing:** `oidc.upsert_sso_user` hashed
+  `token_urlsafe(64)` (86 chars), and bcrypt 5 raises on input over 72 bytes.
+  So every first-time OIDC/SAML login had been a 500. It now uses 48 bytes
+  (64 chars).
+- **Tests:** `tests/test_google_auth.py` (28). It covers the full round trip
+  through the real routes with Authlib's real ID-token verification against a
+  fake Google: a test RSA key, pre-loaded metadata, and a patched
+  `fetch_access_token`. It also covers PKCE verifier↔challenge, bad
+  nonce/aud/iss/exp/signature, foreign state, cancel, not-allowed, unverified,
+  disabled, lockout, live-session revocation and demotion, and the login page.
+  The full suite and ruff pass. The redirect was also checked against Google's
+  real discovery document.
+- **Operator to-do:** create a Web OAuth client (Othoni's Google Cloud project
+  is fine; add a new client), register the redirect URI, fill `.env`, then
+  `systemctl restart protek`. Turn on 2-Step Verification on the Google
+  account, because there is no TOTP prompt for Google users.
+
 ## 2026-10-20 — Screenshots leaked the operator's IP; redacted and history rewritten
 
 The 2026-09-04 screenshot refresh (`e90cbfd`) scrubbed the infra identifiers
