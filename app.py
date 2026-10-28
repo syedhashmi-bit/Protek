@@ -145,6 +145,7 @@ def _csrf_error(e):
             error=f"Security check failed ({e.description}). Please try again.",
             locked=False, lockout_mins=0,
             sso_configured=_oidc.is_configured(),
+            google_configured=_google is not None, local_open=True, next="",
             username=request.form.get("username", ""),
         ), 400
     flash(f"Security check failed ({e.description}). Reload and try again.", "error")
@@ -236,9 +237,17 @@ def _revalidate_session():
 
     session["user_id"] = u["id"]
     session["username"] = u["username"]
-    if session.get("role") != u["role"]:
+    role = u["role"]
+    if session.get("auth_source") == "google":
+        # A Google user's access is the .env allowlist, not the users row:
+        # dropping their email (and restarting) signs them out here.
+        role = _google_auth.role_for(u["username"])
+        if not role:
+            session.clear()
+            return
+    if session.get("role") != role:
         # Demotion or promotion applied out from under a live session.
-        session["role"] = u["role"]
+        session["role"] = role
 
 def _envstr(name: str, default: str = "") -> str:
     """Read env var, tolerating inline-comment trailing whitespace."""
@@ -680,9 +689,17 @@ def login():
                 # hand the freshly-authenticated user to an attacker page.
                 return redirect(safe_next(request.args.get("next"), url_for("dashboard")))
             locked, lockout_mins = is_locked(ip)
+    else:
+        # The Google callback lands here with ?error=<code>. Only known codes
+        # render, so the query string can't put text on the page.
+        error = _google_auth.ERROR_MESSAGES.get(request.args.get("error") or "")
 
     return render_template("login.html", error=error, locked=locked, lockout_mins=lockout_mins,
                             sso_configured=_oidc.is_configured(),
+                            google_configured=_google is not None,
+                            # A failed password attempt keeps that form open.
+                            local_open=request.method == "POST",
+                            next=request.args.get("next") or "",
                             username=request.form.get("username", ""))
 
 
@@ -690,6 +707,91 @@ def login():
 
 import oidc as _oidc  # noqa: E402
 _oauth = _oidc.init_oauth(app)
+
+
+# ── Google sign-in (same model as Othoni / RiMM) ──────────────────────────
+# Its own client and callback rather than the generic OIDC one above: Google
+# sends no groups claim, so access is a per-role email allowlist in .env
+# (GOOGLE_*_EMAILS). See google_auth.py.
+
+import google_auth as _google_auth  # noqa: E402
+_google = _google_auth.init_oauth(app)
+
+
+def _google_gate():
+    """Same gates as the password form: IP allowlist, then lockout. Returns
+    a response to send instead, or None to carry on."""
+    ip = client_ip()
+    if not ip_allowed(ip):
+        return render_template("blocked.html", ip=ip), 403
+    if is_locked(ip)[0]:
+        return redirect(url_for("login"))  # the login page shows the lockout
+    if _google is None:
+        return redirect(url_for("login", error="not_configured"))
+    return None
+
+
+def _google_failed(ip: str, e: "_google_auth.GoogleSignInError"):
+    log.warning("Google sign-in failed (%s) from %s: %s", e.code, ip, e)
+    record_audit(ip, e.email or "(google)", False, f"google: {e.code}")
+    # A refused account counts toward the lockout like a bad password. A
+    # cancelled or expired round trip is a hiccup, not an attempt.
+    if e.code in ("not_allowed", "unverified", "disabled"):
+        record_failure(ip)
+        try:
+            import siem as _siem
+            _siem.ship("auth.sso_denied",
+                       {"ip": ip, "email": e.email, "method": "google", "reason": e.code},
+                       severity=4)
+        except Exception:  # noqa: BLE001
+            pass
+    return redirect(url_for("login", error=e.code))
+
+
+@app.route("/auth/google")
+def google_login():
+    blocked = _google_gate()
+    if blocked is not None:
+        return blocked
+    # Carried across the round trip in the session; validated again on use.
+    session["google_next"] = safe_next(request.args.get("next"), "")
+    return _google_auth.begin(_google, url_for("google_callback", _external=True))
+
+
+@app.route("/auth/google/callback")
+def google_callback():
+    blocked = _google_gate()
+    if blocked is not None:
+        return blocked
+    ip = client_ip()
+    next_url = session.pop("google_next", "")
+    try:
+        who = _google_auth.complete(_google, request.args)
+    except _google_auth.GoogleSignInError as e:
+        return _google_failed(ip, e)
+    try:
+        user = _oidc.upsert_sso_user(who["email"], who["role"], who["sub"])
+    except PermissionError:
+        return _google_failed(ip, _google_auth.GoogleSignInError(
+            "disabled", "user disabled in /admin/users", who["email"]))
+
+    clear_failures(ip)
+    record_audit(ip, who["email"], True, "google")
+    try:
+        import siem as _siem
+        _siem.ship("auth.sso_success",
+                   {"ip": ip, "actor": who["email"], "role": who["role"], "method": "google"},
+                   severity=6)
+    except Exception:  # noqa: BLE001
+        pass
+    session.clear()
+    session["logged_in"] = True
+    session["username"] = who["email"]
+    session["user_id"] = user["id"]
+    session["role"] = who["role"]
+    session["auth_source"] = "google"
+    touch_session()
+    return redirect(safe_next(next_url, url_for("dashboard")))
 
 # ── Threat intel publishing (phase 78) ────────────────────────────────────
 
@@ -1020,6 +1122,9 @@ def admin_sso():
         "admin_sso.html",
         status=_oidc.status(),
         callback_url=callback_url,
+        google=_google_auth.status(),
+        google_active=_google is not None,
+        google_callback_url=url_for("google_callback", _external=True),
         test_result=session.pop("sso_test_result", None),
         active="admin_sso",
     )

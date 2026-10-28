@@ -226,6 +226,11 @@ LOCKOUT_MINUTES=15
 SESSION_TIMEOUT_MIN=30
 IP_WHITELIST=
 
+# Google sign-in (optional) — see google_auth.py, docs/SSO.md
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_ADMIN_EMAILS=                # comma-sep; also GOOGLE_OPERATOR_EMAILS / GOOGLE_VIEWER_EMAILS
+
 # Notifications (optional)
 DISCORD_WEBHOOK=
 TELEGRAM_BOT_TOKEN=
@@ -246,6 +251,7 @@ SMTP_FROM=
 - **Session**: Flask session with `SECRET_KEY`, signed cookie, `Secure` + `HttpOnly` + `SameSite=Lax`. Timeout via `SESSION_TIMEOUT_MIN`.
 - **Rate limit**: `MAX_LOGIN_ATTEMPTS` failed `(IP, username)` tuples in `LOCKOUT_MINUTES` → IP locked. Logged in `login_audit` with reason.
 - **IP whitelist**: if `IP_WHITELIST` set, requests from outside that comma-separated list get a 403 before login even renders.
+- **Sign in with Google** (same model as Othoni / RiMM): `/auth/google` → `/auth/google/callback`, and access is the `GOOGLE_*_EMAILS` allowlist in `.env`. TOTP is skipped for Google users, since Google's 2-Step Verification is the second factor. Their role comes from `.env` and is re-checked on every request in `_revalidate_session`. Password + TOTP above stays as break-glass.
 - **Issuer name in TOTP URI**: `Protek`. Shows up nicely in Google Authenticator / Authy / 1Password / Aegis.
 
 ## Coding Rules

@@ -5,10 +5,73 @@ naturally; you can also enable both side-by-side. The break-glass
 admin from `.env` (`APP_USERNAME` / `APP_PASSWORD_HASH` / `TOTP_SECRET`)
 always works at `/login` regardless of SSO state.
 
+## Google sign-in
+
+The same model as Othoni and RiMM: a **Sign in with Google** button on
+`/login`, and an email allowlist in `.env` that decides who gets in and
+with which role. Use this for Google rather than the generic OIDC
+client below. Google sends no groups claim, so OIDC could only gate it
+by domain, and the domain for a personal account is `gmail.com`.
+
+### Set up
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
+   go to **APIs & Services → Credentials → Create credentials → OAuth
+   client ID**, type **Web application**. If you already have a project
+   for Othoni or RiMM, add a new client there. If the consent screen is
+   in *Testing*, add yourself as a test user.
+2. Add this **Authorized redirect URI** (`/admin/sso` shows the exact
+   value for your host):
+
+   ```
+   https://<your-protek-host>/auth/google/callback
+   ```
+
+3. Put the client and the allowlist in `.env`:
+
+   ```bash
+   GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=<secret>
+   GOOGLE_ADMIN_EMAILS=you@example.com       # comma-separated
+   GOOGLE_OPERATOR_EMAILS=                   # optional
+   GOOGLE_VIEWER_EMAILS=                     # optional, read-only
+   ```
+
+4. `systemctl restart protek`. The button appears once the client ID,
+   the secret and at least one email are set. A half-filled config logs
+   a warning at boot and shows on `/admin/sso`, and the button stays off.
+
+### How it works
+
+- `/auth/google` sends the browser to Google's account chooser with a
+  random `state` (held in the signed session cookie, so it is bound to
+  this browser), a `nonce` and a PKCE S256 challenge.
+- `/auth/google/callback` swaps the code for an ID token server-to-server.
+  Authlib checks its signature against Google's published keys, plus its
+  audience, expiry and nonce. Protek then checks the issuer and requires
+  `email_verified`.
+- The verified email must be on one of the three lists. An email on two
+  lists gets the higher role. Anyone else is sent back to `/login` with
+  "That Google account isn't allowed". That counts toward the IP lockout
+  like a bad password and lands in the login audit as `google: not_allowed`.
+- The first sign-in creates a `users` row keyed by email, with an unusable
+  password. For Google users the **role comes from `.env`**, not
+  `/admin/users`. The allowlist is re-checked on every request, so
+  removing an email (or moving it to a lower list) and restarting takes
+  effect on that person's next click. To block someone without
+  restarting, disable them in `/admin/users`.
+- There is no TOTP prompt. 2-Step Verification on the Google account is
+  the second factor, as in Othoni and RiMM, so turn it on.
+- The IP allowlist and the login lockout apply to Google sign-in too.
+- **Break-glass:** with Google configured, `/login` folds the password +
+  TOTP form under "Use a password and 2FA code instead". It keeps working
+  whatever Google's state.
+
 ## OIDC — modern providers
 
 Verified against Google Workspace, Authentik, Auth0, Keycloak. See
-the comment block at the top of `oidc.py` for env vars.
+the comment block at the top of `oidc.py` for env vars. For Google,
+use the Google sign-in section above instead.
 
 Login URL: `/sso/login` → callback at `/sso/callback`.
 
@@ -110,7 +173,9 @@ Set `SAML_GROUPS_ATTR` to whatever your IdP actually sends.
 
 ## /admin/sso
 
-Both OIDC and SAML config status are visible at `/admin/sso` (admin-only).
+Google sign-in, OIDC and SAML config status are visible at `/admin/sso`
+(admin-only). The Google panel shows the redirect URI to register and
+the allowlist per role.
 The page shows what's configured, what's missing, and a test button for
 OIDC. SAML's test path is harder to automate without a real IdP click-through,
 so the SAML row links to `/saml/metadata` so the operator can verify the

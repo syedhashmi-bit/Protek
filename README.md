@@ -169,6 +169,7 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 - **REST API v1** — full OpenAPI spec at `/api/openapi.json`, scoped tokens (stats / read / write / admin), expiry, last-used. `stats` opens only the counts-only `GET /api/v1/stats` and implies nothing else; each higher scope implies the ones below it.
 - **GraphQL** — `/api/graphql` alongside REST, GraphiQL explorer for admins.
 - **Plugin SDK** — publish the `Bouncer` protocol as documented public interface; hot-load adapters from `~/.config/protek/adapters/*.py`; cookiecutter template for community adapters.
+- **Sign in with Google** — the same model as Othoni / RiMM: Google OIDC with PKCE, and a per-role email allowlist in `.env` (`GOOGLE_*_EMAILS`). Password + TOTP stays as break-glass. See [`docs/SSO.md`](docs/SSO.md).
 - **OAuth / SAML SSO** — OIDC providers + SAML 2.0 SP; per-domain restriction; fallback to local user table for break-glass.
 - **Native packages** (`.deb` / `.rpm`) hosted on a GitHub-Pages APT/YUM repo.
 
