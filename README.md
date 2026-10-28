@@ -287,7 +287,7 @@ nginx -t && systemctl reload nginx
 certbot --nginx -d protek.example.com
 ```
 
-First login: visit `https://protek.example.com`, enter username + password + TOTP. Protek starts in **dry-run** — it logs every reconcile decision but writes nothing to MikroTik. Verify the diff looks right at `/mikrotik`, then flip dry-run off from `/settings`.
+First login: visit `https://protek.example.com`, enter username + password + TOTP. (Optional: add Sign in with Google afterwards — see [`docs/SSO.md`](docs/SSO.md).) Protek starts in **dry-run** — it logs every reconcile decision but writes nothing to MikroTik. Verify the diff looks right at `/mikrotik`, then flip dry-run off from `/settings`.
 
 ---
 
@@ -305,6 +305,7 @@ First login: visit `https://protek.example.com`, enter username + password + TOT
 | `MT_PORT`, `MT_USE_SSL`, `MT_ADDRESS_LIST` | no | Defaults: 8728, false, `crowdsec` |
 | `DRY_RUN` | no | Boot default; `settings.dry_run` row overrides at runtime |
 | `MAX_LOGIN_ATTEMPTS`, `LOCKOUT_MINUTES`, `SESSION_TIMEOUT_MIN`, `IP_WHITELIST` | no | Security knobs |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ADMIN_EMAILS` / `_OPERATOR_EMAILS` / `_VIEWER_EMAILS` | no | Sign in with Google; see [`docs/SSO.md`](docs/SSO.md) |
 | `DISCORD_WEBHOOK`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SMTP_*` | no | Notification channels |
 | `CROWDSEC_CTI_API_KEY`, `ABUSEIPDB_KEY`, `OTX_KEY`, `PROXYCHECK_KEY` | no | Intel providers |
 
@@ -390,7 +391,8 @@ DR runbook in [`docs/DR-RUNBOOK.md`](docs/DR-RUNBOOK.md) — every failure mode 
 
 ## Security
 
-- **TOTP 2FA mandatory** — username + bcrypt password → TOTP code (Google Authenticator / Authy / 1Password / Aegis). Verified with `valid_window=1` (±30 s clock drift).
+- **TOTP 2FA on every password login** — username + bcrypt password → TOTP code (Google Authenticator / Authy / 1Password / Aegis). Verified with `valid_window=1` (±30 s clock drift).
+- **Sign in with Google** (optional) — OIDC with PKCE; only emails on the `GOOGLE_*_EMAILS` allowlist get in, re-checked on every request. Google's 2-Step Verification is the second factor, so Protek skips its own TOTP prompt for these users. Password + TOTP stays as break-glass.
 - **Rate limiting** — `MAX_LOGIN_ATTEMPTS` failed `(IP, username)` tuples in `LOCKOUT_MINUTES` → IP locked. Every attempt logged in `login_audit`.
 - **IP whitelist** (optional) — `IP_WHITELIST` blocks pre-login from anywhere not in the list.
 - **CSRF** — Flask-WTF on all POST forms; `X-CSRFToken` header for AJAX.
@@ -410,7 +412,8 @@ CrowdSec:   LAPI HTTP client (X-Api-Key bouncer auth); /v1/decisions + /v1/decis
 Bouncers:   routeros_api (MikroTik), requests (pfSense / OPNsense / Cloudflare), ipset shell-out
 Frontend:   Jinja2 server-rendered HTML; hand-rolled inline-SVG sparklines; Leaflet 1.9 +
             MarkerCluster over OpenStreetMap tiles; warm dark palette; IBM Plex Sans + Mono
-Auth:       bcrypt + pyotp TOTP, Flask sessions, rate limiting, optional IP whitelist
+Auth:       bcrypt + pyotp TOTP, optional Google OIDC (Authlib), Flask sessions, rate limiting,
+            optional IP whitelist
 Notify:     Discord webhook · Telegram bot · SMTP MIME — all 8–10 s timeouts, SSRF guards
 Resilience: Off-box backup (S3 / B2 / MinIO) + Litestream WAL replication + synthetic self-test
 Deploy:     gunicorn + systemd + nginx; certbot for TLS. Matches the pipsqueeze/traverse pattern.
