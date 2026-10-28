@@ -145,7 +145,9 @@ def upsert_sso_user(email: str, role: str, idp_sub: str) -> dict[str, Any]:
             return {"id": row["id"], "username": email, "role": role}
         # Generate a random, unusable password hash — SSO users authenticate
         # via the IDP only. There's no local password to brute force.
-        random_pw = secrets.token_urlsafe(64).encode()
+        # 48 bytes → 64 chars. bcrypt 5 raises on input over 72 bytes, and
+        # token_urlsafe(64) (86 chars) made every first SSO login a 500.
+        random_pw = secrets.token_urlsafe(48).encode()
         pw_hash = bcrypt.hashpw(random_pw, bcrypt.gensalt(rounds=10)).decode()
         # Random base32 totp_secret too (never validated for SSO users)
         cur = conn.execute(
