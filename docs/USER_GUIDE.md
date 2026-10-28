@@ -79,6 +79,10 @@ API: `POST /api/v1/sync/run` with a `write`-scope token.
 (it's the only time it's shown). The new user can change role between viewer/operator/admin
 at any time. User #1 (the env-anchored admin) can't be demoted or deleted.
 
+With Google sign-in on, it's simpler to add their Google email to
+`GOOGLE_ADMIN_EMAILS` (or `_OPERATOR_` / `_VIEWER_`) in `.env` and restart. Google users'
+role comes from that list, not from `/admin/users`; disabling them there still blocks them.
+
 ### Generate an API token (for `protekctl` or a webhook)
 
 `/admin/tokens` → name + scopes (`stats`, `read`, `write`, `admin`; higher implies lower).
