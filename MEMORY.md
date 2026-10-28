@@ -65,9 +65,18 @@ any multi-line text containing shell snippets to a file first.
 
 ## 2026-10-28 — Sign in with Google (same model as Othoni / RiMM)
 
-Committed on branch `claude/google-auth-integration-64378c`. **Not merged to
-main or deployed yet**, and the live `.env` has no `GOOGLE_*` values. The
-button stays hidden until they are set.
+**Live since 2026-10-28 01:51 UTC.** PR #17 was rebase-merged (`e93a1f2` fix,
+`f5cb5c0` feature), pulled into `/var/www/Protek` and restarted. `GOOGLE_*` was
+added to the live `.env` at 01:51. After that restart the button showed on
+the public `/login`, and the redirect landed on Google's sign-in page with
+no `redirect_uri_mismatch`. The operator added Protek's redirect URI to
+**Othoni's existing Google OAuth client**, so the two apps share a client ID
+and secret. Rotating the secret means updating both `.env` files.
+- **Gotcha seen during rollout:** a restart with no `GOOGLE_*` set at all logs
+  nothing. Only a half-filled config warns. "No button, no warning" means
+  Protek sees none of the values: check `.env`'s mtime, or `/admin/sso`.
+  On 2026-10-28 the first "added" had gone into the Google Console, not
+  Protek's `.env`.
 
 - **Model lifted from the siblings.** Othoni (`server/google-auth.js`) and RiMM
   (`internal/server/auth.go`) both run Google OIDC with state, nonce and PKCE
