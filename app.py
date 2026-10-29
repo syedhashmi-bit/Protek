@@ -31,7 +31,10 @@ from flask import (Flask, abort, flash, jsonify, redirect, render_template,
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 
 ROOT = Path(__file__).resolve().parent
-load_dotenv(ROOT / ".env")
+# PROTEK_ENV_FILE moves .env off the code tree — the Docker image sets it to
+# /data/.env so the secrets setup_admin.py writes survive a rebuild.
+ENV_FILE = Path(os.environ.get("PROTEK_ENV_FILE") or ROOT / ".env")
+load_dotenv(ENV_FILE)
 
 # Import after env is loaded so module-level os.environ.get() reads pick it up.
 from auth import (client_ip, ip_allowed, is_locked, login_required,
@@ -83,7 +86,7 @@ def _env_secret(name: str) -> str:
         return raw
     try:
         from dotenv import dotenv_values
-        return (dotenv_values(ROOT / ".env").get(name) or "").strip()
+        return (dotenv_values(ENV_FILE).get(name) or "").strip()
     except Exception:  # noqa: BLE001 — .env unreadable is the same as unset
         return ""
 

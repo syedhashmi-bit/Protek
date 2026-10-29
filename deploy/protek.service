@@ -34,17 +34,24 @@ MemoryMax=2560M
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+# read-only, not yes: a uv-built venv's interpreter may live under
+# /root/.local/share/uv, and hiding /root makes exec fail (status=203/EXEC).
+# install.sh puts uv's Python under /opt/uv to avoid that, but older venvs don't.
+ProtectHome=read-only
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 RestrictRealtime=yes
 LockPersonality=yes
+UMask=0077
 # /var/www/Protek — the DB, WAL and .poller.lock.
-# /etc/crowdsec/scenarios — the custom scenarios the editor writes.
+# /etc/crowdsec, /var/lib/crowdsec — the scenario editor and the hub catalog
+#   (`cscli hub install` writes both).
+# /run — runtime state; matches the live unit.
+# /root/.gunicorn — gunicorn's control socket; the `-` makes it optional.
 # Add any path a bouncer adapter or backup destination needs to write.
-ReadWritePaths=/var/www/Protek /etc/crowdsec/scenarios
+ReadWritePaths=/var/www/Protek /etc/crowdsec /var/lib/crowdsec /run -/root/.gunicorn
 
 [Install]
 WantedBy=multi-user.target

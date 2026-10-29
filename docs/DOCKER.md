@@ -11,26 +11,43 @@ rather ship containers.
 ## Quickstart — fresh host
 
 Prerequisites: `docker` ≥ 24, `docker compose` v2 (bundled with
-recent Docker installs), and a DNS record pointing your chosen
-domain at the host.
+recent Docker installs), a DNS record pointing your chosen domain at
+the host, and CrowdSec running on the host with its LAPI reachable
+from containers (see [CrowdSec placement](#crowdsec-placement) — do
+that first).
 
 ```bash
 # 1. Clone the repo into any directory (no /var/www required).
 git clone https://github.com/syedhashmi-bit/Protek.git
 cd Protek
 
-# 2. Set your domain. Caddy uses it for Let's Encrypt issuance.
+# 2. Your settings go in ./.env. Caddy uses PROTEK_DOMAIN for Let's Encrypt.
 echo "PROTEK_DOMAIN=protek.example.com" > .env
+echo "CROWDSEC_BOUNCER_KEY=$(sudo cscli bouncers add protek -o raw)" >> .env
+# Add MT_HOST / MT_USERNAME / MT_PASSWORD here too, or leave them out and
+# Protek runs in dry-run.
+chmod 600 .env
 
-# 3. Build + start the stack.
-docker compose up -d --build
+# 3. Build the image.
+docker compose build
 
 # 4. First-run admin setup — captures one-shot password + TOTP URI.
-#    (Pipe the output to a notes app or screenshot it; it never reprints.)
-docker compose exec protek python scripts/setup_admin.py --username admin
+#    (Screenshot it or paste it into a password manager; it never reprints.)
+#    Must run before `up`: Protek refuses to start without the SECRET_KEY
+#    this writes. It lands in /data/.env on the volume, so it survives
+#    rebuilds.
+docker compose run --rm protek python scripts/setup_admin.py --username admin
 
-# 5. Visit https://protek.example.com/ and log in.
+# 5. Start the stack, then visit https://protek.example.com/ and log in.
+docker compose up -d
 ```
+
+There are two `.env` files, on purpose: **`./.env`** next to
+`compose.yml` is yours to edit (domain, CrowdSec key, MikroTik
+credentials, Google sign-in); **`/data/.env`** on the volume holds the
+generated secrets and is written only by `setup_admin.py`. When a key
+is in both, `./.env` wins. After editing `./.env`, run
+`docker compose up -d` to recreate the container with the new values.
 
 Caddy auto-issues a Let's Encrypt cert on the first HTTPS request.
 For local dev (`PROTEK_DOMAIN=localhost`), Caddy serves a self-signed
@@ -61,18 +78,25 @@ shape from phase 64).
 ## State lives on one volume
 
 Everything Protek persists — `protek.db`, the Litestream local LTX
-stage, the operator's `.env` if they keep it there — lives in a single
-named volume `protek_data`. Back up that one volume; you've backed up
-Protek.
+stage, and the generated secrets in `/data/.env` — lives in a single
+named volume, `protek_data`. Back up that one volume (plus your
+`./.env`); you've backed up Protek.
+
+Compose prefixes the volume with the project name (the repo
+directory, so usually `protek_protek_data`). The commands below go
+through `docker compose run`, which resolves the right volume for you.
 
 ```bash
 # Snapshot the volume to a tarball on the host
-docker run --rm -v protek_data:/data -v $PWD:/backup alpine \
+docker compose run --rm --no-deps --user root -v "$PWD":/backup protek \
     tar czf /backup/protek-backup-$(date +%F).tgz -C /data .
 
-# Restore
-docker run --rm -v protek_data:/data -v $PWD:/backup alpine \
-    tar xzf /backup/protek-backup-2026-05-28.tgz -C /data
+# Restore (stop Protek first; the chown keeps the files writable by the
+# container's non-root user)
+docker compose stop protek
+docker compose run --rm --no-deps --user root -v "$PWD":/backup protek \
+    sh -c 'tar xzf /backup/protek-backup-2026-05-28.tgz -C /data && chown -R protek:protek /data'
+docker compose start protek
 ```
 
 The `backup.py` automation (phase 63) is still available inside the
@@ -89,17 +113,20 @@ scp /tmp/protek-state.tgz docker-host:/tmp/
 
 # On the docker host
 cd Protek                               # repo root
-docker compose up -d --build            # creates the volume
-docker compose stop protek              # quiesce for the restore
-docker run --rm -v protek_data:/data -v /tmp:/src alpine \
-    tar xzf /src/protek-state.tgz -C /data
-docker compose start protek
+echo "PROTEK_DOMAIN=protek.example.com" > .env
+docker compose build
+docker compose run --rm --no-deps --user root -v /tmp:/src protek \
+    sh -c 'tar xzf /src/protek-state.tgz -C /data && chown -R protek:protek /data'
+docker compose up -d
 ```
 
 The DB schema is shared — bare-metal and container builds run the
-same migrations. The `PROTEK_DB_PATH` env var in `compose.yml` points
-at `/data/protek.db` so the existing-bare-metal file works in place
-without rename.
+same migrations. `PROTEK_DB_PATH` and `PROTEK_ENV_FILE` in
+`compose.yml` point at `/data/protek.db` and `/data/.env`, so the
+bare-metal files work in place without rename. The bare-metal `.env`'s
+`CROWDSEC_LAPI_URL=http://127.0.0.1:8080` is overridden by
+`compose.yml` (see below); set `CROWDSEC_LAPI_URL` in `./.env` if your
+LAPI is elsewhere.
 
 ## Operating
 
@@ -146,9 +173,30 @@ deployment runs it on the host parsing host logs (nginx access,
 auth, syslog). Two options:
 
 - **Host-side CrowdSec (recommended)**: install via the official APT
-  repo on the host. Add `extra_hosts: ["host.docker.internal:host-gateway"]`
-  to the `protek` service and set `CROWDSEC_LAPI_URL=http://host.docker.internal:8080`
-  in `.env`.
+  repo on the host. `compose.yml` already maps `host.docker.internal`
+  to the host and defaults `CROWDSEC_LAPI_URL` to
+  `http://host.docker.internal:8080`. Two host-side changes make it
+  reachable:
+
+  1. CrowdSec's LAPI listens on `127.0.0.1:8080` by default, which a
+     container can't reach. Widen it in
+     `/etc/crowdsec/config.yaml.local` (create it if missing), then
+     restart CrowdSec with `sudo systemctl restart crowdsec`:
+
+     ```yaml
+     api:
+       server:
+         listen_uri: 0.0.0.0:8080
+     ```
+
+  2. Keep port 8080 off the internet, but let Docker's bridge
+     networks in. With ufw (which denies incoming by default):
+
+     ```bash
+     sudo ufw allow from 172.16.0.0/12 to any port 8080 proto tcp
+     ```
+
+     Without a host firewall, block 8080 at your provider instead.
 - **Container-side CrowdSec**: add `crowdsec` as another service in
   `compose.yml`. Bind-mount `/var/log` from the host into the
   container so it can parse the right logs. Out of scope for this

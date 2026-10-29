@@ -1,6 +1,11 @@
 # Install Guide
 
-Tested on Ubuntu 22.04 + 24.04. Other Debian-derived distros likely fine. RHEL not supported.
+For Ubuntu 22.04, 24.04 and 26.04. Other Debian-derived distros likely fine. RHEL not supported.
+
+Protek needs **Python 3.12**. Ubuntu 24.04 packages it as `python3.12`; 22.04
+ships 3.10 and 26.04 a newer 3.x, so there the installer fetches 3.12 with
+[uv](https://docs.astral.sh/uv/) instead. Prefer containers? See
+[`DOCKER.md`](DOCKER.md).
 
 ## One-command install
 
@@ -8,8 +13,11 @@ Tested on Ubuntu 22.04 + 24.04. Other Debian-derived distros likely fine. RHEL n
 curl -fsSL https://raw.githubusercontent.com/syedhashmi-bit/Protek/main/install.sh | sudo bash
 ```
 
-This handles: system deps, CrowdSec (via APT), Python venv, requirements,
+This handles: system deps, CrowdSec (via APT), Python 3.12 venv, requirements,
 admin bootstrap, bouncer key generation, systemd unit, nginx site, TLS via certbot.
+It asks for your admin username, your domain, a Let's Encrypt email, and whether
+to turn on the ufw firewall (off unless you say yes; if you do, it opens the port
+sshd actually listens on, not just 22). Safe to re-run.
 
 It does **not** handle: MikroTik wiring (you provide creds + firewall rules),
 CrowdSec Console enrollment (one extra step), flipping out of dry-run.
@@ -19,8 +27,8 @@ CrowdSec Console enrollment (one extra step), flipping out of dry-run.
 ```bash
 # 1. Deps
 sudo apt-get update
-sudo apt-get install -y python3.12 python3.12-venv git nginx certbot \
-    python3-certbot-nginx sqlite3 build-essential
+sudo apt-get install -y git nginx certbot python3-certbot-nginx sqlite3 build-essential
+sudo apt-get install -y python3.12 python3.12-venv   # Ubuntu 24.04 only — see step 3
 
 # 2. CrowdSec
 curl -s https://install.crowdsec.net | sudo bash
@@ -31,11 +39,14 @@ sudo systemctl enable --now crowdsec
 sudo git clone https://github.com/syedhashmi-bit/Protek.git /var/www/Protek
 cd /var/www/Protek
 sudo python3.12 -m venv venv
+# No python3.12 package (22.04, 26.04)? Use uv instead of the line above. The
+# interpreter goes under /opt because the systemd unit mounts /root read-only:
+#   curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin sh
+#   sudo env UV_PYTHON_INSTALL_DIR=/opt/uv/python uv venv --seed --python 3.12 venv
 sudo ./venv/bin/pip install -r requirements.txt
 
-# 4. Admin bootstrap (captures password + TOTP once; chmod 0600 on .env)
-sudo cp .env.example .env
-sudo chmod 0600 .env
+# 4. Admin bootstrap (creates .env from .env.example, chmod 0600;
+#    captures password + TOTP once)
 sudo ./venv/bin/python scripts/setup_admin.py --username admin
 
 # 5. Bouncer key
@@ -51,7 +62,7 @@ sudo cp deploy/nginx.conf /etc/nginx/sites-available/protek
 sudo sed -i 's/your.domain/protek.example.com/' /etc/nginx/sites-available/protek
 sudo ln -sf /etc/nginx/sites-available/protek /etc/nginx/sites-enabled/protek
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d your.domain
+sudo certbot --nginx -d protek.example.com
 ```
 
 ## Connecting MikroTik

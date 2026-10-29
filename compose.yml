@@ -1,10 +1,16 @@
 # Protek — docker-compose deployment, Arc 16 phase 95.
 #
-# Quickstart:
+# Quickstart (full version in docs/DOCKER.md):
+#   echo "PROTEK_DOMAIN=protek.example.com" > .env
+#   docker compose build
+#   docker compose run --rm protek python scripts/setup_admin.py --username admin
+#   (capture the printed password + TOTP otpauth URI — one-time; the
+#   secrets land in /data/.env on the volume, so they survive rebuilds)
 #   docker compose up -d
-#   docker compose exec protek python scripts/setup_admin.py --username admin
-#   (capture the printed password + TOTP otpauth URI — one-time)
 #   open https://protek.example.com/ → log in.
+#
+# setup_admin must run before `up`: Protek refuses to start without the
+# SECRET_KEY it writes.
 #
 # Migration from bare-metal:
 #   docker compose down
@@ -38,16 +44,25 @@ services:
     container_name: protek
     restart: unless-stopped
     env_file:
-      # Host-side .env in this directory. Values like SECRET_KEY,
-      # APP_PASSWORD_HASH, TOTP_SECRET, MT_HOST, etc. flow into the
-      # container as process env. Created by setup_admin.py on first run.
+      # Host-side .env in this directory — the settings you edit:
+      # PROTEK_DOMAIN, CROWDSEC_BOUNCER_KEY, MT_HOST/MT_USERNAME/MT_PASSWORD,
+      # GOOGLE_*, etc. They become process env and win over /data/.env.
+      # The generated secrets (SECRET_KEY, APP_PASSWORD_HASH, TOTP_SECRET)
+      # live in /data/.env on the volume, written by setup_admin.py.
       - ./.env
     environment:
       # Container-only overrides — these take precedence over .env so
       # the volume location is consistent regardless of what bare-metal
       # values the operator copied over.
       PROTEK_DB_PATH: /data/protek.db
+      PROTEK_ENV_FILE: /data/.env
       COOKIE_INSECURE: "0"
+      # 127.0.0.1 inside the container is the container. Host-side
+      # CrowdSec is reached via host.docker.internal (mapped below); its
+      # LAPI must listen beyond loopback — see docs/DOCKER.md.
+      CROWDSEC_LAPI_URL: ${CROWDSEC_LAPI_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - protek_data:/data
     networks:

@@ -10,7 +10,8 @@ Generates:
   - TOTP_SECRET           (32-char base32 — works with Google Authenticator,
                            Authy, 1Password, Aegis, etc.)
 
-Writes the secrets into /var/www/Protek/.env, creating the file from
+Writes the secrets into .env next to the code (or $PROTEK_ENV_FILE, which
+the Docker image points at /data/.env), creating the file from
 .env.example if it doesn't exist. Existing non-credential values in .env
 are preserved.
 
@@ -39,7 +40,7 @@ import bcrypt
 import pyotp
 
 ROOT = Path(__file__).resolve().parent.parent
-ENV_PATH = ROOT / ".env"
+ENV_PATH = Path(os.environ.get("PROTEK_ENV_FILE") or ROOT / ".env")
 ENV_EXAMPLE = ROOT / ".env.example"
 
 ISSUER = "Protek"

@@ -244,38 +244,47 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 
 ## Quick start
 
-> **Tested on Ubuntu 22.04 / 24.04.** See [`docs/INSTALL.md`](docs/INSTALL.md) for the long-form guide.
+> **Ubuntu 22.04, 24.04 or 26.04.** Protek needs Python 3.12. Ubuntu 24.04 packages it; on other releases the installer fetches it with [uv](https://docs.astral.sh/uv/). Prefer containers? See [`docs/DOCKER.md`](docs/DOCKER.md).
+
+**One command** (installs CrowdSec too if it isn't there, and asks for your admin username and domain):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/syedhashmi-bit/Protek/main/install.sh | sudo bash
+```
+
+**Or by hand** (as root, on Ubuntu 24.04; for other releases see [`docs/INSTALL.md`](docs/INSTALL.md)):
 
 ```bash
 # 1. Clone + venv
 git clone https://github.com/syedhashmi-bit/Protek.git /var/www/Protek
 cd /var/www/Protek
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+apt-get install -y python3.12-venv
+python3.12 -m venv venv
+venv/bin/pip install -r requirements.txt
 
-# 2. Bouncer key from CrowdSec (already running on this host)
-sudo cscli bouncers add protek
-# Copy the key into .env (next step) as CROWDSEC_BOUNCER_KEY=...
-
-# 3. Bootstrap secrets — generates SECRET_KEY, bcrypt hash, TOTP secret
-python scripts/setup_admin.py --username admin
+# 2. Bootstrap secrets — creates .env with SECRET_KEY, bcrypt hash, TOTP secret
+venv/bin/python scripts/setup_admin.py --username admin
 # Captures plaintext password + TOTP otpauth URL + ASCII QR ONCE — store now,
 # they are not recoverable later.
 
-# 4. Edit .env with CrowdSec key, MikroTik creds (or skip — runs dry-run by default)
+# 3. Bouncer key from CrowdSec (already running on this host)
+cscli bouncers add protek
+# Put the key in .env as CROWDSEC_BOUNCER_KEY=..., plus MikroTik creds
+# (or leave those out — Protek runs dry-run by default)
 $EDITOR .env
 
-# 5. systemd unit + nginx
-sudo cp deploy/protek.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now protek
+# 4. systemd unit + nginx
+cp deploy/protek.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now protek
 
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/protek
-sudo ln -s /etc/nginx/sites-available/protek /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
+cp deploy/nginx.conf /etc/nginx/sites-available/protek
+sed -i 's/your\.domain/protek.example.com/' /etc/nginx/sites-available/protek
+ln -s /etc/nginx/sites-available/protek /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
 
-# 6. TLS
-sudo certbot --nginx -d protek.example.com
+# 5. TLS
+certbot --nginx -d protek.example.com
 ```
 
 First login: visit `https://protek.example.com`, enter username + password + TOTP. Protek starts in **dry-run** — it logs every reconcile decision but writes nothing to MikroTik. Verify the diff looks right at `/mikrotik`, then flip dry-run off from `/settings`.
@@ -311,7 +320,7 @@ systemctl restart protek                          # after editing app.py / crowd
 systemctl status protek
 journalctl -u protek -n 50 --no-pager
 
-# Templates reload on each request — no restart needed for Jinja2 edits.
+# Templates are cached — restart after editing one too.
 
 # Force an immediate reconcile cycle
 curl -X POST https://protek.example.com/api/sync/run
