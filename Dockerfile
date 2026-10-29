@@ -51,10 +51,10 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=protek:protek . /app
 
-# State volume — protek.db, .protek.db-litestream, and (optionally) .env
-# all live here. PROTEK_DB_PATH points db.py at the volumed location;
-# bare-metal installs leave it unset and the default parent-dir layout
-# still works.
+# State volume — protek.db, .protek.db-litestream, and the .env that
+# setup_admin.py writes all live here. PROTEK_DB_PATH and PROTEK_ENV_FILE
+# point the code at the volumed locations; bare-metal installs leave them
+# unset and the default parent-dir layout still works.
 RUN mkdir -p /data && chown protek:protek /data
 VOLUME ["/data"]
 
@@ -64,6 +64,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PROTEK_DB_PATH=/data/protek.db \
+    PROTEK_ENV_FILE=/data/.env \
     SYNC_INTERVAL_SEC=10 \
     DRY_RUN=true \
     COOKIE_INSECURE=1

@@ -161,10 +161,12 @@ def status() -> dict[str, Any]:
 
 if __name__ == "__main__":  # manual drain: venv/bin/python retention.py
     import json
+    import os
     import sys
 
     from dotenv import load_dotenv
-    load_dotenv("/var/www/Protek/.env")
+    load_dotenv(os.environ.get("PROTEK_ENV_FILE")
+                or os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     budget = int(sys.argv[1]) if len(sys.argv) > 1 else 60

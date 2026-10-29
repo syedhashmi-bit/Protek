@@ -65,7 +65,7 @@ NONCE_LEN = 12
 
 DEFAULT_LOCAL_PATH = "/var/backups/protek"
 SCENARIOS_PATH = Path("/etc/crowdsec/scenarios")
-ENV_PATH = Path(__file__).resolve().parent / ".env"
+ENV_PATH = Path(os.environ.get("PROTEK_ENV_FILE") or Path(__file__).resolve().parent / ".env")
 
 
 # ── envelope crypto ─────────────────────────────────────────────────────────

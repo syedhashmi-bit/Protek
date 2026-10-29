@@ -6,15 +6,18 @@
 #   sudo bash install.sh
 #
 # What it does (idempotent — safe to re-run):
-#   1. Installs system deps: python3.12, python3.12-venv, nginx, certbot, ufw,
-#      git, sqlite3, build-essential, and CrowdSec (via official APT repo).
+#   1. Installs system deps: nginx, certbot, git, sqlite3, build-essential,
+#      and CrowdSec (via official APT repo).
 #   2. Clones (or pulls) Protek into /var/www/Protek.
-#   3. Creates the venv + installs requirements.txt.
+#   3. Creates a Python 3.12 venv + installs requirements.txt. Uses the distro's
+#      python3.12 where it has one (Ubuntu 24.04); otherwise fetches 3.12 with
+#      uv into /opt/uv (Ubuntu 22.04 ships 3.10, 26.04 ships a newer 3.x).
 #   4. Bootstraps the admin via scripts/setup_admin.py (interactive — captures
 #      one-shot password + TOTP).
 #   5. Generates a CrowdSec bouncer key and wires it into .env.
-#   6. Drops in a systemd unit + nginx site (operator picks domain).
+#   6. Installs deploy/protek.service + deploy/nginx.conf (operator picks domain).
 #   7. Runs `certbot --nginx` for TLS (operator picks email + agrees ToS).
+#   8. Optionally enables ufw, allowing whatever port sshd actually listens on.
 #
 # Things it does NOT do (deliberate — too contextual):
 #   - Configure your MikroTik. Add MT_HOST/USERNAME/PASSWORD to .env and add
@@ -30,20 +33,31 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 PROTEK_DIR=/var/www/Protek
-PROTEK_USER=root  # gunicorn worker runs as root for MT API socket + cscli access
 GUNICORN_BIND=127.0.0.1:8090
 REPO_URL="${PROTEK_REPO_URL:-https://github.com/syedhashmi-bit/Protek.git}"
 
 say() { printf "\n\033[1;36m[install]\033[0m %s\n" "$*"; }
-ask() { local prompt="$1" default="${2-}" reply; read -rp "$prompt${default:+ [$default]}: " reply; echo "${reply:-$default}"; }
+# Prompts read from /dev/tty, not stdin: under `curl ... | sudo bash` stdin IS
+# this script, so a plain `read` would swallow the script's own next lines.
+ask() {
+  local prompt="$1" default="${2-}" reply=""
+  if { : </dev/tty; } 2>/dev/null; then
+    read -rp "$prompt${default:+ [$default]}: " reply </dev/tty || true
+  fi
+  echo "${reply:-$default}"
+}
 
 # ── 1. System deps ──────────────────────────────────────────────────────────
 say "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl gnupg ca-certificates lsb-release \
-    python3.12 python3.12-venv python3-pip git sqlite3 \
-    nginx certbot python3-certbot-nginx ufw build-essential
+    git sqlite3 nginx certbot python3-certbot-nginx ufw build-essential
+
+# Python 3.12 from the distro when it packages it (Ubuntu 24.04).
+if apt-cache show python3.12-venv >/dev/null 2>&1; then
+  apt-get install -y -qq python3.12 python3.12-venv
+fi
 
 # CrowdSec from official repo (if not already installed)
 if ! command -v cscli >/dev/null 2>&1; then
@@ -66,8 +80,19 @@ fi
 # ── 3. venv + requirements ──────────────────────────────────────────────────
 say "Setting up Python virtualenv"
 cd "$PROTEK_DIR"
-if [[ ! -d venv ]]; then
-  python3.12 -m venv venv
+if [[ ! -x venv/bin/python ]]; then
+  if command -v python3.12 >/dev/null 2>&1 && python3.12 -c 'import ensurepip' 2>/dev/null; then
+    python3.12 -m venv venv
+  else
+    # No distro 3.12: let uv fetch one. The interpreter goes under /opt, not
+    # /root/.local, because the systemd unit mounts /root read-only and a venv
+    # whose python symlinks into a hidden home fails with status=203/EXEC.
+    say "No distro python3.12 — fetching Python 3.12 with uv"
+    export UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1
+    export UV_PYTHON_INSTALL_DIR=/opt/uv/python
+    command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+    uv venv --seed --managed-python --python 3.12 venv
+  fi
 fi
 ./venv/bin/pip install --quiet --upgrade pip
 ./venv/bin/pip install --quiet -r requirements.txt
@@ -99,24 +124,7 @@ fi
 
 # ── 6. systemd ──────────────────────────────────────────────────────────────
 say "Installing systemd unit"
-cat >/etc/systemd/system/protek.service <<UNIT
-[Unit]
-Description=Protek — CrowdSec to MikroTik bouncer + NOC dashboard
-After=network-online.target crowdsec.service
-Wants=crowdsec.service
-
-[Service]
-User=$PROTEK_USER
-WorkingDirectory=$PROTEK_DIR
-Environment="PATH=$PROTEK_DIR/venv/bin"
-EnvironmentFile=$PROTEK_DIR/.env
-ExecStart=$PROTEK_DIR/venv/bin/gunicorn -w 3 -b $GUNICORN_BIND --timeout 60 app:app
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+install -m 0644 deploy/protek.service /etc/systemd/system/protek.service
 systemctl daemon-reload
 systemctl enable --now protek
 
@@ -124,22 +132,8 @@ systemctl enable --now protek
 DOMAIN=$(ask "Domain name (blank to skip nginx/TLS — bind directly on $GUNICORN_BIND)" "")
 if [[ -n "$DOMAIN" ]]; then
   say "Writing nginx site for $DOMAIN"
-  cat >/etc/nginx/sites-available/protek <<SITE
-server {
-  listen 80;
-  listen [::]:80;
-  server_name $DOMAIN;
-
-  location / {
-    proxy_pass http://$GUNICORN_BIND;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_read_timeout 60s;
-  }
-}
-SITE
+  install -m 0644 deploy/nginx.conf /etc/nginx/sites-available/protek
+  sed -i "s/your\.domain/$DOMAIN/" /etc/nginx/sites-available/protek
   ln -sf /etc/nginx/sites-available/protek /etc/nginx/sites-enabled/protek
   nginx -t && systemctl reload nginx
 
@@ -149,12 +143,16 @@ SITE
 fi
 
 # ── 8. ufw (optional) ───────────────────────────────────────────────────────
+# Opt-in, and it allows the port sshd really listens on — enabling ufw with
+# only 22 open locks out anyone who runs SSH elsewhere.
 if command -v ufw >/dev/null && ! ufw status | grep -q "Status: active"; then
-  say "Enabling ufw with HTTP/HTTPS + SSH"
-  ufw allow 22/tcp
-  ufw allow 80/tcp
-  ufw allow 443/tcp
-  ufw --force enable
+  if [[ "$(ask "Enable the ufw firewall (SSH + HTTP/HTTPS only)? y/N" "n")" =~ ^[Yy] ]]; then
+    SSH_PORTS=$(sshd -T 2>/dev/null | awk '$1=="port"{print $2}' | sort -u)
+    for p in ${SSH_PORTS:-22}; do ufw allow "$p/tcp"; done
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw --force enable
+  fi
 fi
 
 # ── done ────────────────────────────────────────────────────────────────────

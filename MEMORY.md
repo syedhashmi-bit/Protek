@@ -4,6 +4,45 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-10-29 — Install paths fixed (installer, Docker, docs)
+
+A read-through for a new user found that only Ubuntu 24.04 + `install.sh` worked.
+Fixed on branch `claude/install-fixes`:
+
+- **Python 3.12 everywhere.** 22.04 has no `python3.12` package and 26.04 ships a
+  newer 3.x, while numpy 2.4 / scikit-learn 1.8 need ≥3.11. `install.sh` now uses
+  the distro 3.12 if packaged, else `uv venv --seed --managed-python` with
+  `UV_PYTHON_INSTALL_DIR=/opt/uv/python`, so the interpreter isn't under `/root`.
+- **`curl | sudo bash` prompts read the script itself.** `ask()` read stdin, which
+  under a pipe *is* the script. It now reads `/dev/tty` (falls back to the default
+  when there is none).
+- **ufw is opt-in** and opens the port(s) from `sshd -T`, not a hard-coded 22.
+- **One unit, one nginx site.** `install.sh` now installs `deploy/protek.service`
+  and `deploy/nginx.conf` instead of its own heredocs (which had no sandboxing or
+  memory limits). The shipped unit now matches the live one: `ProtectHome=read-only`
+  (a uv venv under `/root` 203/EXECs with `=yes`), `UMask=0077`,
+  `ReadWritePaths=/var/www/Protek /etc/crowdsec /var/lib/crowdsec /run -/root/.gunicorn`.
+- **Docker quickstart crashed.** The app refuses to boot without `SECRET_KEY`, so
+  `up` then `exec setup_admin.py` hit a restart loop, and the secrets would have
+  been written inside the container anyway. New `PROTEK_ENV_FILE` (app.py,
+  setup_admin.py, backup.py, retention.py) — the image sets `/data/.env`. Quickstart
+  is now `build` → `run --rm protek … setup_admin.py` → `up -d`. compose maps
+  `host.docker.internal` and defaults `CROWDSEC_LAPI_URL` to it; DOCKER.md covers
+  widening the LAPI `listen_uri` and firewalling 8080. Backup/restore commands now
+  go through `docker compose run` (the raw `docker run -v protek_data` named the
+  wrong, unprefixed volume) and chown to the non-root user.
+- README: the Templates "reload on each request" line was wrong — they're cached.
+
+**Not tested end-to-end:** there's no Docker on this box, and the installer wasn't
+run on a fresh 22.04/26.04 VM. What was checked: shellcheck, the `/dev/tty` prompt
+under a pipe, the uv venv landing outside `/root`, `PROTEK_ENV_FILE` through
+setup_admin + app import, and the full pytest suite.
+
+**Lesson:** a Python heredoc whose text contained its own `EOF` line ended early,
+and bash ran the doc's remaining lines as commands. Nothing harmful ran (CrowdSec,
+Protek and ufw were untouched; one stray worktree `.env` was removed), but write
+any multi-line text containing shell snippets to a file first.
+
 ## 2026-10-28 — Sign in with Google (same model as Othoni / RiMM)
 
 Committed on branch `claude/google-auth-integration-64378c`. **Not merged to
