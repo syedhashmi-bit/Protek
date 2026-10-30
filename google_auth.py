@@ -192,8 +192,11 @@ def complete(client, args) -> dict[str, str]:
         raise GoogleSignInError("failed", f"Google returned {args.get('error')}")
 
     try:
+        # Name aud explicitly: Authlib only checks the audience when
+        # claims_options lists it, so passing just iss turned that check off.
         token = client.authorize_access_token(
-            claims_options={"iss": {"essential": True, "values": ISSUERS}},
+            claims_options={"iss": {"essential": True, "values": ISSUERS},
+                            "aud": {"essential": True, "values": [client.client_id]}},
         )
     except MismatchingStateError as e:
         raise GoogleSignInError("expired", "state missing or mismatched") from e

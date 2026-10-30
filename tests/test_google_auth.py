@@ -264,6 +264,9 @@ def test_unverified_or_missing_email_is_refused(g, overrides):
 @pytest.mark.parametrize("overrides", [
     {"nonce": "not-the-nonce-we-sent"},
     {"aud": "someone-elses-client.apps.googleusercontent.com"},
+    # azp matching ours used to let Authlib skip the audience entirely: it only
+    # checks aud when claims_options names it.
+    {"aud": "someone-elses-client.apps.googleusercontent.com", "azp": CLIENT_ID},
     {"iss": "https://evil.example"},
     {"exp": int(time.time()) - 3600},
 ])
