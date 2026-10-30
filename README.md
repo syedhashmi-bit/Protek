@@ -287,7 +287,7 @@ nginx -t && systemctl reload nginx
 certbot --nginx -d protek.example.com
 ```
 
-First login: visit `https://protek.example.com`, enter username + password + TOTP. (Optional: add Sign in with Google afterwards — see [`docs/SSO.md`](docs/SSO.md).) Protek starts in **dry-run** — it logs every reconcile decision but writes nothing to MikroTik. Verify the diff looks right at `/mikrotik`, then flip dry-run off from `/settings`.
+First login: open the address the installer prints at the end — `https://<your domain>`, `http://<LAN IP>`, or `http://127.0.0.1:8090` (over an SSH tunnel from elsewhere), depending on the access option you picked — and enter username + password + TOTP. (Optional: add Sign in with Google afterwards — see [`docs/SSO.md`](docs/SSO.md).) Protek starts in **dry-run** — it logs every reconcile decision but writes nothing to MikroTik. Verify the diff looks right at `/mikrotik`, then flip dry-run off from `/settings`.
 
 ---
 
@@ -304,6 +304,9 @@ First login: visit `https://protek.example.com`, enter username + password + TOT
 | `MT_HOST`, `MT_USERNAME`, `MT_PASSWORD` | for legacy MT | Single env-driven MikroTik target; multi-MT uses `/bouncers` UI instead |
 | `MT_PORT`, `MT_USE_SSL`, `MT_ADDRESS_LIST` | no | Defaults: 8728, false, `crowdsec` |
 | `DRY_RUN` | no | Boot default; `settings.dry_run` row overrides at runtime |
+| `COOKIE_INSECURE` | no | `1` only when the dashboard is served over plain HTTP (LAN or this-machine access) — otherwise the browser drops the HTTPS-only session cookie and login fails. Never on the public internet. The installer sets it |
+| `TRUSTED_PROXY_HOPS` | no | Reverse proxies in front of Protek (default `1`: nginx or Caddy); `0` when it's reached directly on `127.0.0.1:8090` |
+| `PROTEK_ENV_FILE`, `PROTEK_DB_PATH` | no | Move `.env` / `protek.db` off the code tree; the Docker image points both at the `/data` volume |
 | `MAX_LOGIN_ATTEMPTS`, `LOCKOUT_MINUTES`, `SESSION_TIMEOUT_MIN`, `IP_WHITELIST` | no | Security knobs |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ADMIN_EMAILS` / `_OPERATOR_EMAILS` / `_VIEWER_EMAILS` | no | Sign in with Google; see [`docs/SSO.md`](docs/SSO.md) |
 | `DISCORD_WEBHOOK`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SMTP_*` | no | Notification channels |
@@ -316,10 +319,15 @@ See [`.env.example`](.env.example) for the full list with defaults.
 ## Operations
 
 ```bash
-# Service control
+# Service control — bare metal
 systemctl restart protek                          # after editing app.py / crowdsec.py / mikrotik.py / etc.
 systemctl status protek
 journalctl -u protek -n 50 --no-pager
+
+# Service control — Docker (from the repo directory)
+docker compose up -d                              # after editing ./.env
+docker compose restart protek
+docker compose logs -f protek
 
 # Templates are cached — restart after editing one too.
 
@@ -416,8 +424,9 @@ Auth:       bcrypt + pyotp TOTP, optional Google OIDC (Authlib), Flask sessions,
             optional IP whitelist
 Notify:     Discord webhook · Telegram bot · SMTP MIME — all 8–10 s timeouts, SSRF guards
 Resilience: Off-box backup (S3 / B2 / MinIO) + Litestream WAL replication + synthetic self-test
-Deploy:     gunicorn + systemd + nginx; certbot for TLS. Matches the pipsqueeze/traverse pattern.
-Tests:      pytest (190+ tests) — reconcile + synthetic + an import-smoke over every module, all
+Deploy:     gunicorn + systemd + nginx + certbot (bare metal), or Docker Compose + Caddy —
+            both set up by the guided install.sh.
+Tests:      pytest (270+ tests) — reconcile + synthetic + an import-smoke over every module, all
             green without needing CrowdSec/MikroTik. ruff (pyflakes) lint + pip-audit supply-chain
             scan. GitHub Actions CI runs tests · lint · pip-audit · docker build on every push/PR.
 ```
@@ -433,7 +442,9 @@ Tests:      pytest (190+ tests) — reconcile + synthetic + an import-smoke over
 | [`CONTEXT.md`](CONTEXT.md) | Architecture decisions and why |
 | [`SKILL.md`](SKILL.md) | Domain primer — CrowdSec LAPI, bouncer model, RouterOS address-list mechanics |
 | [`CLAUDE.md`](CLAUDE.md) | Instructions for Claude Code agents working in this repo |
-| [`docs/INSTALL.md`](docs/INSTALL.md) | Long-form install guide (Ubuntu 22.04 / 24.04) |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Guided installer + manual install (Ubuntu 22.04 / 24.04 / 26.04) |
+| [`docs/DOCKER.md`](docs/DOCKER.md) | Docker Compose deployment — access modes, CrowdSec on the host, backups |
+| [`docs/SSO.md`](docs/SSO.md) | Sign in with Google, and generic OIDC SSO |
 | [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | Day-to-day operator guide |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Common failure modes + fixes |
 | [`docs/DR-RUNBOOK.md`](docs/DR-RUNBOOK.md) | Disaster recovery — every failure mode, every recovery |
