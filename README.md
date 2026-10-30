@@ -246,7 +246,7 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 
 > **Ubuntu 22.04, 24.04 or 26.04.** Protek needs Python 3.12. Ubuntu 24.04 packages it; on other releases the installer fetches it with [uv](https://docs.astral.sh/uv/). Prefer containers? See [`docs/DOCKER.md`](docs/DOCKER.md).
 
-**One command** (installs CrowdSec too if it isn't there, and asks for your admin username and domain):
+**One command** — a guided installer. It asks how to run Protek (bare metal or Docker), who can reach the dashboard (this machine, your LAN, or a domain with HTTPS), which CrowdSec to use (local, install it, or a remote LAPI), and your MikroTik details, then shows a summary before changing anything. See [`docs/INSTALL.md`](docs/INSTALL.md#one-command-install):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/syedhashmi-bit/Protek/main/install.sh | sudo bash

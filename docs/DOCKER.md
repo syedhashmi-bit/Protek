@@ -8,21 +8,34 @@ systemd + nginx) is still fully supported and is what runs the
 primary VPS. Docker is the option-B path for new operators who would
 rather ship containers.
 
+**Easiest:** run the guided installer and pick **Docker** — it installs
+Docker if needed, asks the questions in
+[INSTALL.md](INSTALL.md#one-command-install), writes `./.env`, creates
+the admin, and starts the stack:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/syedhashmi-bit/Protek/main/install.sh | sudo bash
+```
+
+The rest of this page is the same thing by hand.
+
 ## Quickstart — fresh host
 
-Prerequisites: `docker` ≥ 24, `docker compose` v2 (bundled with
+Prerequisites: `docker` ≥ 24, `docker compose` 2.24+ (bundled with
 recent Docker installs), a DNS record pointing your chosen domain at
-the host, and CrowdSec running on the host with its LAPI reachable
-from containers (see [CrowdSec placement](#crowdsec-placement) — do
-that first).
+the host, and CrowdSec (see [CrowdSec placement](#crowdsec-placement)).
 
 ```bash
 # 1. Clone the repo into any directory (no /var/www required).
 git clone https://github.com/syedhashmi-bit/Protek.git
 cd Protek
 
-# 2. Your settings go in ./.env. Caddy uses PROTEK_DOMAIN for Let's Encrypt.
+# 2. Your settings go in ./.env. Caddy uses PROTEK_DOMAIN for Let's Encrypt;
+#    COMPOSE_PROFILES=proxy starts Caddy; COMPOSE_FILE adds the host-network
+#    override so Protek can reach CrowdSec on this host.
 echo "PROTEK_DOMAIN=protek.example.com" > .env
+echo "COMPOSE_PROFILES=proxy" >> .env
+echo "COMPOSE_FILE=compose.yml:compose.hostnet.yml" >> .env
 echo "CROWDSEC_BOUNCER_KEY=$(sudo cscli bouncers add protek -o raw)" >> .env
 # Add MT_HOST / MT_USERNAME / MT_PASSWORD here too, or leave them out and
 # Protek runs in dry-run.
@@ -53,6 +66,20 @@ Caddy auto-issues a Let's Encrypt cert on the first HTTPS request.
 For local dev (`PROTEK_DOMAIN=localhost`), Caddy serves a self-signed
 internal cert instead — your browser will warn but the login flow
 works.
+
+### Dashboard access
+
+Set in `./.env`, then `docker compose up -d`:
+
+| Access | `./.env` |
+|--------|----------|
+| Public domain, HTTPS | `PROTEK_DOMAIN=protek.example.com` · `COMPOSE_PROFILES=proxy` |
+| LAN, plain HTTP | `PROTEK_DOMAIN=:80` · `COMPOSE_PROFILES=proxy` · `COOKIE_INSECURE=1` |
+| This machine only | leave `COMPOSE_PROFILES` empty (no Caddy) · `COOKIE_INSECURE=1` · `TRUSTED_PROXY_HOPS=0` — then `http://127.0.0.1:8090`, or `ssh -L 8090:127.0.0.1:8090` from elsewhere |
+
+`COOKIE_INSECURE=1` is needed whenever the dashboard is served over
+plain HTTP — otherwise the browser drops the HTTPS-only session cookie
+and login silently fails. Never use it on the public internet.
 
 ## What's running
 
@@ -113,7 +140,8 @@ scp /tmp/protek-state.tgz docker-host:/tmp/
 
 # On the docker host
 cd Protek                               # repo root
-echo "PROTEK_DOMAIN=protek.example.com" > .env
+printf 'PROTEK_DOMAIN=protek.example.com\nCOMPOSE_PROFILES=proxy\n' > .env
+# CrowdSec on this host too? Add: COMPOSE_FILE=compose.yml:compose.hostnet.yml
 docker compose build
 docker compose run --rm --no-deps --user root -v /tmp:/src protek \
     sh -c 'tar xzf /src/protek-state.tgz -C /data && chown -R protek:protek /data'
@@ -173,30 +201,22 @@ deployment runs it on the host parsing host logs (nginx access,
 auth, syslog). Two options:
 
 - **Host-side CrowdSec (recommended)**: install via the official APT
-  repo on the host. `compose.yml` already maps `host.docker.internal`
-  to the host and defaults `CROWDSEC_LAPI_URL` to
-  `http://host.docker.internal:8080`. Two host-side changes make it
-  reachable:
+  repo on the host and add the host-network override to `./.env`:
 
-  1. CrowdSec's LAPI listens on `127.0.0.1:8080` by default, which a
-     container can't reach. Widen it in
-     `/etc/crowdsec/config.yaml.local` (create it if missing), then
-     restart CrowdSec with `sudo systemctl restart crowdsec`:
+  ```bash
+  COMPOSE_FILE=compose.yml:compose.hostnet.yml
+  ```
 
-     ```yaml
-     api:
-       server:
-         listen_uri: 0.0.0.0:8080
-     ```
+  [`compose.hostnet.yml`](../compose.hostnet.yml) puts Protek and Caddy
+  on the host's network, so Protek reaches the LAPI at
+  `127.0.0.1:8080` and CrowdSec stays loopback-only — no config change
+  on the CrowdSec side. Gunicorn binds to `127.0.0.1:8090` there, and
+  Caddy proxies to it. The installer does this for you.
 
-  2. Keep port 8080 off the internet, but let Docker's bridge
-     networks in. With ufw (which denies incoming by default):
+- **Remote CrowdSec**: set `CROWDSEC_LAPI_URL=http://<lapi-host>:8080`
+  and `CROWDSEC_BOUNCER_KEY` in `./.env` and leave `COMPOSE_FILE`
+  unset. The remote LAPI must listen on an address this host can reach.
 
-     ```bash
-     sudo ufw allow from 172.16.0.0/12 to any port 8080 proto tcp
-     ```
-
-     Without a host firewall, block 8080 at your provider instead.
 - **Container-side CrowdSec**: add `crowdsec` as another service in
   `compose.yml`. Bind-mount `/var/log` from the host into the
   container so it can parse the right logs. Out of scope for this

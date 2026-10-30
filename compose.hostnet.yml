@@ -1,0 +1,36 @@
+# Protek — host-network override, for when CrowdSec runs on this same host.
+#
+# CrowdSec's LAPI listens on 127.0.0.1:8080 by default. From a container on
+# the compose bridge that address is the container itself, so reaching the
+# host's LAPI would mean widening listen_uri and firewalling port 8080.
+# Instead, this override puts Protek and Caddy on the host's network, where
+# 127.0.0.1 is the host: the LAPI stays loopback-only and nothing changes on
+# the CrowdSec side.
+#
+# Enable it in ./.env (install.sh does this when CrowdSec is local):
+#   COMPOSE_FILE=compose.yml:compose.hostnet.yml
+#
+# Needs docker compose 2.24+ for the !reset tags.
+
+services:
+  protek:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    expose: !reset []
+    extra_hosts: !reset []
+    environment:
+      CROWDSEC_LAPI_URL: ${CROWDSEC_LAPI_URL:-http://127.0.0.1:8080}
+    # On the host network gunicorn's bind is the host's — loopback only, so
+    # 8090 never faces the internet. Caddy (also on the host network)
+    # proxies to it for LAN / domain access.
+    command: ["gunicorn", "--workers", "2", "--bind", "127.0.0.1:8090",
+              "--access-logfile", "-", "--error-logfile", "-",
+              "--timeout", "120", "app:app"]
+
+  caddy:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    environment:
+      PROTEK_UPSTREAM: 127.0.0.1:8090

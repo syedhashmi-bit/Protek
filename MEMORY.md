@@ -33,10 +33,30 @@ Fixed on branch `claude/install-fixes`:
   wrong, unprefixed volume) and chown to the non-root user.
 - README: the Templates "reload on each request" line was wrong — they're cached.
 
-**Not tested end-to-end:** there's no Docker on this box, and the installer wasn't
-run on a fresh 22.04/26.04 VM. What was checked: shellcheck, the `/dev/tty` prompt
-under a pipe, the uv venv landing outside `/root`, `PROTEK_ENV_FILE` through
-setup_admin + app import, and the full pytest suite.
+**Guided installer (same day, same branch).** `install.sh` now asks everything
+up front, prints a summary + a dry-run explainer, and changes nothing until
+confirmed: install method (bare metal | Docker), dashboard access (this machine
+→ 127.0.0.1:8090, no nginx, `TRUSTED_PROXY_HOPS=0` | LAN → nginx `default_server`
+on :80 | domain → nginx + certbot, or Caddy), CrowdSec (local | install | remote
+LAPI, checked with curl), MikroTik (prompted, `health()`-tested after install).
+Plain-HTTP modes set `COOKIE_INSECURE=1` or login silently fails. Every answer
+can be preset via env (`PROTEK_METHOD`, `PROTEK_ACCESS`, … + `PROTEK_YES=1`);
+`PROTEK_PLAN_ONLY=1` stops after the summary. LAN mode warns when the
+detected address is public (on a VPS the "LAN IP" is the public IP). `.env`
+values are written single-quoted (`set_env`), since systemd, dotenv and
+compose all read those literally; values containing a `'` are rejected.
+Docker: Caddy moved into a `proxy` profile (`COMPOSE_PROFILES`), Protek
+publishes `127.0.0.1:8090`, and `compose.hostnet.yml` (via `COMPOSE_FILE`)
+runs both on the host network when CrowdSec is local, so the LAPI stays
+loopback-only. That replaced the earlier `listen_uri: 0.0.0.0` advice. A Pi-hole
+option was briefly requested, then dropped by the user.
+
+**Not tested end-to-end:** there's no Docker on this box (and downloading a
+compose binary was blocked), and the installer wasn't run on a fresh VM. What
+was checked: shellcheck; plan-only runs, unattended and through a pty; `set_env`
+round-trips through python-dotenv; a YAML merge of compose.yml + compose.hostnet.yml;
+the uv venv landing outside `/root`; `PROTEK_ENV_FILE` through setup_admin + app
+import; the full pytest suite.
 
 **Lesson:** a Python heredoc whose text contained its own `EOF` line ended early,
 and bash ran the doc's remaining lines as commands. Nothing harmful ran (CrowdSec,
