@@ -4,6 +4,19 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-10-30 — Google sign-in now checks the ID token's audience
+
+`google_auth.complete()` passed `claims_options` with only `iss`, and Authlib only
+checks `aud` when `claims_options` names it. So a Google ID token issued to a
+*different* OAuth client was accepted as long as its `azp` named ours (the existing
+"wrong aud" test passed only because that token had no `azp`). `aud` is now pinned
+to `client.client_id`, same as PipSqueeze. New test case: wrong `aud` + our `azp`
+→ `/login?error=failed`; it fails on the old code. Full suite: 278 passed, 1 skipped.
+Low real-world risk (the token comes straight from Google's token endpoint for our
+own code), but it's the check the code claimed to make.
+
+---
+
 ## 2026-10-29 — Install paths fixed (installer, Docker, docs)
 
 A read-through for a new user found that only Ubuntu 24.04 + `install.sh` worked.
