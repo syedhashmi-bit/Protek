@@ -13,14 +13,38 @@ ships 3.10 and 26.04 a newer 3.x, so there the installer fetches 3.12 with
 curl -fsSL https://raw.githubusercontent.com/syedhashmi-bit/Protek/main/install.sh | sudo bash
 ```
 
-This handles: system deps, CrowdSec (via APT), Python 3.12 venv, requirements,
-admin bootstrap, bouncer key generation, systemd unit, nginx site, TLS via certbot.
-It asks for your admin username, your domain, a Let's Encrypt email, and whether
-to turn on the ufw firewall (off unless you say yes; if you do, it opens the port
-sshd actually listens on, not just 22). Safe to re-run.
+The installer asks a few questions first and changes nothing until you
+confirm the summary:
 
-It does **not** handle: MikroTik wiring (you provide creds + firewall rules),
-CrowdSec Console enrollment (one extra step), flipping out of dry-run.
+| Question | Choices |
+|----------|---------|
+| How should Protek run? | **Bare metal** (systemd service, nginx when needed) or **Docker** (compose + Caddy; installs Docker if missing) |
+| Who can open the dashboard? | **This machine only** (`http://127.0.0.1:8090`, reach it over an SSH tunnel), **LAN** (plain HTTP on the machine's LAN address), or a **public domain with HTTPS** (Let's Encrypt) |
+| Which CrowdSec? | The one **on this machine** (or **install it** if missing), or a **remote LAPI** — URL + bouncer key, checked on the spot |
+| Connect MikroTik now? | Router address, API port, user, password and address list — the connection is tested after install. Or skip and edit `.env` later |
+| Admin username, firewall | Default `admin`; ufw stays off unless you say yes, and then it opens the port sshd really uses |
+
+It also explains **dry-run**: Protek starts out computing what it *would*
+push to the router without touching it, and you turn that off in
+Settings once the numbers on `/mikrotik` look right.
+
+LAN mode is for a home or office network. If the machine's address is
+public (a VPS), the installer warns you, since LAN mode would serve the
+login page over plain HTTP to the internet.
+
+**Unattended:** every answer can be preset as an environment variable
+(`PROTEK_METHOD`, `PROTEK_ACCESS`, `PROTEK_DOMAIN`, `PROTEK_CROWDSEC`,
+`MT_HOST`, …, listed at the top of `install.sh`), with `PROTEK_YES=1`
+to skip the confirmation. `PROTEK_PLAN_ONLY=1` just prints the summary.
+
+It then installs everything those answers need — CrowdSec, a Python 3.12
+venv or the Docker image, the admin account (password + TOTP shown once),
+the bouncer key, the service, and nginx/certbot or Caddy. Safe to re-run:
+the admin is only created the first time, and changed answers are written
+to `.env`.
+
+It does **not** add the MikroTik firewall drop rule (below), enroll in the
+CrowdSec Console, or turn dry-run off.
 
 ## Manual install (for the cautious)
 

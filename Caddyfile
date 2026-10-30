@@ -10,7 +10,8 @@
 {$PROTEK_DOMAIN} {
     # Trust the X-Forwarded-* headers Caddy adds so Flask sees the
     # client's real IP for rate-limiting + IP_WHITELIST gating.
-    reverse_proxy protek:8090 {
+    # protek:8090 on the compose network; 127.0.0.1:8090 under compose.hostnet.yml.
+    reverse_proxy {$PROTEK_UPSTREAM} {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}

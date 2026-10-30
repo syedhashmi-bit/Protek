@@ -1,7 +1,8 @@
 # Protek — docker-compose deployment, Arc 16 phase 95.
 #
-# Quickstart (full version in docs/DOCKER.md):
-#   echo "PROTEK_DOMAIN=protek.example.com" > .env
+# Easiest: run install.sh and choose Docker — it asks the questions below
+# and writes ./.env for you. By hand (full version in docs/DOCKER.md):
+#   printf "PROTEK_DOMAIN=protek.example.com\nCOMPOSE_PROFILES=proxy\n" > .env
 #   docker compose build
 #   docker compose run --rm protek python scripts/setup_admin.py --username admin
 #   (capture the printed password + TOTP otpauth URI — one-time; the
@@ -12,26 +13,30 @@
 # setup_admin must run before `up`: Protek refuses to start without the
 # SECRET_KEY it writes.
 #
-# Migration from bare-metal:
-#   docker compose down
-#   docker volume create protek_data
-#   docker run --rm -v protek_data:/data -v /var/www/Protek:/src alpine \
-#       sh -c 'cp /src/protek.db /data/ && cp /src/.env /data/.env'
-#   docker compose up -d
+# Dashboard access is set in ./.env:
+#   HTTPS domain  PROTEK_DOMAIN=protek.example.com  COMPOSE_PROFILES=proxy
+#   LAN (HTTP)    PROTEK_DOMAIN=:80  COMPOSE_PROFILES=proxy  COOKIE_INSECURE=1
+#   This machine  no Caddy (leave COMPOSE_PROFILES empty); Protek is on
+#                 http://127.0.0.1:8090.  COOKIE_INSECURE=1  TRUSTED_PROXY_HOPS=0
+#
+# CrowdSec on this same host: also set
+#   COMPOSE_FILE=compose.yml:compose.hostnet.yml
+# so the containers share the host network and reach the LAPI on
+# 127.0.0.1:8080 (see that file). For a remote LAPI set CROWDSEC_LAPI_URL.
 #
 # Services:
 #   protek      — gunicorn app + reconcile thread (the same binary as
 #                 the bare-metal install).
-#   caddy       — TLS termination + reverse proxy. Configure your
-#                 domain via PROTEK_DOMAIN in the host's .env file
-#                 (the one in this directory, not the volume-mounted
-#                 Protek .env).
+#   caddy       — TLS termination + reverse proxy, in the `proxy`
+#                 profile. Configure your domain via PROTEK_DOMAIN in
+#                 the host's .env file (the one in this directory, not
+#                 the volume-mounted Protek .env).
 #   litestream  — optional WAL replication sidecar. Enabled via the
 #                 `--profile replicate` flag on docker compose up.
 #                 Reads the same protek.db via the shared volume.
 #
-# Network: protek + caddy share an internal network (`web`). Only
-# caddy publishes ports to the host. Litestream is on the same network
+# Network: protek + caddy share an internal network (`web`). Caddy
+# publishes 80/443; Protek publishes 8090 on the host's loopback only. Litestream is on the same network
 # so it can hit a remote replica via WG/SSH if those tunnels live on
 # the host network — adjust per your topology.
 
@@ -56,10 +61,11 @@ services:
       # values the operator copied over.
       PROTEK_DB_PATH: /data/protek.db
       PROTEK_ENV_FILE: /data/.env
-      COOKIE_INSECURE: "0"
-      # 127.0.0.1 inside the container is the container. Host-side
-      # CrowdSec is reached via host.docker.internal (mapped below); its
-      # LAPI must listen beyond loopback — see docs/DOCKER.md.
+      # 1 only for plain-HTTP access (LAN / this machine) — see above.
+      COOKIE_INSECURE: ${COOKIE_INSECURE:-0}
+      # 127.0.0.1 inside the container is the container. A host-side
+      # LAPI is reached via host.docker.internal (mapped below) only if it
+      # listens beyond loopback — compose.hostnet.yml avoids needing that.
       CROWDSEC_LAPI_URL: ${CROWDSEC_LAPI_URL:-http://host.docker.internal:8080}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -69,6 +75,9 @@ services:
       - web
     expose:
       - "8090"
+    ports:
+      # Loopback only — for "this machine only" access and for debugging.
+      - "127.0.0.1:8090:8090"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/health"]
       interval: 30s
@@ -80,10 +89,15 @@ services:
     image: caddy:2-alpine
     container_name: protek-caddy
     restart: unless-stopped
+    # Off unless COMPOSE_PROFILES=proxy (or `--profile proxy`) — not needed
+    # when the dashboard is only reached from this machine.
+    profiles: ["proxy"]
     environment:
       # `PROTEK_DOMAIN=protek.example.com` in your .env. Caddy auto-issues
-      # a Let's Encrypt cert for it on first request.
+      # a Let's Encrypt cert for it on first request. `:80` serves plain
+      # HTTP on every interface (LAN access).
       PROTEK_DOMAIN: ${PROTEK_DOMAIN:-localhost}
+      PROTEK_UPSTREAM: ${PROTEK_UPSTREAM:-protek:8090}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
