@@ -4,6 +4,34 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-11-03 — README screenshots recaptured from a demo instance
+
+All 16 `docs/screenshots/*.png` were replaced under the same names. They
+now come from a throwaway instance with seeded demo data instead of the
+live box, so no operator data can reach them however a page changes.
+
+- **How:** rsync the code to a temp dir without `.env`, `*.db`, `.git`,
+  `venv`, `.poller.lock` or `docs/HOSTS.local.md`, because ROOT-relative
+  paths (lock, default DB) must not point at the live checkout. Stub
+  `dotenv.load_dotenv`, set `PROTEK_DB_PATH` to a temp file, and point
+  `CROWDSEC_LAPI_URL` at an unresolvable host. Before `import app`, stub
+  `Poller.start`, `GeoWorker.start`, `IntelWorker.start` and
+  `siem.get_siem`, and swap `mikrotik.MikroTik` for a fake.
+- **Gotchas:** `poller` imports the bouncer adapters, which bind the real
+  `MikroTik` before a later patch, so swap every module's reference. The
+  MT top-bar pill reads `app._mt_quick_ok()`. The Alerts page shows a
+  "machine credentials required" banner unless both
+  `CROWDSEC_MACHINE_LOGIN` and `CROWDSEC_MACHINE_PASSWORD` are set. Insert
+  seed rows oldest first: the tables sort by id, the way the poller
+  writes them.
+- **Seeding:** documentation IPs and ASNs, a geo row per IP for the map,
+  a week of expired decisions so the hour-of-day heatmap fills, and
+  `first_run_done` / `onboarding.skipped` to keep the setup prompts away.
+  Log in through a demo-only route that sets the same session keys as
+  the real login.
+- Before saving, every page's text was scanned for the
+  `docs/HOSTS.local.md` values and the operator IPs. There were no hits.
+
 ## 2026-10-30 — Google sign-in now checks the ID token's audience
 
 `google_auth.complete()` passed `claims_options` with only `iss`, and Authlib only
