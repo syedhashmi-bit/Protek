@@ -76,14 +76,15 @@ If you run CrowdSec on a single VPS, its decisions only protect that one VPS. If
 
 ## Status
 
-**v1.1 shipped, v1.2 in flight.** Arcs 1–13 (phases 0–80) are complete: MVP,
-federation, intelligence + enrichment, scenarios + rules, multi-bouncer
-(MikroTik / pfSense / OPNsense / iptables / Cloudflare), observability,
-operator QoL, extensibility, polish, intelligence v2, resilience, ecosystem,
-and the 2.0-prep arc. Arcs 14 (Operator UX) and 15 (Production-grade ops)
-are in progress — see [`ROADMAP.md`](ROADMAP.md) for the running plan and
-[`MEMORY.md`](MEMORY.md) for the session-by-session log of what shipped
-and what broke.
+**Arcs 1–16 (phases 0–98) have shipped:** MVP, federation, intelligence +
+enrichment, scenarios + rules, multi-bouncer (MikroTik / pfSense / OPNsense /
+iptables / Cloudflare), observability, operator QoL, extensibility, resilience,
+ecosystem, operator UX, production-grade ops and Docker. **Next up**, in order:
+a check that the router is actually blocking, editing connection settings in
+the app, and an advanced-view toggle — see [`ROADMAP.md`](ROADMAP.md).
+[`MEMORY.md`](MEMORY.md) has the session-by-session log of what shipped and
+what broke; the original phased plan is in
+[`docs/ROADMAP-HISTORY.md`](docs/ROADMAP-HISTORY.md).
 
 ---
 
@@ -147,7 +148,7 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 
 ### Resilience (Arc 11)
 - **Off-box backup** — nightly `/admin/backup` export to S3-compatible storage (B2 / MinIO / AWS S3). Retention 30 daily + 12 monthly. Restore-test job decrypts and verifies integrity.
-- **Litestream replication** — SQLite WAL streamed to a remote replica (S3 or SFTP-over-WireGuard). RPO < 2 s steady state. **Restore-to-latest currently blocked by a corrupt L2 LTX file from the 2026-05-25 disk-full incident — see [`MEMORY.md`](MEMORY.md) and `ROADMAP.md` phase 64 for the path forward (phase 87 speedup work pending).**
+- **Litestream replication** — SQLite WAL streamed to a remote replica (S3 or SFTP-over-WireGuard). RPO < 2 s steady state. **Restore-to-latest currently blocked by a corrupt L2 LTX file from the 2026-05-25 disk-full incident — see [`MEMORY.md`](MEMORY.md) and `docs/ROADMAP-HISTORY.md` phase 64 for the path forward (phase 87 speedup work pending).**
 - **Self-monitoring (synthetic ban test)** — every 6 h, inject `192.0.2.250` (RFC 5737 TEST-NET-1), push directly via each live bouncer's `apply()`, verify presence in its snapshot, remove and verify absence. Catches the "phantom progress" failure where `apply()` returns OK but nothing landed. Verified live 2026-05-26 against MikroTik in 28.6 s.
 - **WAL truncate timer** — `protek-wal-truncate.timer` every 5 min, learned the hard way (Litestream v0.5's continuous WAL reader breaks SQLite's auto-checkpoint; a one-off bug filled the disk).
 - **DR runbook** — [`docs/DR-RUNBOOK.md`](docs/DR-RUNBOOK.md): every failure mode (DB corruption, MT down, CrowdSec hub down, Litestream broken) with explicit recovery steps; quarterly drill template.
@@ -386,7 +387,7 @@ Production deploys are protected by three layered mechanisms:
 
 1. **Off-box nightly backups** (Arc 11 phase 63) — encrypted bundle of the SQLite DB + config to any S3-compatible storage. Retention 30 daily + 12 monthly. A restore-test job decrypts and integrity-checks the latest bundle every night.
 
-2. **Litestream WAL replication** (Arc 11 phase 64) — sub-2-second RPO. Replica can live on another VPS via SFTP-over-WireGuard (no third-party dependency) or in S3/B2. See [`docs/litestream/litestream-sftp.yml.example`](docs/litestream/litestream-sftp.yml.example) for the SFTP shape. **Current state:** RPO target met, RTO target gated on Litestream restore speedup (phase 87) and a corrupt L2 LTX file from a 2026-05-25 disk-full incident — see `ROADMAP.md` phase 64 for details.
+2. **Litestream WAL replication** (Arc 11 phase 64) — sub-2-second RPO. Replica can live on another VPS via SFTP-over-WireGuard (no third-party dependency) or in S3/B2. See [`docs/litestream/litestream-sftp.yml.example`](docs/litestream/litestream-sftp.yml.example) for the SFTP shape. **Current state:** RPO target met, RTO target gated on Litestream restore speedup (phase 87) and a corrupt L2 LTX file from a 2026-05-25 disk-full incident — see `docs/ROADMAP-HISTORY.md` phase 64 for details.
 
 3. **Synthetic self-test** (Arc 11 phase 66) — every 6 h, injects an RFC 5737 IP, pushes via each live bouncer's `apply()`, verifies it appears in the snapshot, then removes and re-verifies. Catches the "phantom progress" failure mode where `apply()` returns OK but nothing actually landed. Live-verified 2026-05-26 against MikroTik in 28.6 s.
 
@@ -434,7 +435,8 @@ Tests:      pytest (270+ tests) — reconcile + synthetic + an import-smoke over
 
 | File | Purpose |
 |---|---|
-| [`ROADMAP.md`](ROADMAP.md) | Phased build plan (arcs 1–15), per-phase acceptance criteria |
+| [`ROADMAP.md`](ROADMAP.md) | What's next, in priority order, with acceptance criteria |
+| [`docs/ROADMAP-HISTORY.md`](docs/ROADMAP-HISTORY.md) | The original phased plan (arcs 1–16), archived |
 | [`MEMORY.md`](MEMORY.md) | Running log of what shipped, what broke, what's pending |
 | [`CONTEXT.md`](CONTEXT.md) | Architecture decisions and why |
 | [`SKILL.md`](SKILL.md) | Domain primer — CrowdSec LAPI, bouncer model, RouterOS address-list mechanics |

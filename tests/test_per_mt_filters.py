@@ -1,7 +1,7 @@
 """Arc 16 phase 97 — per-MT routing rules.
 
 Tests for `_filter_desired_for_bouncer`'s new `source_filter` and
-`scenario_filter` kwargs. The acceptance gate from ROADMAP.md:
+`scenario_filter` kwargs. The acceptance gate from docs/ROADMAP-HISTORY.md:
 
   with two MTs configured (`edge-mt`, `office-mt`), setting
   `office-mt.scenario_filter='http-.*'` results in `office-mt`

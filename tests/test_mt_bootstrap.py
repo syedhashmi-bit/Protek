@@ -1,6 +1,6 @@
 """Arc 16 phase 94 — MikroTik RouterOS bootstrap script tests.
 
-Acceptance gates from ROADMAP.md:
+Acceptance gates from docs/ROADMAP-HISTORY.md:
   - Endpoint returns 200 with the expected Content-Type.
   - Rendered script contains the minimum perms string.
   - Templated values flow through correctly.
