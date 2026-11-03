@@ -3,7 +3,7 @@
 # Easiest: run install.sh and choose Docker — it asks the questions below
 # and writes ./.env for you. By hand (full version in docs/DOCKER.md):
 #   printf "PROTEK_DOMAIN=protek.example.com\nCOMPOSE_PROFILES=proxy\n" > .env
-#   docker compose build
+#   docker compose pull          # or `docker compose build` to build from source
 #   docker compose run --rm protek python scripts/setup_admin.py --username admin
 #   (capture the printed password + TOTP otpauth URI — one-time; the
 #   secrets land in /data/.env on the volume, so they survive rebuilds)
@@ -36,13 +36,22 @@
 #                 Reads the same protek.db via the shared volume.
 #
 # Network: protek + caddy share an internal network (`web`). Caddy
-# publishes 80/443; Protek publishes 8090 on the host's loopback only. Litestream is on the same network
-# so it can hit a remote replica via WG/SSH if those tunnels live on
-# the host network — adjust per your topology.
+# publishes 80/443; Protek publishes 8090 on the host's loopback only.
+# Litestream is on the same network so it can hit a remote replica via
+# WG/SSH if those tunnels live on the host network — adjust per your
+# topology.
+#
+# Updating: docker compose pull && docker compose up -d
 
 services:
   protek:
-    image: protek:latest
+    # Published for amd64 + arm64 by .github/workflows/publish.yml. :latest
+    # tracks main; pin a release (e.g. :1.2.3) with PROTEK_IMAGE in ./.env.
+    image: ${PROTEK_IMAGE:-ghcr.io/syedhashmi-bit/protek:latest}
+    # `missing` = pull the published image if it isn't here yet. Without it,
+    # having a build: section makes Compose build from source instead.
+    # `docker compose build` still builds this checkout, under the same tag.
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile

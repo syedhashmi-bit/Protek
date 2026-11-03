@@ -421,8 +421,8 @@ Auth:       bcrypt + pyotp TOTP, optional Google OIDC (Authlib), Flask sessions,
             optional IP whitelist
 Notify:     Discord webhook · Telegram bot · SMTP MIME — all 8–10 s timeouts, SSRF guards
 Resilience: Off-box backup (S3 / B2 / MinIO) + Litestream WAL replication + synthetic self-test
-Deploy:     gunicorn + systemd + nginx + certbot (bare metal), or Docker Compose + Caddy —
-            both set up by the guided install.sh.
+Deploy:     gunicorn + systemd + nginx + certbot (bare metal), or Docker Compose + Caddy with
+            the published ghcr.io/syedhashmi-bit/protek image — both set up by install.sh.
 Tests:      pytest (270+ tests) — reconcile + synthetic + an import-smoke over every module, all
             green without needing CrowdSec/MikroTik. ruff (pyflakes) lint + pip-audit supply-chain
             scan. GitHub Actions CI runs tests · lint · pip-audit · docker build on every push/PR.
@@ -440,7 +440,7 @@ Tests:      pytest (270+ tests) — reconcile + synthetic + an import-smoke over
 | [`SKILL.md`](SKILL.md) | Domain primer — CrowdSec LAPI, bouncer model, RouterOS address-list mechanics |
 | [`CLAUDE.md`](CLAUDE.md) | Instructions for Claude Code agents working in this repo |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Guided installer + manual install (Ubuntu 22.04 / 24.04 / 26.04) |
-| [`docs/DOCKER.md`](docs/DOCKER.md) | Docker Compose deployment — access modes, CrowdSec on the host, backups |
+| [`docs/DOCKER.md`](docs/DOCKER.md) | Docker Compose deployment — the published image (`ghcr.io/syedhashmi-bit/protek`, amd64 + arm64), access modes, CrowdSec on the host, backups |
 | [`docs/SSO.md`](docs/SSO.md) | Sign in with Google, and generic OIDC SSO |
 | [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | Day-to-day operator guide |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Common failure modes + fixes |

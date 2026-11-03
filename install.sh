@@ -31,6 +31,7 @@
 #   PROTEK_MIKROTIK    configure | skip
 #   MT_HOST, MT_PORT, MT_USERNAME, MT_PASSWORD, MT_ADDRESS_LIST
 #   PROTEK_ADMIN_USER, PROTEK_UFW (y | n)
+#   PROTEK_DOCKER_BUILD=1 builds the image from source instead of pulling it.
 #   PROTEK_PLAN_ONLY=1 asks the questions, prints the summary, and stops.
 #
 # Idempotent — safe to re-run. The admin password + TOTP are only generated
@@ -520,8 +521,15 @@ install_docker() {
   fi
   write_settings
 
-  say "Building the Protek image (a few minutes the first time)"
-  docker compose build
+  # The published image (ghcr.io/syedhashmi-bit/protek) is a quick download;
+  # building from this checkout is the fallback, or forced with
+  # PROTEK_DOCKER_BUILD=1.
+  if [[ "${PROTEK_DOCKER_BUILD:-}" != 1 ]] && { say "Pulling the Protek image"; docker compose pull protek; }; then
+    :
+  else
+    say "Building the Protek image from source (a few minutes the first time)"
+    docker compose build
+  fi
 
   if ! docker compose run --rm --no-deps -T protek sh -c 'grep -qs "^APP_PASSWORD_HASH=." /data/.env'; then
     say "Creating the admin account — the password and TOTP below are shown ONCE"
