@@ -82,7 +82,7 @@ install -D -m 0644 packaging/debian/protek.service \
 
 %files
 %license LICENSE
-%doc README.md ROADMAP.md CONTEXT.md SKILL.md docs/DOCKER.md docs/grafana
+%doc README.md ROADMAP.md docs/ROADMAP-HISTORY.md CONTEXT.md SKILL.md docs/DOCKER.md docs/grafana
 %{appshare}
 %{_unitdir}/protek.service
 %attr(0750, protek, protek) %dir %{apphome}

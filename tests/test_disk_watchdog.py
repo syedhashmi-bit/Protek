@@ -1,6 +1,6 @@
 """Arc 15 phase 93 — disk + Litestream observability tests.
 
-Acceptance gates from ROADMAP.md:
+Acceptance gates from docs/ROADMAP-HISTORY.md:
 
   1. Disk watchdog: at 65/72/91 % the right edge transitions fire
      exactly once and recovery clears state. Hysteresis 5 % prevents
@@ -223,7 +223,7 @@ def test_retention_errors_rate_limited(monkeypatch: pytest.MonkeyPatch,
     """Three sequential `retention enforcement failed` ERROR lines must
     fire exactly one notification — the other two are suppressed by the
     1-hour per-category rate limit. This is the phase 93 Litestream-side
-    acceptance gate from ROADMAP.md."""
+    acceptance gate from docs/ROADMAP-HISTORY.md."""
     _setup_db(monkeypatch, tmp_path)
     notes: list[dict] = []
     _patch_notifications(monkeypatch, notes)
@@ -477,7 +477,7 @@ def test_wal_bytes_reads_real_file_size(monkeypatch: pytest.MonkeyPatch,
 
 @pytest.mark.skip(
     reason="Requires root + mount(tmpfs); run manually as the live "
-           "acceptance gate from ROADMAP.md")
+           "acceptance gate from docs/ROADMAP-HISTORY.md")
 def test_live_tmpfs_end_to_end():
     """Documented acceptance gate. Steps:
 
