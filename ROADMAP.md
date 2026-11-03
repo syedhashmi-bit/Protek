@@ -13,6 +13,7 @@ soak run, REST adapter perf measurement, the 2.0 tag) were dropped on 2026-11-03
 | 1 | [Show whether blocking is actually working](#1-show-whether-blocking-is-actually-working) | A new install can look healthy and block nothing |
 | 2 | [Edit connection settings in the app](#2-edit-connection-settings-in-the-app) | Today every connection change needs a shell, `.env` and a restart |
 | 3 | [Advanced view toggle](#3-advanced-view-toggle) | ~40 menu entries; a homelab user needs about ten |
+| 4 | [Help toggle and guided tour](#4-help-toggle-and-guided-tour) | Nothing in the app explains what a page or setting is for |
 
 ---
 
@@ -114,3 +115,48 @@ needs about ten of them, and the rest makes Protek look harder than it is.
 - A configured advanced feature appears in simple view, and a failing hidden one appears with a badge.
 - Every page stays reachable by URL and from the palette.
 - Tests cover the `NAV` filter, including role × view combinations.
+
+---
+
+## 4. Help toggle and guided tour
+
+**Why:** most pages assume you already know CrowdSec and RouterOS terms (LAPI,
+scenarios, address lists, batch cap, confidence threshold). Nothing in the app
+says what a page is for or what a setting does, so people either guess or go
+read the docs.
+
+**Scope:**
+- A **Help** toggle (a `?` button in the topbar, and the `?` key) with two parts:
+  - **Guided tour:** step-by-step highlights of what's on screen, with a
+    plain-language explanation of each part and Back / Next / Skip. There's a
+    tour for the current page, plus a **"Tour Protek"** run across the main
+    pages in order: Overview → Blocked IPs → Alerts → Targets → Rules →
+    Settings.
+  - **Help mode:** while it's on, every setting, column, KPI and button shows a
+    small info marker. Clicking it explains what the option does, the default,
+    and when you'd change it. For example, "Batch cap: the most add/remove
+    operations Protek sends the router per cycle; the rest wait for the next
+    cycle."
+- **One source of help text:** a single catalog keyed by the `NAV` page keys
+  and field names, in the same spirit as `NAV`. The tour and help mode both
+  read from it, so they can't drift apart, and a test flags any setting with
+  no entry.
+- **Follows the advanced view (item 3):** it explains what's currently visible,
+  and the full tour covers advanced pages only when that view is on.
+- **Offered once** after the Setup guide finishes, or on first login. Progress
+  and "don't show again" are saved per user, and the tour can be restarted
+  from the Help menu.
+- **Accessible:** works with the keyboard alone (Esc closes, arrow keys move),
+  readable by screen readers, and fits at phone width. It uses the existing
+  design tokens and sentence case. No external tracking. A small vendored tour
+  library or a hand-rolled one is fine; pick during design.
+
+**Acceptance:**
+- Starting the tour on any page in the simple view walks through every visible
+  section of that page.
+- "Tour Protek" covers the main pages in order and can be finished with the
+  keyboard alone.
+- With help mode on, every field on Settings → Connection & sync and every KPI
+  on Overview has an explanation.
+- A test fails if a `NAV` page or a settings field has no help entry.
+- Dismissing the tour is remembered after logging out and back in.

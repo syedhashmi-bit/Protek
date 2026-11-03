@@ -81,7 +81,7 @@ enrichment, scenarios + rules, multi-bouncer (MikroTik / pfSense / OPNsense /
 iptables / Cloudflare), observability, operator QoL, extensibility, resilience,
 ecosystem, operator UX, production-grade ops and Docker. **Next up**, in order:
 a check that the router is actually blocking, editing connection settings in
-the app, and an advanced-view toggle — see [`ROADMAP.md`](ROADMAP.md).
+the app, an advanced-view toggle, and a guided help tour — see [`ROADMAP.md`](ROADMAP.md).
 [`MEMORY.md`](MEMORY.md) has the session-by-session log of what shipped and
 what broke; the original phased plan is in
 [`docs/ROADMAP-HISTORY.md`](docs/ROADMAP-HISTORY.md).
