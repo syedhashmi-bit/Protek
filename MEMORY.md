@@ -47,12 +47,14 @@ own code), but it's the check the code claimed to make.
 
 ## 2026-11-03 — Roadmap reset to three priorities; private GitHub project
 
-The 1,736-line phased plan moved to `docs/ROADMAP-HISTORY.md` (archived, with
-`git mv` so its history follows). Its old open items were dropped at the
-operator's request. `ROADMAP.md` now holds only the next three items, in order:
+The 1,736-line phased plan moved to `docs/ROADMAP-HISTORY.md` (archived). Git
+records it as a new file, since `ROADMAP.md` still exists at the old path, so its
+earlier history is under `git log -- ROADMAP.md`. Its old open items were dropped
+at the operator's request. `ROADMAP.md` now holds only the next four items, in order:
 1. a read-only check that the router actually drops the address list;
 2. editing connection settings in the app;
-3. an advanced-view toggle.
+3. an advanced-view toggle;
+4. a help toggle that opens a guided tour explaining every option.
 
 Each comes with scope and acceptance criteria. Links that pointed at old phase
 anchors were repointed to the history file: README, three test docstrings, the
@@ -60,7 +62,7 @@ rpm `%doc` list, and the "cross-source agreement" link in
 `templates/federation_add.html`.
 
 Tracking board: the private GitHub project **"Protek roadmap"** (user project
-#2, linked to the repo), with Status + a Priority field (P1–P3). Its items are
+#2, linked to the repo), with Status + a Priority field (P1–P4). Its items are
 **draft items, not issues**, because the repo is public and its issues would be
 too. Convert a draft to an issue only when it's fine for that work to be public.
 
