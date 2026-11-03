@@ -45,6 +45,23 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-03 — Published Docker image on GHCR
+
+`.github/workflows/publish.yml` builds amd64 + arm64 (arm64 under QEMU) and
+pushes `ghcr.io/syedhashmi-bit/protek`: `latest` + `sha-<short>` on every push
+to main, `X.Y.Z` + `X.Y` on `vX.Y.Z` tags. `compose.yml` now uses
+`${PROTEK_IMAGE:-ghcr.io/syedhashmi-bit/protek:latest}` with
+**`pull_policy: missing`** — without it, a service that also has `build:` gets
+*built* when the image is missing rather than pulled. `docker compose build`
+still builds the checkout under the same tag. `install.sh` pulls first and
+falls back to building (`PROTEK_DOCKER_BUILD=1` forces a build). DOCKER.md
+covers updating (`docker compose pull && docker compose up -d`), pinning, and
+running from just compose.yml + compose.hostnet.yml + Caddyfile.
+
+**Check after the first publish run:** GHCR packages on a personal account can
+start out private. If an anonymous pull is denied, set the package's visibility
+to public (GitHub → Packages → protek → Package settings).
+
 ## 2026-10-29 — Install paths fixed (installer, Docker, docs)
 
 A read-through for a new user found that only Ubuntu 24.04 + `install.sh` worked.

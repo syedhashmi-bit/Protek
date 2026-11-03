@@ -41,8 +41,9 @@ echo "CROWDSEC_BOUNCER_KEY=$(sudo cscli bouncers add protek -o raw)" >> .env
 # Protek runs in dry-run.
 chmod 600 .env
 
-# 3. Build the image.
-docker compose build
+# 3. Get the image — the published one (a quick download), or build this
+#    checkout from source with `docker compose build` instead.
+docker compose pull protek
 
 # 4. First-run admin setup — captures one-shot password + TOTP URI.
 #    (Screenshot it or paste it into a password manager; it never reprints.)
@@ -142,7 +143,7 @@ scp /tmp/protek-state.tgz docker-host:/tmp/
 cd Protek                               # repo root
 printf 'PROTEK_DOMAIN=protek.example.com\nCOMPOSE_PROFILES=proxy\n' > .env
 # CrowdSec on this host too? Add: COMPOSE_FILE=compose.yml:compose.hostnet.yml
-docker compose build
+docker compose pull protek
 docker compose run --rm --no-deps --user root -v /tmp:/src protek \
     sh -c 'tar xzf /src/protek-state.tgz -C /data && chown -R protek:protek /data'
 docker compose up -d
@@ -181,10 +182,47 @@ docker compose down
 docker compose down -v
 ```
 
+## The published image
+
+[`.github/workflows/publish.yml`](../.github/workflows/publish.yml)
+builds and pushes **`ghcr.io/syedhashmi-bit/protek`** for `linux/amd64`
+and `linux/arm64`:
+
+| Tag | Tracks |
+|-----|--------|
+| `latest` | the tip of `main` (what `compose.yml` and `install.sh` pull) |
+| `sha-<short>` | one specific `main` commit |
+| `1.2.3`, `1.2` | a release tag `v1.2.3` |
+
+Pin a version by setting `PROTEK_IMAGE=ghcr.io/syedhashmi-bit/protek:1.2.3`
+in `./.env`. To run your own changes instead, `docker compose build`
+builds this checkout under the same tag.
+
+**Updating:**
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+The database and secrets live on the `protek_data` volume, so they
+carry over; migrations run on start.
+
+**Without cloning the repo:** the stack needs only three files from it.
+
+```bash
+mkdir protek && cd protek
+base=https://raw.githubusercontent.com/syedhashmi-bit/Protek/main
+curl -fsSLO "$base/compose.yml" -O "$base/compose.hostnet.yml" -O "$base/Caddyfile"
+```
+
+Then carry on from step 2 of the quickstart. `docker compose build`
+won't work in this layout (there's no source), but nothing else needs it.
+
 ## Multi-architecture
 
 The `python:3.12-slim` base ships for both `linux/amd64` and
-`linux/arm64`. The same `compose.yml` runs on:
+`linux/arm64`, and the published image is built for both. The same
+`compose.yml` runs on:
 
 - Hetzner CAX21 / CAX11 (arm64)
 - AWS Graviton (arm64)
