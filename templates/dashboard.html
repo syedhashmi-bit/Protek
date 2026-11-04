@@ -49,7 +49,9 @@
   <strong style="color:{{ 'var(--danger)' if blocking.pill == 'down' else 'var(--warn)' }}">{{ blocking.label }}</strong>
   {% if blocking.worst %}<span class="muted"> · {{ blocking.worst }}</span>{% endif %}
   <div class="muted" style="font-size:12px;margin-top:4px">
-    {% if blocking.pill == 'down' and blocking.dry_run %}
+    {% if blocking.status == 'blocking' and blocking.warnings %}
+    {{ blocking.warnings[0] }}
+    {% elif blocking.pill == 'down' and blocking.dry_run %}
     Dry-run is on, so nothing is pushed yet — but no active firewall rule drops traffic from the address list, so when you turn dry-run off, banned IPs will still get through.
     {% elif blocking.pill == 'down' %}
     Protek fills the router's address list, but no active firewall rule drops traffic from it, so banned IPs still get through.

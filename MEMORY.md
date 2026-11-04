@@ -76,8 +76,29 @@ New `blocking.py`. A read-only look at each MikroTik target's
   and `def _inject_globals` re-pointed the decorator. Every page then lost
   `nav_label_for`. Keep decorators glued to their function.
 
-Not verified on a real router: neither the fetch against real RouterOS output
-nor the `.rsc` script.
+**Checked against the live router (read-only, same day).** Credentials were
+loaded into the probe's process only, nothing from `.env` was printed, and only
+the `.env` router was checked, so `protek.db` stayed unread. Findings:
+
+- **IPv4 is enforced:** filter `input` (position 1) and `forward` (position 2)
+  drop `crowdsec`, about 2.75M packets so far. The list holds 45,220 entries,
+  all `protek:`-owned.
+- **IPv6 is NOT enforced:** 1,214 Protek IPv6 bans sit on the IPv6 `crowdsec`
+  list, and the only IPv6 address-list rule drops `bad_ipv6`. This is a real
+  gap; the operator decides whether to paste the IPv6 rule.
+- **Real output shape:** the binary API returns `id` (not `.id`), and leaves out
+  `disabled` and `invalid` when they're false. `analyze()` already treated
+  missing as enabled. The raw table holds one dynamic passthrough dummy rule.
+
+**The gap led to three changes:**
+- The reconciler records each router's IPv6 entry count from its existing
+  snapshot (`blocking.note_v6_entries`, written only on change).
+- The warning says how many IPv6 bans get through, and stays quiet at 0.
+- "Blocking with a gap" is its own state: an amber pill labelled "Blocking —
+  with gaps", a dashboard banner naming the gap, and an IPv6-only script
+  (`v6_only` in `mt_droprule.rsc`).
+
+The `.rsc` script itself is still not run on any router.
 
 ## 2026-11-03 — Roadmap reset to three priorities; private GitHub project
 

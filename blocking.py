@@ -63,6 +63,11 @@ _NON_MATCHERS = {
 _SEVERITY = ["none", "disabled", "shadowed", "unknown", "unverified", "blocking"]
 
 SETTING_KEY = "blocking.status"
+V6_KEY = "blocking.v6_entries."      # + target name; written by the reconciler
+
+# Last value written per target, so the per-cycle call only touches the DB
+# when the count actually changes (the WAL has a history — MEMORY.md).
+_V6_SEEN: dict[str, int] = {}
 
 
 def _truthy(v: Any) -> bool:
@@ -138,13 +143,18 @@ def _analyze_family(list_name: str, tables: dict[str, list[dict[str, Any]] | Non
     }
 
 
-def analyze(list_name: str, tables: dict[str, list[dict[str, Any]] | None]) -> dict[str, Any]:
+def analyze(list_name: str, tables: dict[str, list[dict[str, Any]] | None],
+            v6_entries: int | None = None) -> dict[str, Any]:
     """Pure verdict for one router.
 
     `tables` keys: "filter", "raw" (IPv4) and "filter6", "raw6" (IPv6), each
     a list of rule dicts as RouterOS returns them, in rule order. An IPv6
     table of None means the router has no IPv6 firewall (package off); the
     IPv6 verdict is then None.
+
+    `v6_entries` is how many IPv6 entries Protek has on the router's IPv6
+    address-list (None = not known yet). With 0, a missing IPv6 rule isn't
+    worth a warning; with more, the warning says how many bans get through.
     """
     v4 = _analyze_family(list_name, {"filter": tables.get("filter"), "raw": tables.get("raw")})
     has_v6 = tables.get("filter6") is not None or tables.get("raw6") is not None
@@ -162,9 +172,15 @@ def analyze(list_name: str, tables: dict[str, list[dict[str, Any]] | None]) -> d
             warnings.append("Only forwarded traffic is dropped. Banned IPs can still reach "
                             "the router itself (its services, VPN) — add the rule to the "
                             "input chain too, or use raw prerouting.")
-    if v6 is not None and v6["status"] != "blocking" and v4["status"] == "blocking":
-        warnings.append("No IPv6 drop rule — IPv6 bans Protek pushes to the IPv6 "
-                        "address-list aren't blocked.")
+    v6_gap = (v6 is not None and v6["status"] != "blocking" and v4["status"] == "blocking"
+              and v6_entries != 0)
+    if v6_gap:
+        if v6_entries:
+            warnings.append(f"{v6_entries:,} IPv6 bans aren't blocked — no IPv6 firewall rule "
+                            f"drops the {list_name} list.")
+        else:
+            warnings.append("No IPv6 drop rule — IPv6 bans Protek pushes to the IPv6 "
+                            "address-list aren't blocked.")
 
     return {
         "list": list_name,
@@ -175,6 +191,8 @@ def analyze(list_name: str, tables: dict[str, list[dict[str, Any]] | None]) -> d
         "custom_chains": v4["custom_chains"],
         "v6_status": v6["status"] if v6 else None,
         "v6_rules": v6["rules"] if v6 else [],
+        "v6_entries": v6_entries,
+        "v6_gap": v6_gap,
         "warnings": warnings,
     }
 
@@ -236,17 +254,39 @@ def check_target(bouncer) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         return {**base, "status": "unknown", "error": str(e)[:300], "rules": [],
                 "coverage": [], "packets": 0, "custom_chains": [], "v6_status": None,
-                "v6_rules": [], "warnings": []}
-    return {**base, **analyze(base["list"], tables), "error": ""}
+                "v6_rules": [], "v6_entries": None, "v6_gap": False, "warnings": []}
+    return {**base, **analyze(base["list"], tables, _v6_entries(bouncer.name)), "error": ""}
+
+
+def note_v6_entries(target: str, n: int) -> None:
+    """Called by the reconciler each cycle; writes only on change."""
+    if _V6_SEEN.get(target) == n:
+        return
+    from db import set_setting
+    set_setting(V6_KEY + target, str(n))
+    _V6_SEEN[target] = n
+
+
+def _v6_entries(target: str) -> int | None:
+    try:
+        from db import get_setting
+        raw = get_setting(V6_KEY + target)
+        return int(raw) if raw not in (None, "") else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Worst status across targets; `status` is None when there are no
     MikroTik targets at all."""
     if not results:
-        return {"status": None, "targets": []}
+        return {"status": None, "partial": False, "targets": []}
     worst = min(results, key=lambda r: _SEVERITY.index(r["status"]))
-    return {"status": worst["status"], "worst": worst["target"], "targets": results}
+    partial = any(r["status"] == "blocking" and r.get("warnings") for r in results)
+    if worst["status"] == "blocking" and partial:
+        worst = next(r for r in results if r["status"] == "blocking" and r.get("warnings"))
+    return {"status": worst["status"], "partial": partial, "worst": worst["target"],
+            "targets": results}
 
 
 def refresh() -> dict[str, Any]:
@@ -289,6 +329,7 @@ def age_seconds(result: dict[str, Any]) -> float | None:
 
 LABELS = {
     "blocking": "Blocking active",
+    "partial": "Blocking — with gaps",
     "none": "Not blocking — no drop rule",
     "disabled": "Not blocking — drop rule disabled",
     "shadowed": "Not blocking — drop rule never fires",
@@ -297,12 +338,19 @@ LABELS = {
 }
 
 
-def pill_state(status: str | None) -> str | None:
-    """ok / warn / down for the topbar pill; None hides it."""
+def label_for(status: str | None, partial: bool = False) -> str:
+    if status == "blocking" and partial:
+        return LABELS["partial"]
+    return LABELS.get(status, "")
+
+
+def pill_state(status: str | None, partial: bool = False) -> str | None:
+    """ok / warn / down for the topbar pill; None hides it. A router that
+    blocks but leaves a gap (IPv6, one direction) is amber, not green."""
     if status is None:
         return None
     if status == "blocking":
-        return "ok"
+        return "warn" if partial else "ok"
     if status in ("unverified", "unknown"):
         return "warn"
     return "down"

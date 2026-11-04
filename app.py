@@ -362,12 +362,17 @@ def _blocking_view() -> dict:
     import blocking
     b = blocking.cached()
     status = b.get("status")
+    partial = bool(b.get("partial"))
     return {
         "status": status,
-        "label": blocking.LABELS.get(status, ""),
-        "pill": blocking.pill_state(status),
+        "label": blocking.label_for(status, partial),
+        "pill": blocking.pill_state(status, partial),
         "worst": b.get("worst"),
         "targets": b.get("targets") or [],
+        # The worst router's own warnings — for a router that blocks but
+        # leaves a gap, the banner names the gap.
+        "warnings": next((t.get("warnings") or [] for t in b.get("targets") or []
+                          if t.get("target") == b.get("worst")), []),
         "dry_run": _dry_run_now(),
     }
 
@@ -1768,16 +1773,21 @@ def mikrotik_page():
         except Exception as e:  # noqa: BLE001 — the page must still render
             log.warning("blocking check failed: %s", e)
     for t in block.get("targets") or []:
-        t["label"] = blocking.LABELS.get(t["status"], t["status"])
-        t["pill"] = blocking.pill_state(t["status"])
+        partial = t["status"] == "blocking" and bool(t.get("warnings"))
+        t["label"] = blocking.label_for(t["status"], partial) or t["status"]
+        t["pill"] = blocking.pill_state(t["status"], partial)
         if t["status"] != "blocking":
             t["script"] = render_template("mt_droprule.rsc", list_name=t["list"] or list_name)
+        elif t.get("v6_gap"):
+            # IPv4 is covered by the operator's own rules — only add IPv6.
+            t["script"] = render_template("mt_droprule.rsc", list_name=t["list"] or list_name,
+                                          v6_only=True)
 
     return render_template(
         "mikrotik.html",
         mt=health,
         block=block,
-        block_pill=blocking.pill_state(block.get("status")),
+        block_pill=blocking.pill_state(block.get("status"), bool(block.get("partial"))),
         block_rel=rel_time(block.get("checked_at")) if block.get("checked_at") else "never",
         dry_run_now=_dry_run_now(),
         list_name=list_name,
@@ -1805,7 +1815,8 @@ def mikrotik_blocking_check():
     import blocking
     try:
         res = blocking.refresh()
-        flash(blocking.LABELS.get(res.get("status"), "No MikroTik targets to check."), "info")
+        flash(blocking.label_for(res.get("status"), bool(res.get("partial")))
+              or "No MikroTik targets to check.", "info")
     except Exception as e:  # noqa: BLE001
         flash(f"Firewall check failed: {e}", "error")
     return redirect(url_for("mikrotik_page") + "#blocking")

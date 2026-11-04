@@ -1,5 +1,7 @@
 # -----------------------------------------------------------------
-# Protek: drop traffic from the "{{ list_name }}" address list
+# Protek: drop traffic from the "{{ list_name }}" address list{% if v6_only %} (IPv6)
+#
+# Your IPv4 rules already drop this list; this adds the missing IPv6 rule.{% endif %}
 #
 # Paste into the RouterOS terminal (Winbox → New Terminal). Safe to
 # re-run: an existing rule is enabled rather than duplicated.
@@ -16,6 +18,7 @@
 
 :local listname "{{ list_name }}"
 
+{% if not v6_only %}
 /ip firewall raw enable [find chain=prerouting src-address-list=$listname action=drop disabled=yes]
 :if ([:len [/ip firewall raw find chain=prerouting src-address-list=$listname action=drop]] = 0) do={
     :if ([:len [/ip firewall raw find]] = 0) do={
@@ -30,6 +33,7 @@
     :put "[ok] IPv4 drop rule present"
 }
 
+{% endif %}
 :do {
     /ipv6 firewall raw enable [find chain=prerouting src-address-list=$listname action=drop disabled=yes]
     :if ([:len [/ipv6 firewall raw find chain=prerouting src-address-list=$listname action=drop]] = 0) do={

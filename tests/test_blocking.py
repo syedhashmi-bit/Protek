@@ -406,3 +406,79 @@ def test_turning_dry_run_off_is_quiet_when_blocking(client, monkeypatch):
     with client.session_transaction() as s:
         flashes = [m for _, m in s.get("_flashes", [])]
     assert not any("nothing will drop them" in m for m in flashes)
+
+
+# ── gaps: IPv6 and partial coverage (found on a real router) ────────────────
+
+def _v4_and_empty_v6():
+    return {"filter": [rule("input"), rule("forward")], "raw": [], "filter6": [], "raw6": []}
+
+
+def test_v6_gap_names_the_count():
+    r = blocking.analyze(LIST, _v4_and_empty_v6(), v6_entries=1214)
+    assert r["v6_gap"] is True
+    assert any("1,214 IPv6 bans aren't blocked" in w for w in r["warnings"])
+
+
+def test_no_v6_entries_means_no_v6_warning():
+    r = blocking.analyze(LIST, _v4_and_empty_v6(), v6_entries=0)
+    assert r["v6_gap"] is False and r["warnings"] == []
+
+
+def test_partial_is_amber_with_its_own_label():
+    t = blocking.check_target(_FakeTarget("edge", _v4_and_empty_v6()))
+    s = blocking.summarize([t])
+    assert s["status"] == "blocking" and s["partial"] is True
+    assert blocking.pill_state(s["status"], s["partial"]) == "warn"
+    assert blocking.label_for(s["status"], s["partial"]) == "Blocking — with gaps"
+    assert blocking.label_for("blocking") == "Blocking active"
+
+
+def test_summary_points_at_the_router_with_the_gap():
+    full = blocking.check_target(_FakeTarget("a", {"filter": [], "raw": [rule("prerouting")],
+                                                   "filter6": [], "raw6": [rule("prerouting")]}))
+    gap = blocking.check_target(_FakeTarget("b", _v4_and_empty_v6()))
+    s = blocking.summarize([full, gap])
+    assert s["worst"] == "b" and s["partial"] is True
+
+
+def test_note_v6_entries_writes_only_on_change(monkeypatch):
+    import db
+    writes = []
+    real = db.set_setting
+    monkeypatch.setattr(db, "set_setting", lambda k, v: (writes.append((k, v)), real(k, v)))
+    blocking._V6_SEEN.clear()
+    blocking.note_v6_entries("edge", 5)
+    blocking.note_v6_entries("edge", 5)
+    blocking.note_v6_entries("edge", 6)
+    assert writes == [("blocking.v6_entries.edge", "5"), ("blocking.v6_entries.edge", "6")]
+    assert blocking._v6_entries("edge") == 6
+
+
+def test_check_target_uses_the_recorded_v6_count():
+    blocking._V6_SEEN.clear()
+    blocking.note_v6_entries("edge-v6", 42)
+    t = blocking.check_target(_FakeTarget("edge-v6", _v4_and_empty_v6()))
+    assert any("42 IPv6 bans" in w for w in t["warnings"])
+
+
+def test_mikrotik_page_offers_ipv6_only_script_for_a_v6_gap(client, monkeypatch):
+    import html as _html
+    blocking._V6_SEEN.clear()
+    blocking.note_v6_entries("edge", 1214)
+    _targets(monkeypatch, _FakeTarget("edge", _v4_and_empty_v6()))
+    page = _html.unescape(client.get("/mikrotik").get_data(as_text=True))
+    assert "Blocking — with gaps" in page
+    assert "/ipv6 firewall raw add chain=prerouting" in page
+    assert "/ip firewall raw add" not in page        # IPv4 already covered
+
+
+def test_dashboard_banner_names_the_gap(client):
+    from db import set_setting
+    set_setting(blocking.SETTING_KEY, json.dumps({
+        "status": "blocking", "partial": True, "worst": "edge",
+        "targets": [{"target": "edge", "status": "blocking",
+                     "warnings": ["1,214 IPv6 bans aren't blocked — no IPv6 firewall rule drops the crowdsec list."]}]}))
+    page = client.get("/").get_data(as_text=True)
+    assert "Blocking — with gaps" in page
+    assert "1,214 IPv6 bans" in page
