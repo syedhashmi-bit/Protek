@@ -415,9 +415,9 @@ def _v4_and_empty_v6():
 
 
 def test_v6_gap_names_the_count():
-    r = blocking.analyze(LIST, _v4_and_empty_v6(), v6_entries=1214)
+    r = blocking.analyze(LIST, _v4_and_empty_v6(), v6_entries=1500)
     assert r["v6_gap"] is True
-    assert any("1,214 IPv6 bans aren't blocked" in w for w in r["warnings"])
+    assert any("1,500 IPv6 bans aren't blocked" in w for w in r["warnings"])
 
 
 def test_no_v6_entries_means_no_v6_warning():
@@ -465,7 +465,7 @@ def test_check_target_uses_the_recorded_v6_count():
 def test_mikrotik_page_offers_ipv6_only_script_for_a_v6_gap(client, monkeypatch):
     import html as _html
     blocking._V6_SEEN.clear()
-    blocking.note_v6_entries("edge", 1214)
+    blocking.note_v6_entries("edge", 1500)
     _targets(monkeypatch, _FakeTarget("edge", _v4_and_empty_v6()))
     page = _html.unescape(client.get("/mikrotik").get_data(as_text=True))
     assert "Blocking — with gaps" in page
@@ -478,7 +478,7 @@ def test_dashboard_banner_names_the_gap(client):
     set_setting(blocking.SETTING_KEY, json.dumps({
         "status": "blocking", "partial": True, "worst": "edge",
         "targets": [{"target": "edge", "status": "blocking",
-                     "warnings": ["1,214 IPv6 bans aren't blocked — no IPv6 firewall rule drops the crowdsec list."]}]}))
+                     "warnings": ["1,500 IPv6 bans aren't blocked — no IPv6 firewall rule drops the crowdsec list."]}]}))
     page = client.get("/").get_data(as_text=True)
     assert "Blocking — with gaps" in page
-    assert "1,214 IPv6 bans" in page
+    assert "1,500 IPv6 bans" in page

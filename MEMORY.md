@@ -76,19 +76,15 @@ New `blocking.py`. A read-only look at each MikroTik target's
   and `def _inject_globals` re-pointed the decorator. Every page then lost
   `nav_label_for`. Keep decorators glued to their function.
 
-**Checked against the live router (read-only, same day).** Credentials were
-loaded into the probe's process only, nothing from `.env` was printed, and only
-the `.env` router was checked, so `protek.db` stayed unread. Findings:
+**Checked against the live router (read-only, same day).** It confirmed the
+fetch and the verdicts on real RouterOS output, and it surfaced a coverage gap
+that drove the changes below. The specifics of the live router's firewall are
+**not recorded here**, because this repo is public. Keep router posture details
+out of committed files, the same way host identifiers are.
 
-- **IPv4 is enforced:** filter `input` (position 1) and `forward` (position 2)
-  drop `crowdsec`, about 2.75M packets so far. The list holds 45,220 entries,
-  all `protek:`-owned.
-- **IPv6 is NOT enforced:** 1,214 Protek IPv6 bans sit on the IPv6 `crowdsec`
-  list, and the only IPv6 address-list rule drops `bad_ipv6`. This is a real
-  gap; the operator decides whether to paste the IPv6 rule.
-- **Real output shape:** the binary API returns `id` (not `.id`), and leaves out
-  `disabled` and `invalid` when they're false. `analyze()` already treated
-  missing as enabled. The raw table holds one dynamic passthrough dummy rule.
+Real output shape, which is safe to note: the binary API returns `id` (not
+`.id`), and leaves out `disabled` and `invalid` when they're false. `analyze()`
+already treated missing as enabled.
 
 **The gap led to three changes:**
 - The reconciler records each router's IPv6 entry count from its existing
