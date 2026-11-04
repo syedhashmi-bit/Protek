@@ -45,6 +45,57 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-04 — Roadmap #1: "is the router actually blocking?"
+
+New `blocking.py`. A read-only look at each MikroTik target's
+`/ip(v6)/firewall/filter` and `/raw`, answering whether anything drops
+`src-address-list=<list>`:
+
+- **Verdicts:**
+  - `blocking`: an enabled drop/reject/tarpit in filter input/forward or raw prerouting, not shadowed.
+  - `none`, `disabled`.
+  - `shadowed`: an earlier *unconditional* accept in the same table+chain. Raw accept doesn't shadow filter, and conditional accepts like established,related don't count.
+  - `unverified`: the rule is only in a custom chain.
+  - `unknown`: read failed.
+- **Coverage and warnings:** coverage is input/forward, and a warning appears
+  when only one is covered. Another flags a missing IPv6 rule when v4 blocks.
+- **Reads, adapters and caching:** each MikroTik adapter gets
+  `firewall_rules()`; the binary API only calls `.get()`, REST only issues GET,
+  and tests enforce both. The result is cached in `settings` `blocking.status`.
+  `poller._check_blocking()` refreshes every 6 ticks (tick 0 at once), and
+  `/mikrotik` refreshes live when the cache is >30s old. There's also a
+  "Check now" POST.
+- **UI:**
+  - a BLOCKING topbar pill, hidden with no MikroTik targets;
+  - a dashboard banner, dry-run aware;
+  - a panel on `/mikrotik` with per-target status, rules found, warnings and a
+    copy-paste `mt_droprule.rsc` (raw prerouting, placed first, idempotent,
+    enables a disabled one, IPv6 in `:do on-error`);
+  - a flash warning when dry-run is switched off while not blocking.
+- **Bug caught in passing:** inserting helpers between `@app.context_processor`
+  and `def _inject_globals` re-pointed the decorator. Every page then lost
+  `nav_label_for`. Keep decorators glued to their function.
+
+**Checked against the live router (read-only, same day).** It confirmed the
+fetch and the verdicts on real RouterOS output, and it surfaced a coverage gap
+that drove the changes below. The specifics of the live router's firewall are
+**not recorded here**, because this repo is public. Keep router posture details
+out of committed files, the same way host identifiers are.
+
+Real output shape, which is safe to note: the binary API returns `id` (not
+`.id`), and leaves out `disabled` and `invalid` when they're false. `analyze()`
+already treated missing as enabled.
+
+**The gap led to three changes:**
+- The reconciler records each router's IPv6 entry count from its existing
+  snapshot (`blocking.note_v6_entries`, written only on change).
+- The warning says how many IPv6 bans get through, and stays quiet at 0.
+- "Blocking with a gap" is its own state: an amber pill labelled "Blocking —
+  with gaps", a dashboard banner naming the gap, and an IPv6-only script
+  (`v6_only` in `mt_droprule.rsc`).
+
+The `.rsc` script itself is still not run on any router.
+
 ## 2026-11-03 — Roadmap reset to three priorities; private GitHub project
 
 The 1,736-line phased plan moved to `docs/ROADMAP-HISTORY.md` (archived). Git

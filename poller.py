@@ -112,6 +112,20 @@ class Poller:
         except Exception as e:  # noqa: BLE001 — never break the cycle
             log.warning("hygiene check failed: %s", e)
 
+    def _check_blocking(self, tick_no: int) -> None:
+        """Is each MikroTik actually dropping the address-list? A read of
+        its firewall rules (blocking.py), every 6 ticks (~60s at the default
+        interval) — the rules change rarely, and the /mikrotik page checks
+        live when someone is looking. Tick 0 runs at once so the topbar has
+        an answer right after a restart."""
+        if tick_no % 6 != 0:
+            return
+        try:
+            import blocking
+            blocking.refresh()
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.warning("blocking check failed: %s", e)
+
     def _check_disk(self, _gs, tick_no: int) -> None:
         """Disk watchdog. Runs at the TOP of tick(), before anything else.
 
@@ -166,6 +180,7 @@ class Poller:
         self._maint_ticks += 1
         self._check_disk(_gs, tick_no)
         self._run_retention(_gs, tick_no)
+        self._check_blocking(tick_no)
         v = _gs("settings.dry_run")
         if v in ("0", "1"):
             self.dry_run = (v == "1")

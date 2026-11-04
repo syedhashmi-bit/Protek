@@ -30,6 +30,9 @@
     <span class="pill" id="pill-lapi"><span class="lbl">LAPI</span></span>
     <span class="pill" id="pill-mt"><span class="lbl">MT</span></span>
     <span class="pill" id="pill-sync"><span class="lbl">SYNC</span></span>
+    {# Is the router actually dropping the address list? blocking.py; hidden with no MikroTik targets. #}
+    <a class="pill {{ blocking.pill or '' }}" id="pill-block" href="{{ url_for('mikrotik_page') }}#blocking"
+       title="{{ blocking.label }}" style="text-decoration:none{% if not blocking.pill %};display:none{% endif %}"><span class="lbl">BLOCKING</span></a>
     {% if dry_run %}<span class="pill dryrun"><span class="lbl">DRY RUN</span></span>{% endif %}
     {% if session.get('role','viewer') != 'admin' %}
       <span class="pill" title="{{ session.get('role','viewer') }} role — write actions {{ 'allowed' if has_role('operator') else 'disabled' }}">
@@ -109,6 +112,11 @@ async function refreshPills(){
     setPill('pill-lapi', j.lapi);
     setPill('pill-mt',   j.mikrotik);
     setPill('pill-sync', j.sync);
+    const pb = document.getElementById('pill-block');
+    if(pb){
+      pb.style.display = j.blocking ? '' : 'none';
+      if(j.blocking){ setPill('pill-block', j.blocking); pb.title = j.blocking_label || ''; }
+    }
   }catch(e){}
 }
 function setPill(id, state){

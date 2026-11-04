@@ -234,6 +234,14 @@ def _run_one_bouncer(b, desired: list[dict[str, Any]],
     # re-fetch the full address-list just to display a count (see app.py
     # _cached_mt_count / poller mt.last_list_count).
     out["snapshot_n"] = len(current)
+    # IPv6 entries on this router, for blocking.py's "are IPv6 bans actually
+    # dropped?" warning — counted from the snapshot we already hold.
+    if out["snapshot_ok"] and hasattr(b, "firewall_rules"):
+        try:
+            import blocking
+            blocking.note_v6_entries(b.name, sum(1 for e in current if ":" in (e.get("address") or "")))
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.debug("v6 entry count not recorded for %s: %s", b.name, e)
 
     desired_for_b = _filter_desired_for_bouncer(b, desired)
     if len(desired_for_b) < len(desired):

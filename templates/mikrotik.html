@@ -47,6 +47,117 @@
 </div>
 {% endif %}
 
+{% set bcolor = {'ok': 'var(--ok)', 'warn': 'var(--warn)', 'down': 'var(--danger)'} %}
+{% set covname = {'input': 'the router', 'forward': 'your network'} %}
+<div class="panel" id="blocking" style="margin-top:var(--gap);border-left:3px solid {{ bcolor.get(block_pill, 'var(--border)') }}">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0">Is the router blocking?</h2>
+    <form method="POST" action="{{ url_for('mikrotik_blocking_check') }}" style="margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn ghost" type="submit">Check now</button>
+    </form>
+  </div>
+  <p class="muted" style="margin:8px 0 12px;font-size:12px;line-height:1.6">
+    Protek fills the address list; a firewall rule on the router has to drop traffic from it.
+    This reads each router's firewall rules — it never changes them. Checked {{ block_rel }}.
+  </p>
+
+  {% for t in block.targets %}
+  <div style="border-top:1px solid var(--border);padding:12px 0">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span class="pill {{ t.pill }}"><span class="lbl">{{ t.label }}</span></span>
+      <span>{{ t.target }}</span>
+      <span class="muted" style="font-size:12px">list <span class="mono">{{ t.list }}</span></span>
+      {% if t.status == 'blocking' %}
+      <span class="muted" style="font-size:12px">
+        drops traffic to {% for c in t.coverage %}{{ covname.get(c, c) }}{% if not loop.last %} and {% endif %}{% endfor %} ·
+        <span class="mono">{{ '{:,}'.format(t.packets) }}</span> packets dropped so far
+      </span>
+      {% endif %}
+    </div>
+
+    {% if t.status == 'none' %}
+    <p style="margin:10px 0 0;font-size:12px">No firewall rule drops traffic from <span class="mono">{{ t.list }}</span>,
+      so the bans Protek pushes don't block anything yet. Paste the script below into the router.</p>
+    {% elif t.status == 'disabled' %}
+    <p style="margin:10px 0 0;font-size:12px">A drop rule for <span class="mono">{{ t.list }}</span> exists but is disabled.
+      Enable it in the router, or paste the script below (it enables an existing raw rule).</p>
+    {% elif t.status == 'shadowed' %}
+    <p style="margin:10px 0 0;font-size:12px">A drop rule exists, but an earlier rule in the same chain accepts
+      everything, so it never sees a packet. Move the drop rule above that accept, or paste the script below,
+      which puts a drop rule first in the raw table.</p>
+    {% elif t.status == 'unverified' %}
+    <p style="margin:10px 0 0;font-size:12px">The drop rule is in custom chain
+      <span class="mono">{{ t.custom_chains|join(', ') }}</span>. Protek can't tell whether any rule jumps there —
+      check that one does, or use the raw rule below, which doesn't depend on it.</p>
+    {% elif t.status == 'unknown' %}
+    <p style="margin:10px 0 0;font-size:12px">Protek couldn't read this router's firewall:
+      <span class="mono" style="color:var(--danger)">{{ t.error }}</span>. The API user needs the
+      <span class="mono">read</span> policy — the <a href="{{ url_for('mt_bootstrap_page') }}" style="color:var(--accent)">bootstrap script</a> grants it.</p>
+    {% endif %}
+
+    {% for w in t.warnings %}
+    <p style="margin:8px 0 0;font-size:12px;color:var(--warn)">{{ w }}</p>
+    {% endfor %}
+
+    {% if t.rules %}
+    <details style="margin-top:8px">
+      <summary class="muted" style="font-size:12px;cursor:pointer">Rules found ({{ t.rules|length }})</summary>
+      <table style="margin-top:6px">
+        <thead><tr><th>Table</th><th>Chain</th><th class="right">Position</th><th>Action</th><th>State</th><th class="right">Packets</th><th>Comment</th></tr></thead>
+        <tbody>
+        {% for r in t.rules %}
+          <tr>
+            <td class="mono">{{ r.table }}</td>
+            <td class="mono">{{ r.chain }}</td>
+            <td class="mono right">{{ r.position }}</td>
+            <td class="mono">{{ r.action }}</td>
+            <td>{% if not r.enabled %}disabled{% elif r.shadowed %}never fires{% elif not r.builtin %}custom chain{% else %}active{% endif %}</td>
+            <td class="mono right">{{ r.packets }}</td>
+            <td class="muted">{{ r.comment }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+
+    {% if t.script %}
+    {% if dry_run_now %}
+    <p class="muted" style="margin:10px 0 0;font-size:12px">Dry-run is on, so nothing is pushed yet — add the rule before you turn it off.</p>
+    {% endif %}
+    <div style="display:flex;gap:10px;align-items:center;margin:12px 0 6px">
+      <button class="btn" type="button" data-copy="rule-{{ loop.index }}">Copy script</button>
+      <span class="muted" style="font-size:11px" id="rule-{{ loop.index }}-status"></span>
+    </div>
+    <pre id="rule-{{ loop.index }}" style="background:var(--bg-deep);border:1px solid var(--border);padding:14px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;overflow:auto;max-height:420px;white-space:pre;margin:0">{{ t.script }}</pre>
+    <ul class="muted" style="font-size:12px;line-height:1.7;margin:10px 0 0;padding-left:18px">
+      <li>First, put your own IPs on the <a href="{{ url_for('whitelist_page') }}" style="color:var(--accent)">whitelist</a> — if CrowdSec ever bans you, this rule drops you too.</li>
+      <li>No dedicated API user yet? The <a href="{{ url_for('mt_bootstrap_page', list_name=t.list) }}" style="color:var(--accent)">bootstrap script</a> creates one with the minimum rights.</li>
+      <li>Limit the router's API service to Protek's address: in <span class="mono">/ip service</span>, add this server's IP to the <span class="mono">api</span> service's allowed addresses (keep any that are already there).</li>
+    </ul>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="muted" style="font-size:12px;border-top:1px solid var(--border);padding-top:12px">
+    No MikroTik targets configured yet — nothing to check.
+  </div>
+  {% endfor %}
+</div>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var id = btn.getAttribute('data-copy');
+    var status = document.getElementById(id + '-status');
+    navigator.clipboard.writeText(document.getElementById(id).textContent).then(function () {
+      status.textContent = 'Copied — paste it into the RouterOS terminal';
+    }, function () {
+      status.textContent = 'Clipboard blocked — select the text and copy it';
+    });
+  });
+});
+</script>
+
 {% if initial_sync %}
 <div class="panel" style="margin-top:var(--gap);border-left:3px solid var(--cyan)">
   <h2 style="color:var(--cyan)">Initial Sync In Progress</h2>

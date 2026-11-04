@@ -43,6 +43,25 @@
 </style>
 {% endblock %}
 {% block body %}
+{% if blocking.pill in ('down', 'warn') %}
+<a href="{{ url_for('mikrotik_page') }}#blocking" class="panel"
+   style="display:block;text-decoration:none;color:inherit;margin-bottom:var(--gap);border-left:3px solid {{ 'var(--danger)' if blocking.pill == 'down' else 'var(--warn)' }}">
+  <strong style="color:{{ 'var(--danger)' if blocking.pill == 'down' else 'var(--warn)' }}">{{ blocking.label }}</strong>
+  {% if blocking.worst %}<span class="muted"> · {{ blocking.worst }}</span>{% endif %}
+  <div class="muted" style="font-size:12px;margin-top:4px">
+    {% if blocking.status == 'blocking' and blocking.warnings %}
+    {{ blocking.warnings[0] }}
+    {% elif blocking.pill == 'down' and blocking.dry_run %}
+    Dry-run is on, so nothing is pushed yet — but no active firewall rule drops traffic from the address list, so when you turn dry-run off, banned IPs will still get through.
+    {% elif blocking.pill == 'down' %}
+    Protek fills the router's address list, but no active firewall rule drops traffic from it, so banned IPs still get through.
+    {% else %}
+    Protek can't confirm the router drops traffic from its address list.
+    {% endif %}
+    See the MikroTik page for the fix →
+  </div>
+</a>
+{% endif %}
 <div class="grid kpi-strip">
   <a class="kpi" href="{{ url_for('decisions_page') }}">
     <div class="k">LAPI Active</div>
