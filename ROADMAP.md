@@ -19,6 +19,10 @@ soak run, REST adapter perf measurement, the 2.0 tag) were dropped on 2026-11-03
 
 ## 1. Show whether blocking is actually working
 
+**Status (2026-11-04):** built — `blocking.py`, the MikroTik panel, the topbar
+pill and the dashboard banner. Not yet checked against a real router, and the
+drop-rule script hasn't been run on one.
+
 **Why:** turning dry-run off and pushing IPs to the address list doesn't mean
 anything is blocked. Without a firewall rule that drops traffic from that list,
 the router lets it all through — and today Protek can't tell. It's the most

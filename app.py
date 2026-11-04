@@ -355,11 +355,34 @@ else:
     log.info("poller already owned by another worker — skipping in pid=%s", os.getpid())
 
 
+def _blocking_view() -> dict:
+    """Cached "is the router actually dropping the list?" verdict for the
+    topbar pill and the dashboard banner. No network I/O — blocking.refresh()
+    runs from the poller and the /mikrotik page."""
+    import blocking
+    b = blocking.cached()
+    status = b.get("status")
+    return {
+        "status": status,
+        "label": blocking.LABELS.get(status, ""),
+        "pill": blocking.pill_state(status),
+        "worst": b.get("worst"),
+        "targets": b.get("targets") or [],
+        "dry_run": _dry_run_now(),
+    }
+
+
+def _dry_run_now() -> bool:
+    """The runtime dry-run flag (settings table), falling back to .env."""
+    return (get_setting("settings.dry_run") or ("1" if DRY_RUN else "0")) == "1"
+
+
 @app.context_processor
 def _inject_globals():
     return {
         "active": "",
         "dry_run": DRY_RUN,
+        "blocking": _blocking_view(),
         "nav_groups": _nav_groups(),
         # base.html derives the sidebar highlight and the tab strip from the
         # view's own `active` kwarg via these, so no route signature or page
@@ -1736,9 +1759,27 @@ def mikrotik_page():
         for r in ev_rows
     ]
 
+    import blocking
+    block = blocking.cached()
+    age = blocking.age_seconds(block)
+    if age is None or age > 30:
+        try:
+            block = blocking.refresh()
+        except Exception as e:  # noqa: BLE001 — the page must still render
+            log.warning("blocking check failed: %s", e)
+    for t in block.get("targets") or []:
+        t["label"] = blocking.LABELS.get(t["status"], t["status"])
+        t["pill"] = blocking.pill_state(t["status"])
+        if t["status"] != "blocking":
+            t["script"] = render_template("mt_droprule.rsc", list_name=t["list"] or list_name)
+
     return render_template(
         "mikrotik.html",
         mt=health,
+        block=block,
+        block_pill=blocking.pill_state(block.get("status")),
+        block_rel=rel_time(block.get("checked_at")) if block.get("checked_at") else "never",
+        dry_run_now=_dry_run_now(),
         list_name=list_name,
         list_total=list_total,
         owned_total=owned_total,
@@ -1755,6 +1796,19 @@ def mikrotik_page():
         batch_cap=BATCH_CAP,
         active="mikrotik",
     )
+
+
+@app.route("/mikrotik/blocking/check", methods=["POST"])
+@login_required
+def mikrotik_blocking_check():
+    """Re-read every MikroTik's firewall rules now (read-only)."""
+    import blocking
+    try:
+        res = blocking.refresh()
+        flash(blocking.LABELS.get(res.get("status"), "No MikroTik targets to check."), "info")
+    except Exception as e:  # noqa: BLE001
+        flash(f"Firewall check failed: {e}", "error")
+    return redirect(url_for("mikrotik_page") + "#blocking")
 
 
 # ── Routes: APIs ────────────────────────────────────────────────────────────
@@ -2825,7 +2879,9 @@ def api_health():
         mt_state = "warn"
     else:
         mt_state = "ok" if _mt_quick_ok() else "down"
-    return jsonify(lapi=lapi_state, mikrotik=mt_state, sync=sync_state)
+    bv = _blocking_view()
+    return jsonify(lapi=lapi_state, mikrotik=mt_state, sync=sync_state,
+                   blocking=bv["pill"], blocking_label=bv["label"])
 
 
 @app.route("/api/decisions")
@@ -5002,7 +5058,14 @@ def settings_page():
         set_setting("settings.sync_interval_sec", str(sync_interval))
         set_setting("settings.batch_cap", str(batch_cap))
         set_setting("settings.mt_address_list", addr_list)
+        was_dry = _dry_run_now()
         set_setting("settings.dry_run", "1" if dry else "0")
+        if was_dry and not dry:
+            bv = _blocking_view()
+            if bv["status"] not in (None, "blocking"):
+                flash(f"Dry-run is off, but {bv['worst'] or 'the router'}: {bv['label'].lower()}. "
+                      "Protek will push bans to the address list, and nothing will drop them "
+                      "until the firewall rule is in place — see the MikroTik page.", "error")
         set_setting("integrations.atom_url", atom_url)
         set_setting("integrations.othoni_url", othoni_url)
         # Apply to live poller if owned by this worker

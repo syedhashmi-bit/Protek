@@ -200,6 +200,22 @@ class MikroTikRESTAdapter:
             "board": body.get("board-name", ""),
         }
 
+    def firewall_rules(self) -> dict[str, Any]:
+        """Read-only: firewall filter + raw rules (v4 and v6), for
+        blocking.py's "is the router actually dropping the list?" check.
+        GET only."""
+        import blocking
+
+        def get(path: str) -> list[dict[str, Any]]:
+            r = self._request("GET", path)
+            r.raise_for_status()
+            body = r.json() if r.content else []
+            if not isinstance(body, list):
+                raise ValueError(f"unexpected response from {path}")
+            return body
+
+        return blocking.fetch_rules_rest(get)
+
     def snapshot(self) -> list[dict[str, Any]]:
         """Pages through the address-list. Returns entries shaped the
         same as the binary adapter so the reconciler's diff doesn't need

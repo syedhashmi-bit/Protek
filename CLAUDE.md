@@ -103,6 +103,7 @@ git push                                            # auth via the `gh` credenti
 | `app.py` | Flask app, all routes, background reconcile thread |
 | `crowdsec.py` | LAPI HTTP client — `get_decisions()`, `get_alerts()`, `add_decision()`, `delete_decision()` |
 | `mikrotik.py` | RouterOS API wrapper — `connect`, `get_address_list`, `add_address`, `remove_address`, `bulk_sync` |
+| `blocking.py` | Is the router actually dropping the address-list? Read-only check of each MikroTik's firewall filter/raw rules → blocking / none / disabled / shadowed / unverified / unknown. Cached in `settings` (`blocking.status`), refreshed by the poller every 6 ticks and live on `/mikrotik`. Pure `analyze()` is what the tests hit. |
 | `reconcile.py` | The diff engine — given (lapi_decisions, mt_address_list) → (to_add, to_remove). Pure function, fully testable. |
 | `notifications.py` | Discord/Email/Telegram sender; no Flask dependency, safe to import from both routes and thread |
 | `federation.py` | (phase 2) — fan-in adapter pool, one per remote CrowdSec source |

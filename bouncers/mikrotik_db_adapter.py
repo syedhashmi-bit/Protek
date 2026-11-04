@@ -138,6 +138,12 @@ class MikroTikDBAdapter:
         h = self._mt.health()
         return {**h, "bouncer": self.name, "kind": self.kind, "list": self.list_name}
 
+    def firewall_rules(self) -> dict[str, Any]:
+        """Read-only: firewall filter + raw rules (v4 and v6), for
+        blocking.py's "is the router actually dropping the list?" check."""
+        import blocking
+        return blocking.fetch_rules_api(self._mt)
+
     def snapshot(self) -> list[dict[str, Any]]:
         if not self.is_configured():
             return []

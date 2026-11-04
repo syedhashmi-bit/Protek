@@ -45,6 +45,40 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-04 — Roadmap #1: "is the router actually blocking?"
+
+New `blocking.py`. A read-only look at each MikroTik target's
+`/ip(v6)/firewall/filter` and `/raw`, answering whether anything drops
+`src-address-list=<list>`:
+
+- **Verdicts:**
+  - `blocking`: an enabled drop/reject/tarpit in filter input/forward or raw prerouting, not shadowed.
+  - `none`, `disabled`.
+  - `shadowed`: an earlier *unconditional* accept in the same table+chain. Raw accept doesn't shadow filter, and conditional accepts like established,related don't count.
+  - `unverified`: the rule is only in a custom chain.
+  - `unknown`: read failed.
+- **Coverage and warnings:** coverage is input/forward, and a warning appears
+  when only one is covered. Another flags a missing IPv6 rule when v4 blocks.
+- **Reads, adapters and caching:** each MikroTik adapter gets
+  `firewall_rules()`; the binary API only calls `.get()`, REST only issues GET,
+  and tests enforce both. The result is cached in `settings` `blocking.status`.
+  `poller._check_blocking()` refreshes every 6 ticks (tick 0 at once), and
+  `/mikrotik` refreshes live when the cache is >30s old. There's also a
+  "Check now" POST.
+- **UI:**
+  - a BLOCKING topbar pill, hidden with no MikroTik targets;
+  - a dashboard banner, dry-run aware;
+  - a panel on `/mikrotik` with per-target status, rules found, warnings and a
+    copy-paste `mt_droprule.rsc` (raw prerouting, placed first, idempotent,
+    enables a disabled one, IPv6 in `:do on-error`);
+  - a flash warning when dry-run is switched off while not blocking.
+- **Bug caught in passing:** inserting helpers between `@app.context_processor`
+  and `def _inject_globals` re-pointed the decorator. Every page then lost
+  `nav_label_for`. Keep decorators glued to their function.
+
+Not verified on a real router: neither the fetch against real RouterOS output
+nor the `.rsc` script.
+
 ## 2026-11-03 — Roadmap reset to three priorities; private GitHub project
 
 The 1,736-line phased plan moved to `docs/ROADMAP-HISTORY.md` (archived). Git
