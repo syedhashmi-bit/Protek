@@ -45,6 +45,21 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-05 — Rename the .env router
+
+- **Where it is:** the `.env`-configured router (kind `mikrotik_env`) was
+  always called "mikrotik", a default in `MikroTikLegacyAdapter`. It can now
+  be renamed from Targets → All targets → rename (operator+).
+- **How it's stored:** the name lives in settings `settings.mt_env_name`, read
+  by `bouncers.env_target_name()` in `load_all_targets()`, so it applies on
+  the next cycle with no restart. It's a label only.
+- **Validation:** names must be 1–40 printable characters and unique across
+  `bouncer_targets` (case-insensitive), because `bouncers_page` and
+  `reconciler._mark_bouncer_degraded` look targets up by name. Renames are
+  audited as `bouncer.env.rename`.
+- **Side effect:** per-target keys such as `blocking.v6_entries.<name>` start
+  fresh under the new name, and the old ones are left harmless.
+
 ## 2026-11-05 — Roadmap #4: Help menu, guided tour, help mode
 
 - **Engine:** `static/help.js`, hand-rolled with no library, and `textContent`
