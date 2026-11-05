@@ -45,6 +45,26 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-05 — Litestream: broken install instructions; panel now advanced-only
+
+- **What happened:** the operator pasted the Backups page's "How to install
+  Litestream" block. Its URLs
+  (`releases/latest/download/litestream-linux-amd64.tar.gz`) don't exist:
+  real assets are `litestream-<ver>-linux-x86_64.tar.gz`, and `latest` 404s.
+  So curl got a 9-byte "Not Found" page and tar failed. The block still went
+  on to `enable --now` the unit, which crash-looped every 5 s on a missing
+  binary.
+- **Cleanup:** I stopped and disabled it, then removed `/etc/litestream.yml`
+  and the unit after confirming both were byte-identical to the
+  `docs/litestream/*.example` files. The host is back to no Litestream.
+- **Fixed instructions:** pinned to v0.5.17 (both download URLs verified 200),
+  using `curl -fsSL` so a 404 stops, and split into steps: install and check
+  `litestream version`, then copy and edit the config, and only then enable.
+- **The panel** now shows only in the advanced view, or when Litestream is
+  installed, and leads with "optional, most installs don't need it".
+- **Why skip it here:** nightly bundle + B2 cover a lost server, bans are
+  re-pulled from CrowdSec, and this host's swap was 100% used.
+
 ## 2026-11-05 — Backup page: status first, inline .env comments, Schedule tile
 
 - **Off-box panel:** now leads with a status summary: on and working, last

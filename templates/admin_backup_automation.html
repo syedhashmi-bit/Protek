@@ -249,6 +249,10 @@ systemctl restart protek</pre>
   </details>
 </div>
 
+{# Litestream is optional and most installs don't need it (the nightly backup
+   plus the off-box copy already cover a lost server), so the panel only shows
+   in the advanced view — or whenever Litestream is actually installed. #}
+{% if nav_advanced_on() or litestream.installed %}
 <div class="panel" style="margin-top:16px">
   <h2>Litestream WAL replication
     <span class="badge" style="background:{% if litestream.health == 'ok' %}var(--green){% elif litestream.health == 'lagging' %}var(--amber){% elif litestream.health == 'not-installed' %}var(--muted){% else %}var(--red){% endif %};color:var(--bg-deep);margin-left:8px">
@@ -256,10 +260,11 @@ systemctl restart protek</pre>
     </span>
   </h2>
   <p class="muted" style="margin:0 0 10px;font-size:12px">
-    Near-real-time SQLite WAL replication to S3/B2 (RPO &lt; 60s, RTO &lt; 5 min).
-    Complements the daily bundle from <span class="mono">backup.py</span> — bundle handles
-    "VPS gone, restore from yesterday"; Litestream handles "VPS gone, lose at most 1 min of data".
-    Runs as a separate <span class="mono">litestream.service</span> systemd unit.
+    <b style="color:var(--text)">Optional — most installs don't need this.</b> The nightly backup
+    and its off-box copy already cover a lost server (you'd lose at most a day of Protek's own
+    history; bans come back from CrowdSec). Litestream streams every database change to a bucket
+    as it happens, so you'd lose at most about a minute — at the cost of constant disk and memory
+    use. It runs as a separate <span class="mono">litestream.service</span>.
   </p>
   <table>
     <tbody>
@@ -288,33 +293,36 @@ systemctl restart protek</pre>
   {% if not litestream.installed %}
   <details style="margin-top:10px">
     <summary style="cursor:pointer;color:var(--cyan)">▸ How to install Litestream</summary>
-    <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:12px;overflow:auto;margin-top:8px"># amd64 (most x86 VPS)
-curl -L https://github.com/benbjohnson/litestream/releases/latest/download/litestream-linux-amd64.tar.gz \
-  | tar -xz -C /usr/local/bin litestream
+    <p class="muted" style="font-size:12px;margin:8px 0 4px">Run one step at a time, and check each worked before the next.</p>
+    <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:12px;overflow:auto;margin-top:8px"># 1. Install the program (pinned release; -f stops on a failed download).
+#    x86 servers:
+curl -fsSL -o /tmp/litestream.tar.gz \
+  https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-0.5.17-linux-x86_64.tar.gz
+#    ARM servers (Hetzner CAX, AWS Graviton) — use this URL instead:
+#    .../download/v0.5.17/litestream-0.5.17-linux-arm64.tar.gz
+tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin litestream
+litestream version        # must print a version — stop here if it doesn't
 
-# arm64 (Hetzner CAX, AWS Graviton, etc.)
-curl -L https://github.com/benbjohnson/litestream/releases/latest/download/litestream-linux-arm64.tar.gz \
-  | tar -xz -C /usr/local/bin litestream
-
-# Copy scaffolds Protek ships:
+# 2. Copy the config and the service, then EDIT the config:
+#    put your bucket and keys in /etc/litestream.yml (same values as BACKUP_S3_*).
 cp {{ litestream.sample_config }} /etc/litestream.yml
 cp {{ litestream.sample_unit }} /etc/systemd/system/litestream.service
+nano /etc/litestream.yml
 
-# Edit /etc/litestream.yml — paste your B2 bucket / keys (same values as
-# the BACKUP_S3_* env vars).
-
+# 3. Only then start it, and watch it connect:
 systemctl daemon-reload
 systemctl enable --now litestream
 journalctl -u litestream -f</pre>
   </details>
   <details style="margin-top:10px">
     <summary style="cursor:pointer;color:var(--cyan)">▸ Restore from Litestream</summary>
-    <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:12px;overflow:auto;margin-top:8px">systemctl stop protek litestream
+      <pre class="mono" style="background:var(--bg-deep);padding:10px;border:1px solid var(--border);font-size:12px;overflow:auto;margin-top:8px">systemctl stop protek litestream
 litestream restore -o /var/www/Protek/protek.db /var/www/Protek/protek.db
 systemctl start litestream protek</pre>
   </details>
   {% endif %}
 </div>
+{% endif %}
 
 <div class="panel" style="margin-top:16px">
   <h2>Manual actions</h2>
