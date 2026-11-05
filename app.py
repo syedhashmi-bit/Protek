@@ -2513,7 +2513,7 @@ def admin_backup_automation_settings():
         "enabled": enabled, "backend": backend, "local_path": local_path,
         "daily_keep": daily_keep, "monthly_keep": monthly_keep,
     })
-    flash("Backup automation settings saved.", "info")
+    flash("Backup settings saved.", "info")
     return redirect(url_for("admin_backup_automation_page"))
 
 
