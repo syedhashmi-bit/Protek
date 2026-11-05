@@ -215,7 +215,8 @@
     "kind": "Which adapter the raw-JSON form uses: an extra MikroTik router (binary API), local iptables/ipset, a Cloudflare WAF list, pfSense or OPNsense. MikroTik is the default. The MikroTik REST variant isn't in this list, so use the wizard for it.",
     "name": "A unique label for the target, using only letters, digits, underscores and hyphens, for example cf-main. It is used for display and logs.",
     "config_json": "The adapter's settings as one line of JSON. The shapes are listed under Config shapes. A health check runs before saving, and a target that fails it or isn't fully configured is not added.",
-    "dry_run": "Whether the new target starts in dry-run, where it works out changes without writing them. The default is yes. Keep it until you've checked the target, then use Promote."
+    "dry_run": "Whether the new target starts in dry-run, where it works out changes without writing them. The default is yes. Keep it until you've checked the target, then use Promote.",
+    "env_name": "The display name of the router set up in .env (kind mikrotik_env). It starts as \"mikrotik\"; rename it to something you'll recognise, like the site or router name. Only the label changes — the connection stays the same, and the new name shows from the next sync cycle. It must be 1–40 characters and different from every other target's name."
    }
   },
   "mikrotik": {

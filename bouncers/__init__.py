@@ -56,11 +56,25 @@ def make_bouncer(name: str, kind: str, config: dict[str, Any]) -> Bouncer | None
         return None
 
 
+ENV_NAME_SETTING = "settings.mt_env_name"
+ENV_NAME_DEFAULT = "mikrotik"
+
+
+def env_target_name() -> str:
+    """Display name of the .env-configured router. Renamable from Targets
+    (a label only — kept in the settings table, applied on the next cycle)."""
+    try:
+        from db import get_setting
+        return (get_setting(ENV_NAME_SETTING) or "").strip() or ENV_NAME_DEFAULT
+    except Exception:  # noqa: BLE001 — never break target loading over a label
+        return ENV_NAME_DEFAULT
+
+
 def load_all_targets() -> list[Bouncer]:
     from db import get_conn
     out: list[Bouncer] = []
     # Env-driven legacy MikroTik adapter
-    legacy_mt = MikroTikLegacyAdapter()
+    legacy_mt = MikroTikLegacyAdapter(name=env_target_name())
     if legacy_mt.is_configured():
         out.append(legacy_mt)
     # DB-driven targets

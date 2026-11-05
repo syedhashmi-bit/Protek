@@ -51,6 +51,19 @@
           </form>
           {% else %}
           <span class="muted" style="font-size:10px">env-managed</span>
+          {% if t.kind == 'mikrotik_env' and has_role('operator') %}
+          <details class="env-rename" style="display:inline-block;margin-left:6px">
+            <summary class="btn ghost" style="padding:3px 9px;display:inline-block;list-style:none;cursor:pointer">rename</summary>
+            <form method="POST" action="{{ url_for('bouncers_env_rename') }}"
+                  style="display:flex;gap:6px;align-items:center;margin-top:6px">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label for="env_name" class="sr-only" style="position:absolute;left:-9999px">New name</label>
+              <input type="text" id="env_name" name="env_name" value="{{ t.name }}" maxlength="40" required
+                     style="width:160px;padding:4px 8px">
+              <button class="btn" type="submit" style="padding:3px 10px">Save</button>
+            </form>
+          </details>
+          {% endif %}
           {% if t.kind == 'mikrotik_env' and migration_banner %}
           <a href="{{ url_for('bouncers_add') }}" style="font-size:10px;color:var(--amber);margin-left:6px;text-decoration:underline">migrate →</a>
           {% endif %}

@@ -3728,6 +3728,39 @@ def mt_bootstrap_rsc():
                  'attachment; filename="protek-mt-bootstrap.rsc"'})
 
 
+@app.route("/bouncers/env/rename", methods=["POST"])
+@login_required
+@role_required("operator")
+def bouncers_env_rename():
+    """Rename the .env-configured router. Only its label changes — stored in
+    the settings table and picked up on the next sync cycle. Names must be
+    unique across targets: the Targets page and the reconciler look targets
+    up by name, so a clash would mix two routers' rows."""
+    import bouncers as bmod
+    old = bmod.env_target_name()
+    new = (request.form.get("env_name") or "").strip()
+    if not new or len(new) > 40 or not new.isprintable():
+        flash("Use a name of 1–40 printable characters.", "error")
+        return redirect(url_for("bouncers_page"))
+    if new == old:
+        flash("That's already its name.", "info")
+        return redirect(url_for("bouncers_page"))
+    conn = get_conn()
+    try:
+        clash = conn.execute("SELECT 1 FROM bouncer_targets WHERE lower(name) = lower(?)",
+                             (new,)).fetchone()
+    finally:
+        conn.close()
+    if clash:
+        flash(f"Another target is already called {new!r} — pick a different name.", "error")
+        return redirect(url_for("bouncers_page"))
+    set_setting(bmod.ENV_NAME_SETTING, new)
+    _audit("bouncer.env.rename", target=new, before={"name": old}, after={"name": new})
+    flash(f"Renamed {old!r} to {new!r}. It shows under the new name from the next sync cycle.",
+          "info")
+    return redirect(url_for("bouncers_page"))
+
+
 @app.route("/bouncers/add", methods=["GET", "POST"])
 @login_required
 @role_required("operator")
