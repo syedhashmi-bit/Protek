@@ -27,6 +27,10 @@ def make_client(monkeypatch, tmp_path):
     monkeypatch.setenv("MT_HOST", "192.0.2.1")
     monkeypatch.setenv("MT_USERNAME", "protek")
     monkeypatch.setenv("MT_PASSWORD", "pw")
+    # The Targets page health-checks each target; 192.0.2.1 is a black hole.
+    import mikrotik
+    monkeypatch.setattr(mikrotik.MikroTik, "health",
+                        lambda self: {"ok": True, "configured": True, "host": self.host})
 
     def make(role="operator"):
         now = datetime.now(timezone.utc).isoformat()
@@ -109,3 +113,77 @@ def test_viewers_cannot_rename(make_client):
     c.post("/bouncers/env/rename", data={"env_name": "nope"})
     assert _env_target().name == "mikrotik"
     assert 'name="env_name"' not in c.get("/bouncers").get_data(as_text=True)
+
+
+
+# ── the MikroTik tab follows the router's name ────────────────────────────
+
+def _tabs(html):
+    t = html[html.index('<div class="tabs">'):]
+    return t[:t.index("</div>")]
+
+
+def test_tab_says_mikrotik_until_renamed(make_client):
+    c = make_client()
+    assert ">MikroTik</a>" in _tabs(c.get("/bouncers").get_data(as_text=True))
+    c.post("/bouncers/env/rename", data={"env_name": "syed-mikrotik"})
+    html = c.get("/bouncers").get_data(as_text=True)
+    assert ">syed-mikrotik</a>" in _tabs(html) and ">MikroTik</a>" not in _tabs(html)
+    assert "label:'syed-mikrotik'" in html                     # command palette
+
+
+def test_crumb_on_the_router_page_uses_the_name(make_client):
+    import app
+    c = make_client()
+    c.post("/bouncers/env/rename", data={"env_name": "syed-mikrotik"})
+    with app.app.test_request_context("/mikrotik"):
+        assert app.nav_label_for("mikrotik") == "Targets · syed-mikrotik"
+
+
+# ── Size and Last Sync ────────────────────────────────────────────────────
+
+def test_targets_page_shows_size_and_last_sync(make_client):
+    from db import set_setting
+    from datetime import timedelta
+    c = make_client()
+    at = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    set_setting("targets.last_sync", json.dumps({"mikrotik": {"size": 45220, "synced_at": at}}))
+    html = c.get("/bouncers").get_data(as_text=True)
+    row = html[html.index(">mikrotik<"):]
+    row = row[:row.index("</tr>")]
+    assert ">45220<" in row
+    assert "ago" in row and "—" not in row.split("LIVE")[-1].split("</td>")[1]
+
+
+def test_poller_merges_and_prunes_target_state():
+    from datetime import timedelta
+    from db import get_setting, set_setting
+    from poller import Poller
+    old = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    keep = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    set_setting("targets.last_sync", json.dumps({
+        "gone": {"size": 1, "synced_at": old},             # removed/renamed long ago
+        "office": {"size": 7, "synced_at": keep},          # failed this cycle — keep
+    }))
+    p = Poller(interval_sec=10, dry_run=True, batch_cap=10)
+    p._record_target_state({"edge": {"size": 3, "synced_at": datetime.now(timezone.utc).isoformat()}})
+    state = json.loads(get_setting("targets.last_sync"))
+    assert set(state) == {"office", "edge"} and state["office"]["size"] == 7
+
+
+def test_reconciler_reports_each_targets_size_and_sync_time(monkeypatch):
+    import reconciler
+
+    class Fake:
+        name, kind, list_name = "edge", "mikrotik", "crowdsec"
+        def is_configured(self): return True
+        def health(self): return {"ok": True}
+        def snapshot(self): return [{".id": "*1", "address": "198.51.100.1", "comment": "protek:x"},
+                                    {".id": "*2", "address": "198.51.100.2", "comment": "other"}]
+        def apply(self, to_add, to_remove_ids): return {"applied_add": 0, "applied_remove": 0,
+                                                        "errors": 0, "push_log": []}
+    import bouncers as bmod
+    monkeypatch.setattr(bmod, "load_all_targets", lambda: [Fake()])
+    out = reconciler.run_once(dry_run=True)
+    assert out["targets"]["edge"]["size"] == 2
+    assert out["targets"]["edge"]["synced_at"]

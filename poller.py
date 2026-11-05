@@ -130,6 +130,25 @@ class Poller:
         except Exception as e:  # noqa: BLE001 — never break the cycle
             log.warning("blocking check failed: %s", e)
 
+    def _record_target_state(self, fresh: dict) -> None:
+        """Size + last sync per target for the Targets page (settings
+        `targets.last_sync`, one JSON write per cycle). Merged with the
+        previous value so a target that failed this cycle keeps its last good
+        figures; ones unseen for 7 days (removed or renamed) are dropped."""
+        import json
+        from db import get_setting, set_setting
+        try:
+            state = json.loads(get_setting("targets.last_sync") or "{}")
+        except (TypeError, ValueError):
+            state = {}
+        state.update(fresh)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        state = {k: v for k, v in state.items() if (v.get("synced_at") or "") >= cutoff}
+        try:
+            set_setting("targets.last_sync", json.dumps(state))
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.warning("couldn't record target state: %s", e)
+
     def _sync_connection(self) -> None:
         """Connection settings saved from the browser (connection.py) may have
         changed in any worker. If so, start the local LAPI over: a new URL or
@@ -270,6 +289,8 @@ class Poller:
             if result.get("mt_count_valid"):
                 set_setting("mt.last_list_count", str(result["mt_list_count"]))
                 set_setting("mt.last_list_count_at", datetime.now(timezone.utc).isoformat())
+            if result.get("targets"):
+                self._record_target_state(result["targets"])
 
             # Notifications
             try:

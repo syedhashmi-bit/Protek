@@ -104,6 +104,9 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
 
         mt_list_count = 0
         mt_count_valid = False
+        # Per-target address-list size and sync time for the Targets page —
+        # taken from each snapshot this cycle already made (no extra I/O).
+        target_state: dict[str, dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=max_workers,
                                  thread_name_prefix="bouncer-apply") as ex:
             futures = {
@@ -122,6 +125,9 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
                 if str(r.get("kind", "")).startswith("mikrotik") and r["snapshot_ok"]:
                     mt_list_count += r["snapshot_n"]
                     mt_count_valid = True
+                if r["snapshot_ok"]:
+                    target_state[b.name] = {"size": r["snapshot_n"],
+                                            "synced_at": datetime.now(timezone.utc).isoformat()}
                 snapshot_ms += r["snapshot_ms"]
                 diff_ms     += r["diff_ms"]
                 apply_ms    += r["apply_ms"]
@@ -200,6 +206,7 @@ def run_once(source: str = "auto", dry_run: bool = True, batch_cap: int = 200) -
         "bouncer_count": len(all_bouncers),
         "mt_list_count": mt_list_count,
         "mt_count_valid": mt_count_valid,
+        "targets": target_state,
     }
 
 

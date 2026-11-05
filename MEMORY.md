@@ -45,6 +45,23 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-05 — Router name on the MikroTik tab; Size + Last Sync on Targets
+
+- **Tab label:** the MikroTik tab (and its crumb and palette entry) now shows
+  the `.env` router's name once it's renamed (`_nav_entry_label`, cached on
+  `g`). It stays "MikroTik" while the name is the default.
+- **Size and Last Sync** showed "—" for *every* target:
+  - nothing ever wrote `bouncer_targets.last_sync_at`;
+  - Size relied on a health field only the REST adapter reports.
+- **Fix:** the reconciler adds `targets: {name: {size, synced_at}}` to its
+  result, taken from each snapshot it already makes. The poller merges that
+  into settings `targets.last_sync`: one write per cycle, a target that
+  failed this cycle keeps its last good values, and entries older than
+  7 days are dropped. `bouncers_page` reads it.
+- **Test gotcha:** rendering `/bouncers` health-checks each target live.
+  Stub `MikroTik.health` in tests, or a TEST-NET host stalls the suite by
+  about 30s.
+
 ## 2026-11-05 — Rename the .env router
 
 - **Where it is:** the `.env`-configured router (kind `mikrotik_env`) was
