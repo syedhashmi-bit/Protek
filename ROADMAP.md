@@ -132,6 +132,10 @@ needs about ten of them, and the rest makes Protek look harder than it is.
 
 ## 4. Help toggle and guided tour
 
+**Status (2026-11-05):** built — `static/help.js`, `help/catalog.json` (40 pages,
+written and fact-checked against the code), `helpdocs.py`, `users.ui_tour_done`.
+Tours are hand-rolled (no library).
+
 **Why:** most pages assume you already know CrowdSec and RouterOS terms (LAPI,
 scenarios, address lists, batch cap, confidence threshold). Nothing in the app
 says what a page is for or what a setting does, so people either guess or go

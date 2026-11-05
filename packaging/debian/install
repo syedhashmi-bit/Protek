@@ -3,6 +3,7 @@
 bouncers/                  usr/share/protek/
 templates/                 usr/share/protek/
 static/                    usr/share/protek/
+help/                      usr/share/protek/
 scripts/                   usr/share/protek/
 docs/                      usr/share/protek/
 requirements.txt           usr/share/protek/

@@ -50,6 +50,17 @@
      title="Open the CrowdSec LAPI explorer in a new tab (auth-proxied through this session)">
     crowdsec ↗
   </a>
+  {# Roadmap #4 — Help: tour this page, tour Protek, help mode. help.js. #}
+  <div class="help-wrap">
+    <button type="button" class="topbar-link" id="help-btn" aria-haspopup="true" aria-expanded="false"
+            aria-controls="help-menu" title="Help (press ?)">Help</button>
+    <div class="help-menu" id="help-menu" role="menu" hidden>
+      <button type="button" role="menuitem" data-help="tour-page">Tour this page</button>
+      <button type="button" role="menuitem" data-help="tour-all">Tour Protek</button>
+      <button type="button" role="menuitem" data-help="help-mode" aria-pressed="false">Help mode: <b>off</b></button>
+      <div class="help-menu-hint">Press <span class="kbd">?</span> any time</div>
+    </div>
+  </div>
   <div class="user">
     {{ session.get('username','') }}
     <a href="{{ url_for('logout') }}">logout</a>
@@ -323,6 +334,8 @@ setInterval(refreshPills, 5000);
   });
 })();
 </script>
+<script type="application/json" id="help-data">{{ help_payload(active)|tojson }}</script>
+<script src="{{ url_for('static', filename='help.js') }}" defer></script>
 {% else %}
 {% block anon %}{% endblock %}
 {% endif %}
