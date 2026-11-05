@@ -76,14 +76,15 @@ If you run CrowdSec on a single VPS, its decisions only protect that one VPS. If
 
 ## Status
 
-**Arcs 1–16 (phases 0–98) have shipped:** MVP, federation, intelligence +
+**Latest release: [v1.1.0](https://github.com/syedhashmi-bit/Protek/releases/latest).**
+Arcs 1–16 (phases 0–98) shipped in 1.0: MVP, federation, intelligence +
 enrichment, scenarios + rules, multi-bouncer (MikroTik / pfSense / OPNsense /
 iptables / Cloudflare), observability, operator QoL, extensibility, resilience,
-ecosystem, operator UX, production-grade ops and Docker. **Next up**, in order:
-a check that the router is actually blocking, editing connection settings in
-the app, an advanced-view toggle, and a guided help tour — see [`ROADMAP.md`](ROADMAP.md).
-[`MEMORY.md`](MEMORY.md) has the session-by-session log of what shipped and
-what broke; the original phased plan is in
+ecosystem, operator UX, production-grade ops and Docker. 1.1 finished the four
+usability priorities in [`ROADMAP.md`](ROADMAP.md): a check that the router is
+actually blocking, connection settings editable in the app, a simple / advanced
+view, and a guided help tour. [`MEMORY.md`](MEMORY.md) has the session-by-session
+log of what shipped and what broke; the original phased plan is in
 [`docs/ROADMAP-HISTORY.md`](docs/ROADMAP-HISTORY.md).
 
 ---
@@ -97,6 +98,13 @@ what broke; the original phased plan is in
 - **Dry-run by default** — first deployment is safe; flip to live from `/settings` UI without restart.
 - **Self-healing** — re-fetches the address-list every cycle; survives manual edits, partial pushes, and target API hiccups.
 - **Batch cap** per cycle (default 200) so a 30 000-entry community blocklist doesn't lock the API socket; surfaces progress.
+- **Is it actually blocking?** — a read-only check of each MikroTik's firewall filter and raw rules tells you whether something drops traffic from the address list: *blocking*, *no drop rule*, *rule disabled*, or *shadowed* by an earlier accept. Shown on the MikroTik page, the dashboard and the topbar, with the RouterOS commands to fix it.
+
+### Getting started and finding your way
+- **Connection settings in the app** — Settings → Connection & sync edits the CrowdSec LAPI and MikroTik details, tests them before saving, and applies them without a restart or a shell.
+- **Simple / advanced view** — the simple view shows only the core pages a homelab needs; advanced pages appear when you switch the view or when you're already using them. Per user.
+- **Help** — a guided tour of each page and a help mode that explains every section, tile and setting in place.
+- **Rename the router** — give the `.env`-configured MikroTik a proper name; it shows on the Targets and MikroTik pages.
 
 ### Multi-bouncer (Arc 5)
 Adapters ship for five target kinds. Each implements the same `Bouncer` protocol (`health`, `snapshot`, `apply`); the reconciler iterates `bouncers.load_all_targets()` and gives every target the same desired set.
@@ -147,10 +155,10 @@ Each target has its own dry-run flag, batch cap, and per-stage timing. Multiple 
 - **Composite alerting** — "LAPI down ≥ 5 min", "MT unreachable ≥ 2 min", "sync lag > 5 min"; alert dedup, auto-resolve, planned-maintenance silencing.
 
 ### Resilience (Arc 11)
-- **Off-box backup** — nightly `/admin/backup` export to S3-compatible storage (B2 / MinIO / AWS S3). Retention 30 daily + 12 monthly. Restore-test job decrypts and verifies integrity.
-- **Litestream replication** — SQLite WAL streamed to a remote replica (S3 or SFTP-over-WireGuard). RPO < 2 s steady state. **Restore-to-latest currently blocked by a corrupt L2 LTX file from the 2026-05-25 disk-full incident — see [`MEMORY.md`](MEMORY.md) and `docs/ROADMAP-HISTORY.md` phase 64 for the path forward (phase 87 speedup work pending).**
+- **Nightly encrypted backups** — kept on the server, plus an off-box copy in a Backblaze B2 (or any S3-compatible) bucket that you set up from the Backups page. Retention 30 daily + 12 monthly. A restore test decrypts and verifies the latest copy.
+- **Litestream replication (optional)** — streams every SQLite change to a bucket for a near-zero data-loss window. Most installs don't need it; it's in the advanced view, with pinned install steps.
 - **Self-monitoring (synthetic ban test)** — every 6 h, inject `192.0.2.250` (RFC 5737 TEST-NET-1), push directly via each live bouncer's `apply()`, verify presence in its snapshot, remove and verify absence. Catches the "phantom progress" failure where `apply()` returns OK but nothing landed. Verified live 2026-05-26 against MikroTik in 28.6 s.
-- **WAL truncate timer** — `protek-wal-truncate.timer` every 5 min, learned the hard way (Litestream v0.5's continuous WAL reader breaks SQLite's auto-checkpoint; a one-off bug filled the disk).
+- **WAL guardrails** — `protek-wal-truncate.timer` every 5 min plus a bounded WAL, learned the hard way (a long-running reader blocked SQLite's auto-checkpoint and the WAL filled the disk).
 - **DR runbook** — [`docs/DR-RUNBOOK.md`](docs/DR-RUNBOOK.md): every failure mode (DB corruption, MT down, CrowdSec hub down, Litestream broken) with explicit recovery steps; quarterly drill template.
 - **Active-passive HA** — leader election via fcntl.flock extended to a network lock; failover ≤ 30 s.
 - **Rate limiting + backpressure** — token bucket per upstream (LAPI, each bouncer, each webhook); `/perf` shows bucket states.
@@ -291,7 +299,7 @@ First login: open the address the installer prints at the end — `https://<your
 
 ## Configuration
 
-`.env` carries **secrets and connection strings only** (read once at boot, never displayed in the UI). Runtime knobs (sync interval, batch cap, dry-run flag, address-list name, notification creds) live in the `settings` table and are editable from `/settings` without restart.
+`.env` carries **secrets and connection strings only**; secrets are never displayed in the UI. The CrowdSec and MikroTik connection keys can also be edited from Settings → Connection & sync, which writes them back to `.env` and applies them without a restart. Runtime knobs (sync interval, batch cap, dry-run flag, address-list name, notification creds) live in the `settings` table and are editable from `/settings` without restart.
 
 | Variable | Required | Purpose |
 |---|---|---|
@@ -341,7 +349,8 @@ curl -s https://protek.example.com/health | jq .       # 200 / 503 + issues list
 
 Common workflows:
 
-- **Flip dry-run off**: `/settings` → toggle → save. Poller picks it up on the next cycle (default 10 s).
+- **Flip dry-run off**: `/settings` → toggle → save. Poller picks it up on the next cycle (default 10 s). Check the MikroTik page says *Blocking active* first.
+- **Change the CrowdSec or MikroTik connection**: Settings → Connection & sync → test → save.
 - **Add a new bouncer**: `/bouncers/add` → pick kind → fill structured fields → health-probe-on-save → optionally promote to live.
 - **Add a federated source**: `/federation/add` → URL + key → test-connection → save. Reconcile picks it up on the next cycle.
 - **Whitelist an IP / CIDR / ASN / country**: `/whitelist` → add → applied *before* the diff (no propagation lag).
@@ -385,9 +394,9 @@ Transport-agnostic — talks to remote LAPIs over private IP / WireGuard / Tails
 
 Production deploys are protected by three layered mechanisms:
 
-1. **Off-box nightly backups** (Arc 11 phase 63) — encrypted bundle of the SQLite DB + config to any S3-compatible storage. Retention 30 daily + 12 monthly. A restore-test job decrypts and integrity-checks the latest bundle every night.
+1. **Nightly backups, on and off the box** — an encrypted bundle of the SQLite DB + config, kept on the server and copied to a Backblaze B2 (or any S3-compatible) bucket. Set the bucket up from the Backups page: it tests the keys before saving. Retention 30 daily + 12 monthly. A restore test decrypts and integrity-checks the latest copy, and an alert fires if backups go stale.
 
-2. **Litestream WAL replication** (Arc 11 phase 64) — sub-2-second RPO. Replica can live on another VPS via SFTP-over-WireGuard (no third-party dependency) or in S3/B2. See [`docs/litestream/litestream-sftp.yml.example`](docs/litestream/litestream-sftp.yml.example) for the SFTP shape. **Current state:** RPO target met, RTO target gated on Litestream restore speedup (phase 87) and a corrupt L2 LTX file from a 2026-05-25 disk-full incident — see `docs/ROADMAP-HISTORY.md` phase 64 for details.
+2. **Litestream WAL replication (optional)** — for a data-loss window of about a minute instead of up to a day. Most installs don't need it: if the server is lost, the nightly copy restores Protek and the bans come back from CrowdSec. The Backups page shows it in the advanced view, with pinned install steps; see [`docs/litestream/litestream-sftp.yml.example`](docs/litestream/litestream-sftp.yml.example) for an SFTP-over-WireGuard replica.
 
 3. **Synthetic self-test** (Arc 11 phase 66) — every 6 h, injects an RFC 5737 IP, pushes via each live bouncer's `apply()`, verifies it appears in the snapshot, then removes and re-verifies. Catches the "phantom progress" failure mode where `apply()` returns OK but nothing actually landed. Live-verified 2026-05-26 against MikroTik in 28.6 s.
 
@@ -413,18 +422,20 @@ DR runbook in [`docs/DR-RUNBOOK.md`](docs/DR-RUNBOOK.md) — every failure mode 
 ## Stack
 
 ```
-Backend:    Python 3.12 · Flask · SQLite (WAL mode, Litestream replicated)
+Backend:    Python 3.12 · Flask · SQLite (WAL mode)
 CrowdSec:   LAPI HTTP client (X-Api-Key bouncer auth); /v1/decisions + /v1/decisions/stream
 Bouncers:   routeros_api (MikroTik), requests (pfSense / OPNsense / Cloudflare), ipset shell-out
 Frontend:   Jinja2 server-rendered HTML; hand-rolled inline-SVG sparklines; Leaflet 1.9 +
-            MarkerCluster over OpenStreetMap tiles; warm dark palette; IBM Plex Sans + Mono
+            MarkerCluster over a self-hosted world outline (no tile server); warm dark
+            palette; IBM Plex Sans + Mono
 Auth:       bcrypt + pyotp TOTP, optional Google OIDC (Authlib), Flask sessions, rate limiting,
             optional IP whitelist
 Notify:     Discord webhook · Telegram bot · SMTP MIME — all 8–10 s timeouts, SSRF guards
-Resilience: Off-box backup (S3 / B2 / MinIO) + Litestream WAL replication + synthetic self-test
+Resilience: Nightly backup, local + off-box (B2 / S3 / MinIO) · synthetic self-test ·
+            optional Litestream WAL replication
 Deploy:     gunicorn + systemd + nginx + certbot (bare metal), or Docker Compose + Caddy with
             the published ghcr.io/syedhashmi-bit/protek image — both set up by install.sh.
-Tests:      pytest (270+ tests) — reconcile + synthetic + an import-smoke over every module, all
+Tests:      pytest (500+ tests) — reconcile + synthetic + an import-smoke over every module, all
             green without needing CrowdSec/MikroTik. ruff (pyflakes) lint + pip-audit supply-chain
             scan. GitHub Actions CI runs tests · lint · pip-audit · docker build on every push/PR.
 ```
@@ -470,7 +481,7 @@ ruff check .        # pyflakes lint (F) + syntax (E9) — config in pyproject.to
 pytest -q           # full suite incl. the per-module import-smoke
 ```
 
-For roadmap discussion: open an issue tagged `roadmap`. Arc 14 (Operator UX) and Arc 15 (Production-grade ops) are the current focus.
+For roadmap discussion: open an issue tagged `roadmap`. [`ROADMAP.md`](ROADMAP.md) lists what's planned.
 
 ---
 
