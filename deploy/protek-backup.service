@@ -1,0 +1,17 @@
+[Unit]
+Description=Protek backup (encrypted bundle, off-box copy, restore-test)
+After=protek.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/protek-backup.sh
+Nice=10
+IOSchedulingClass=idle
+# backup.py copies the whole DB (~2 GB) into a temp dir before encrypting.
+# Keep that on disk, not in /tmp: on hosts where /tmp is a RAM-backed tmpfs,
+# a run that's killed part-way left its copy there and every later run failed
+# with "database or disk is full" (2026-11-02 → 11-05). Leftovers from a
+# killed run are cleared first.
+Environment=TMPDIR=/var/backups/protek/tmp
+ExecStartPre=/bin/mkdir -p -m 0700 /var/backups/protek/tmp
+ExecStartPre=/bin/sh -c 'rm -rf /var/backups/protek/tmp/protek-bk-* /var/backups/protek/tmp/protek-rt-*'

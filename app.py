@@ -2406,15 +2406,80 @@ def admin_backup_import():
 @login_required
 @role_required("admin")
 def admin_backup_automation_page():
+    return _render_backup_page()
+
+
+def _render_backup_page(b2_form: dict | None = None, b2_msgs: list | None = None,
+                        status: int = 200):
+    """The off-box backup page. `b2_form` re-fills the B2 form (never the
+    application key) and `b2_msgs` show inside it after a failed save."""
     import backup as _bk
     import litestream as _ls
+    b2 = _connection.b2_current()
+    if b2_form:
+        b2.update({k: v for k, v in b2_form.items() if k in b2 and k != "secret_set"})
+    ok, why = _connection.writable()
     return render_template(
         "admin_backup_automation.html",
         active="admin_backup_auto",
         status=_bk.status(),
         runs=_bk.list_runs(30),
         litestream=_ls.status(),
-    )
+        b2=b2, b2_msgs=b2_msgs or [], b2_writable=ok, b2_why=why,
+        env_path=str(_connection.env_file()),
+    ), status
+
+
+@app.route("/admin/backup-automation/offsite", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_backup_offsite():
+    """Set up (or stop) the off-box copy to Backblaze B2 / S3: test the bucket
+    with a tiny upload, then save the BACKUP_S3_* keys into .env — applied
+    without a restart (connection.py). The application key is never echoed,
+    flashed, logged or audited; the audit records field names only."""
+    ok, why = _connection.writable()
+    if not ok:
+        return _render_backup_page(b2_msgs=[("error", why)], status=400)
+
+    if request.form.get("action") == "remove":
+        blank = {"BACKUP_S3_BUCKET": ""}
+        changed = _connection.changed_keys(blank)
+        if changed:
+            _connection.save({k: blank[k] for k in changed})
+            _audit("backup.offsite", after={"fields_changed": changed, "stopped": True})
+        flash("Off-box copies stopped. Backups carry on locally; nothing in the bucket was deleted.",
+              "info")
+        return redirect(url_for("admin_backup_automation_page") + "#offsite")
+
+    form_view = {
+        "endpoint": (request.form.get("s3_endpoint") or "").strip(),
+        "region": (request.form.get("s3_region") or "").strip(),
+        "bucket": (request.form.get("s3_bucket") or "").strip(),
+        "key_id": (request.form.get("s3_key") or "").strip(),
+    }
+    values, errors = _connection.validate_b2(request.form)
+    if errors:
+        return _render_backup_page(b2_form=form_view, status=400,
+                                   b2_msgs=[("error", e) for e in errors])
+    changed = _connection.changed_keys(values)
+    if not changed:
+        return _render_backup_page(b2_msgs=[("info", "Nothing changed — the bucket settings are already these.")])
+    result = _connection.probe_b2(values)
+    if not result["ok"]:
+        return _render_backup_page(b2_form=form_view, status=400, b2_msgs=[
+            ("error", f"Bucket test failed: {result['error']}."),
+            ("error", "Not saved."),
+        ])
+    try:
+        _connection.save({k: values[k] for k in changed})
+    except OSError as e:
+        return _render_backup_page(b2_form=form_view, status=500, b2_msgs=[
+            ("error", f"Couldn't write {_connection.env_file().name}: {e.strerror or e}")])
+    _audit("backup.offsite", after={"fields_changed": changed, "tested_ok": True})
+    flash("Bucket test passed — wrote, read back and deleted a test file. Saved: from the next "
+          "backup, each verified backup is also copied there.", "info")
+    return redirect(url_for("admin_backup_automation_page") + "#offsite")
 
 
 @app.route("/admin/backup-automation/settings", methods=["POST"])
@@ -2463,6 +2528,12 @@ def admin_backup_automation_run():
     row = _bk.run_backup(kind)
     if row.get("status") == "ok":
         flash(f"Backup ok — {row.get('size_bytes', 0):,} bytes → {row.get('dest', '')}", "info")
+        off = row.get("offsite")
+        if off and off.get("status") == "ok":
+            flash(f"Off-box copy ok → {off.get('dest', '')}", "info")
+        elif off:
+            flash(f"Off-box copy failed (the local backup is fine): {off.get('error', 'unknown')}",
+                  "error")
     else:
         flash(f"Backup failed: {row.get('error', 'unknown')}", "error")
     _audit("backup.run_manual", note=f"kind={kind} status={row.get('status')}")
@@ -2474,12 +2545,21 @@ def admin_backup_automation_run():
 @role_required("admin")
 def admin_backup_automation_test():
     import backup as _bk
-    row = _bk.restore_test()
+    offsite = request.form.get("target") == "offsite"
+    if offsite and not _bk.offsite_configured():
+        flash("No off-box bucket is set up yet.", "error")
+        return redirect(url_for("admin_backup_automation_page") + "#offsite")
+    try:
+        row = _bk.offsite_restore_test() if offsite else _bk.restore_test()
+    except Exception as e:  # noqa: BLE001 — e.g. bucket unreachable
+        row = {"status": "failed", "error": str(e)[:300]}
+    where = "Off-box restore-test" if offsite else "Restore-test"
     if row.get("status") == "ok":
-        flash(f"Restore-test ok — verified {row.get('dest', '')}", "info")
+        flash(f"{where} ok — verified {row.get('dest', '')}", "info")
     else:
-        flash(f"Restore-test failed: {row.get('error', 'unknown')}", "error")
-    _audit("backup.restore_test_manual", note=f"status={row.get('status')}")
+        flash(f"{where} failed: {row.get('error', 'unknown')}", "error")
+    _audit("backup.restore_test_manual",
+           note=f"target={'offsite' if offsite else 'main'} status={row.get('status')}")
     return redirect(url_for("admin_backup_automation_page"))
 
 

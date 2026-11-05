@@ -412,9 +412,54 @@ def _notify_failed(kind: str, err: str) -> None:
         pass
 
 
+def offsite_configured() -> bool:
+    """An off-box (S3 / Backblaze B2) bucket and keys are set in .env."""
+    return bool(_envstr("BACKUP_S3_BUCKET") and _envstr("BACKUP_S3_KEY")
+                and _envstr("BACKUP_S3_SECRET"))
+
+
+def ship_offsite(key: str, blob: bytes) -> dict[str, Any]:
+    """Copy a bundle that's already stored locally to the off-box bucket,
+    check the uploaded size, and apply the same retention there. Records
+    backup.offsite.* settings. Never raises — a B2 outage must not fail the
+    local backup — but notifies on failure like any other backup step."""
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        s3 = S3Backend()
+        s3.put(key, blob)
+        head = s3.s3.head_object(Bucket=s3.bucket, Key=key)
+        if int(head.get("ContentLength", -1)) != len(blob):
+            raise RuntimeError(f"uploaded size {head.get('ContentLength')} != {len(blob)}")
+        try:
+            apply_retention(s3)
+        except Exception as e:  # noqa: BLE001
+            log.warning("off-box retention sweep failed: %s", e)
+        set_setting("backup.offsite.last_at", now)
+        set_setting("backup.offsite.last_key", key)
+        set_setting("backup.offsite.last_size", str(len(blob)))
+        set_setting("backup.offsite.last_error", "")
+        log.info("off-box copy ok: s3://%s/%s (%d bytes)", s3.bucket, key, len(blob))
+        return {"status": "ok", "dest": f"s3://{s3.bucket}/{key}", "size_bytes": len(blob)}
+    except Exception as e:  # noqa: BLE001
+        msg = f"{type(e).__name__}: {e}"[:300]
+        set_setting("backup.offsite.last_error", msg)
+        set_setting("backup.offsite.last_error_at", now)
+        log.warning("off-box copy failed: %s", msg)
+        _notify_failed("off-box copy", msg)
+        return {"status": "failed", "error": msg}
+
+
+def offsite_restore_test() -> dict[str, Any]:
+    """Restore-test the newest bundle in the off-box bucket."""
+    return restore_test(backend=S3Backend(), status_prefix="backup.offsite")
+
+
 def run_backup(kind: str = "daily") -> dict[str, Any]:
-    """Build + ship a backup. Returns the run row dict."""
+    """Build + ship a backup. Returns the run row dict, plus `offsite` (the
+    off-box copy's result) when a bucket is configured and the main
+    destination is local."""
     rid = _record_start(kind)
+    offsite: dict[str, Any] | None = None
     try:
         passphrase = _passphrase_or_die()
         backend = get_backend()
@@ -423,6 +468,8 @@ def run_backup(kind: str = "daily") -> dict[str, Any]:
         key = _key_for(kind, ts)
         dest = backend.put(key, blob)
         _record_finish(rid, "ok", size=len(blob), dest=dest, backend=backend.name)
+        if backend.name == "local" and offsite_configured():
+            offsite = ship_offsite(key, blob)
         if kind == "daily":
             set_setting("backup.last_daily_at", ts.isoformat())
         elif kind == "monthly":
@@ -450,9 +497,12 @@ def run_backup(kind: str = "daily") -> dict[str, Any]:
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM backup_runs WHERE id = ?", (rid,)).fetchone()
-        return dict(row) if row else {}
+        out = dict(row) if row else {}
     finally:
         conn.close()
+    if offsite is not None:
+        out["offsite"] = offsite
+    return out
 
 
 def apply_retention(backend: BackupBackend | None = None) -> dict[str, int]:
@@ -472,12 +522,19 @@ def apply_retention(backend: BackupBackend | None = None) -> dict[str, int]:
     return removed
 
 
-def restore_test() -> dict[str, Any]:
-    """Download latest backup, decrypt, verify SQLite integrity. No import."""
+def restore_test(backend: BackupBackend | None = None,
+                 status_prefix: str = "backup") -> dict[str, Any]:
+    """Download latest backup, decrypt, verify SQLite integrity. No import.
+
+    `backend` defaults to the configured one; the off-box copy is tested by
+    passing its S3Backend with status_prefix="backup.offsite", so its result
+    lands in its own settings and doesn't overwrite the local test's.
+    """
     rid = _record_start("test")
+    label = "restore-test" if status_prefix == "backup" else "off-box restore-test"
     try:
         passphrase = _passphrase_or_die()
-        backend = get_backend()
+        backend = backend or get_backend()
         # Look across daily / monthly / manual prefixes — most recent wins.
         candidates = []
         for prefix in ("daily/", "monthly/", "manual/"):
@@ -514,8 +571,8 @@ def restore_test() -> dict[str, Any]:
                 c.close()
         _record_finish(rid, "ok", size=len(blob),
                        dest=f"verified:{latest}", backend=backend.name)
-        set_setting("backup.last_test_at", datetime.now(timezone.utc).isoformat())
-        set_setting("backup.last_test_ok", "1")
+        set_setting(f"{status_prefix}.last_test_at", datetime.now(timezone.utc).isoformat())
+        set_setting(f"{status_prefix}.last_test_ok", "1")
         log.info("restore-test ok: %s (%d bytes)", latest, len(blob))
         try:
             import siem
@@ -526,9 +583,10 @@ def restore_test() -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         msg = str(e)
         _record_finish(rid, "failed", error=msg)
-        set_setting("backup.last_test_ok", "0")
+        set_setting(f"{status_prefix}.last_test_at", datetime.now(timezone.utc).isoformat())
+        set_setting(f"{status_prefix}.last_test_ok", "0")
         log.exception("restore-test failed: %s", msg)
-        _notify_failed("restore-test", msg)
+        _notify_failed(label, msg)
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM backup_runs WHERE id = ?", (rid,)).fetchone()
@@ -593,6 +651,22 @@ def maybe_run_scheduled() -> None:
             test_due = True
     if test_due:
         restore_test()
+    if offsite_due():
+        offsite_restore_test()
+
+
+def offsite_due() -> bool:
+    """Weekly restore-test of the off-box copy, once one has been uploaded."""
+    if not offsite_configured() or not get_setting("backup.offsite.last_at"):
+        return False
+    last = get_setting("backup.offsite.last_test_at")
+    if not last:
+        return True
+    try:
+        d = datetime.fromisoformat(last.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - d) >= timedelta(days=7)
+    except Exception:  # noqa: BLE001
+        return True
 
 
 # ── status surface for the page ─────────────────────────────────────────────
@@ -630,6 +704,16 @@ def status() -> dict[str, Any]:
         "last_test_at": last_test,
         "last_test_ok": last_test_ok,
         "latest": last,
+        "offsite": {
+            "configured": offsite_configured(),
+            "last_at": get_setting("backup.offsite.last_at"),
+            "last_key": get_setting("backup.offsite.last_key") or "",
+            "last_size": int(get_setting("backup.offsite.last_size") or "0"),
+            "last_error": get_setting("backup.offsite.last_error") or "",
+            "last_error_at": get_setting("backup.offsite.last_error_at"),
+            "last_test_at": get_setting("backup.offsite.last_test_at"),
+            "last_test_ok": (get_setting("backup.offsite.last_test_ok") or "") == "1",
+        },
         "s3": {
             "bucket": _envstr("BACKUP_S3_BUCKET"),
             "endpoint": _envstr("BACKUP_S3_ENDPOINT") or "AWS default",

@@ -29,6 +29,7 @@ _SETTING_KEYS = (
     "intel.publish.enabled", "settings.approval_required", "synthetic.enabled",
     "synthetic.last_status", "honeypot.enabled", "backup.enabled",
     "backup.last_daily_at", "backup.last_test_ok", "dr_drill.reminder_enabled",
+    "backup.offsite.last_error", "backup.offsite.last_test_ok",
     "ha.role", "ha.auto_failover_enabled",
     "disk.warn_alerted", "disk.critical_alerted", "disk.wal_alerted",
 )
@@ -108,7 +109,9 @@ def _compute() -> dict[str, set[str]]:
         # (MEMORY.md), so a recent run counts as configured too.
         if on("backup.enabled") or st.get("backup.last_daily_at"):
             configured.add("admin_backup_auto")
-        if (st.get("backup.last_test_ok") or "") == "0":
+        if (st.get("backup.last_test_ok") or "") == "0" \
+                or (st.get("backup.offsite.last_error") or "") \
+                or (st.get("backup.offsite.last_test_ok") or "") == "0":
             failing.add("admin_backup_auto")
         else:
             try:
