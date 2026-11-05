@@ -17,9 +17,13 @@
 
   <div class="grid kpi-strip">
     <div class="kpi">
-      <div class="k">Automation</div>
-      <div class="v" style="font-size:18px;color:{% if status.enabled %}var(--green){% else %}var(--muted){% endif %}">
-        {% if status.enabled %}ENABLED{% else %}OFF{% endif %}
+      <div class="k">Schedule</div>
+      {% set sc = status.schedule %}
+      <div class="v" style="font-size:18px;color:{% if sc == 'off' %}var(--danger){% else %}var(--green){% endif %}">
+        {% if sc == 'builtin' %}BUILT-IN{% elif sc == 'timer' %}NIGHTLY{% else %}OFF{% endif %}
+      </div>
+      <div class="d">
+        {% if sc == 'builtin' %}Protek's own scheduler{% elif sc == 'timer' %}run by the server's nightly timer{% else %}no backup in the last 36 h{% endif %}
       </div>
     </div>
     <div class="kpi">
@@ -92,12 +96,20 @@ systemctl restart protek</pre>
 
 <div class="panel" style="margin-top:16px">
   <h2>Configuration</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px;line-height:1.6">
+    How backups are scheduled, where they're kept, and how many are kept.
+    {% if status.schedule == 'timer' %}
+    <b style="color:var(--text)">This server already backs up every night from its system timer</b>
+    (<span class="mono">protek-backup.timer</span>), so leave the built-in schedule off — turning it on
+    would back up twice a day.
+    {% endif %}
+  </p>
   <form method="post" action="{{ url_for('admin_backup_automation_settings') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="grid cols-2" style="margin-bottom:10px">
       <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal">
         <input type="checkbox" name="enabled" value="1" {% if status.enabled %}checked{% endif %}>
-        <span>Automation enabled</span>
+        <span>Use Protek's built-in schedule <span class="muted">(daily, monthly and a weekly restore test — for servers without the nightly timer)</span></span>
       </label>
       <div>
         <label>Backend</label>
@@ -116,7 +128,7 @@ systemctl restart protek</pre>
           <input type="number" name="daily_keep" value="{{ status.daily_keep }}" min="1" max="365" style="width:100%">
         </div>
         <div style="flex:1">
-          <label>Monthly retention</label>
+          <label>Monthly retention <span class="muted" style="text-transform:none;letter-spacing:0">(monthly copies come from the built-in schedule)</span></label>
           <input type="number" name="monthly_keep" value="{{ status.monthly_keep }}" min="1" max="120" style="width:100%">
         </div>
       </div>
@@ -126,25 +138,61 @@ systemctl restart protek</pre>
 </div>
 
 {% set can_edit = has_role('admin') and b2_writable %}
-<form method="post" action="{{ url_for('admin_backup_offsite') }}" id="offsite" class="panel" style="margin-top:16px" autocomplete="off">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{% set off = status.offsite %}
+{# Status first: when a bucket is set up, say whether it's working; the form
+   sits behind "Change settings" (open after a failed save, or if unset). #}
+{% set form_open = (not off.configured) or b2_msgs %}
+<div id="offsite" class="panel" style="margin-top:16px">
   <h2>Off-box copy (Backblaze B2)</h2>
   <p class="muted" style="margin:0 0 12px;font-size:12px;line-height:1.6">
     After each backup is saved here and verified, Protek copies the same encrypted file to a
     bucket off this server, so a lost or wiped server doesn't take its backups with it. Works
-    with Backblaze B2, AWS S3 or MinIO. Saved to <span class="mono">{{ env_path }}</span> and used
-    from the next backup — no restart.
+    with Backblaze B2, AWS S3 or MinIO.
     {% if not b2_writable %}<span style="color:var(--warn)">{{ b2_why }}</span>{% endif %}
   </p>
 
   {% for cat, msg in b2_msgs %}
   <div class="flash {{ cat }}" role="{{ 'alert' if cat == 'error' else 'status' }}">{{ msg }}</div>
   {% endfor %}
-  {% set off = status.offsite %}
-  {% if off.last_error %}
-  <div class="flash error" role="status">Last off-box copy failed: {{ off.last_error }}</div>
+
+  {% if off.configured %}
+  {% set state = 'failing' if off.last_error else ('working' if off.last_at else 'waiting') %}
+  <div class="offsite-summary" style="border-left:3px solid {{ {'failing': 'var(--danger)', 'working': 'var(--ok)', 'waiting': 'var(--warn)'}[state] }};padding:4px 0 4px 14px;margin-bottom:12px">
+    <div style="font-weight:600;color:{{ {'failing': 'var(--danger)', 'working': 'var(--ok)', 'waiting': 'var(--warn)'}[state] }}">
+      {% if state == 'working' %}Off-box backups are on and working
+      {% elif state == 'failing' %}Off-box backups are on, but the last copy failed
+      {% else %}Off-box backups are set up — the first copy goes with the next backup{% endif %}
+    </div>
+    <dl class="offsite-facts" style="display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:10px 0 0;font-size:12px">
+      <dt class="muted">Bucket</dt>
+      <dd style="margin:0" class="mono">{{ b2.bucket }}{% if b2.region %} <span class="muted">({{ b2.region }})</span>{% endif %}</dd>
+      {% if off.last_at %}
+      <dt class="muted">Last copy</dt>
+      <dd style="margin:0"><span class="mono">{{ off.last_at[:16].replace('T',' ') }} UTC</span> · <span class="mono">{{ '{:,}'.format(off.last_size) }}</span> bytes</dd>
+      {% endif %}
+      {% if off.last_error %}
+      <dt class="muted">Problem</dt>
+      <dd style="margin:0;color:var(--danger)">{{ off.last_error }} <span class="muted">(since {{ (off.last_error_at or '')[:16].replace('T',' ') }} UTC — local backups are fine)</span></dd>
+      {% endif %}
+      <dt class="muted">Restore test</dt>
+      <dd style="margin:0">
+        {% if off.last_test_at %}
+          <span style="color:{{ 'var(--ok)' if off.last_test_ok else 'var(--danger)' }}">{{ 'Passed' if off.last_test_ok else 'Failed' }}</span>
+          <span class="mono muted">{{ off.last_test_at[:16].replace('T',' ') }} UTC</span>
+          <span class="muted">— the B2 copy downloads, decrypts and checks out</span>
+        {% else %}<span class="muted">not yet — runs weekly, or use "Restore-test the off-box copy" below</span>{% endif %}
+      </dd>
+    </dl>
+  </div>
   {% endif %}
 
+  <details {% if form_open %}open{% endif %} class="offsite-edit">
+    {% if off.configured %}<summary class="btn ghost" style="display:inline-block;list-style:none;cursor:pointer">Change settings</summary>{% endif %}
+  <form method="post" action="{{ url_for('admin_backup_offsite') }}" autocomplete="off" style="margin-top:12px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <p class="muted" style="margin:0 0 10px;font-size:12px">
+    Saved to <span class="mono">{{ env_path }}</span> and used from the next backup — no restart.
+  </p>
   <details style="margin:0 0 12px;font-size:12px" class="muted">
     <summary style="cursor:pointer">Where to find these in Backblaze</summary>
     <ol style="margin:8px 0 0;padding-left:18px;line-height:1.7">
@@ -194,7 +242,9 @@ systemctl restart protek</pre>
     <button class="btn" type="submit" name="action" value="save">Test and save</button>
   </div>
   {% endif %}
-</form>
+  </form>
+  </details>
+</div>
 
 <div class="panel" style="margin-top:16px">
   <h2>Litestream WAL replication

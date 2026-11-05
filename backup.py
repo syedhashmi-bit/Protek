@@ -688,10 +688,25 @@ def status() -> dict[str, Any]:
 
     last = latest_successful()
     last_test = get_setting("backup.last_test_at")
+    # What actually runs the backups: Protek's own scheduler (backup.enabled),
+    # or something outside it — the nightly systemd timer in deploy/ — which
+    # shows up as recent daily backups with the built-in schedule off.
+    schedule = "off"
+    if enabled:
+        schedule = "builtin"
+    else:
+        ld = get_setting("backup.last_daily_at")
+        try:
+            if ld and datetime.now(timezone.utc) - datetime.fromisoformat(
+                    ld.replace("Z", "+00:00")) <= timedelta(hours=36):
+                schedule = "timer"
+        except ValueError:
+            pass
     last_test_ok = (get_setting("backup.last_test_ok") or "") == "1"
 
     return {
         "enabled": enabled,
+        "schedule": schedule,
         "backend": kind,
         "backend_ready": backend_ready,
         "backend_error": backend_err,

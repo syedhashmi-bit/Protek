@@ -69,8 +69,16 @@ def writable() -> tuple[bool, str]:
     return True, ""
 
 
+_INLINE_COMMENT = re.compile(r"\s+#.*$")
+
+
 def _env(name: str) -> str:
-    return (os.environ.get(name) or "").strip()
+    """A non-secret value as it should be shown. systemd's EnvironmentFile=
+    keeps an inline comment (`KEY=value  # note`) as part of the value, while
+    python-dotenv and the rest of Protek drop it; drop it here too so the forms
+    show the value, not the note. Secrets are never shown, so never pass
+    through here."""
+    return _INLINE_COMMENT.sub("", (os.environ.get(name) or "")).strip()
 
 
 def current() -> dict[str, Any]:
@@ -163,8 +171,13 @@ def validate(form, cur: dict[str, Any] | None = None) -> tuple[dict[str, str], l
 
 
 def changed_keys(values: dict[str, str]) -> list[str]:
-    return [k for k in MANAGED if k in values
-            and values[k] != (os.environ.get(k) or "").strip()]
+    """Keys whose new value differs from the current one. Non-secret values
+    are compared without an inline `# comment` (see _env), so a commented
+    line in .env doesn't count as changed just because the form shows it
+    clean; secrets are compared as they are."""
+    def cur(k: str) -> str:
+        return (os.environ.get(k) or "").strip() if k in SECRET_KEYS else _env(k)
+    return [k for k in MANAGED if k in values and values[k] != cur(k)]
 
 
 # ── probes ─────────────────────────────────────────────────────────────────
