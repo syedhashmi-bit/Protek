@@ -45,6 +45,49 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-05 — Backups were failing for 2 weeks; off-box B2 copy, set up from the UI
+
+**What was wrong:** every nightly backup failed from 2026-10-23 with
+`database or disk is full`; the last good one was 10-21.
+- `backup.py` copies the whole DB (~2 GB) into a temp dir, and on this host
+  `/tmp` is a 3.8 GB RAM-backed tmpfs.
+- On 11-02 a run was OOM-killed mid-copy and left `/tmp/protek-bk-*` (1.9 GB)
+  behind. That made every later run fail, and pinned 1.9 GB of RAM.
+- The 10-23 → 11-01 failures came before that leftover, so they're attributed
+  to the same `/tmp` squeeze from other tmp usage. That's not proven; the logs
+  don't show what filled it.
+
+**Repair (host):**
+- Removed the leftover.
+- `protek-backup.service` now sets `TMPDIR=/var/backups/protek/tmp` and clears
+  `protek-bk-*` / `protek-rt-*` leftovers before each run. This was an interim
+  drop-in `tmpdir.conf` and is now in `deploy/protek-backup.service`.
+
+**B2:** the operator's B2 keys had been in `.env` all along, but nothing used
+them, because `backup.backend` stayed `local`. Its first upload landed
+2026-11-05, and a restore-test of the B2 copy passed (download, decrypt,
+`integrity_check`). The bucket name is deliberately not recorded here; the
+repo is public.
+
+**Feature: set up B2 from the Backup (off-box) page.**
+- **Off-box copy:** `backup.run_backup` now copies each good local bundle to
+  the bucket (`ship_offsite`) with the same key layout, a size check and the
+  same retention. It records `backup.offsite.*`. A failure is notified and
+  marks Access & backup amber, but never fails the local backup.
+- **Off-box restore test:** `restore_test(backend, status_prefix)` gives the
+  off-box copy its own weekly restore test (`offsite_restore_test`,
+  `offsite_due`), plus a manual button.
+- **The form:** endpoint (the Backblaze region is read from it), bucket, key
+  ID and application key, which is write-only. "Test and save" uploads, reads
+  back and deletes a tiny object (`connection.probe_b2`), then saves the
+  BACKUP_S3_* keys into `.env`. These are now managed keys in `connection.py`:
+  the same atomic write, the same cross-worker reload, and browser-owned on
+  Docker. "Stop off-box copies" blanks the bucket and deletes nothing.
+- **Deploy files:** `deploy/protek-backup.{sh,service,timer}` are now the
+  canonical host files. The script no longer uploads itself, because
+  `backup.py` does; installing the new script replaces the interim one, which
+  would otherwise upload twice.
+
 ## 2026-11-05 — Router name on the MikroTik tab; Size + Last Sync on Targets
 
 - **Tab label:** the MikroTik tab (and its crumb and palette entry) now shows

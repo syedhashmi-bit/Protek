@@ -43,7 +43,11 @@ ROOT = Path(__file__).resolve().parent
 LAPI_KEYS = ("CROWDSEC_LAPI_URL", "CROWDSEC_BOUNCER_KEY")
 MT_KEYS = ("MT_HOST", "MT_PORT", "MT_USE_SSL", "MT_USERNAME", "MT_PASSWORD")
 KEYS = LAPI_KEYS + MT_KEYS
-SECRET_KEYS = {"CROWDSEC_BOUNCER_KEY", "MT_PASSWORD"}
+# Off-box backup bucket (Backblaze B2 or any S3), edited on Backup (off-box).
+B2_KEYS = ("BACKUP_S3_ENDPOINT", "BACKUP_S3_REGION", "BACKUP_S3_BUCKET",
+           "BACKUP_S3_KEY", "BACKUP_S3_SECRET")
+MANAGED = KEYS + B2_KEYS
+SECRET_KEYS = {"CROWDSEC_BOUNCER_KEY", "MT_PASSWORD", "BACKUP_S3_SECRET"}
 
 SAVED_KEYS_SETTING = "connection.saved_keys"
 
@@ -159,7 +163,8 @@ def validate(form, cur: dict[str, Any] | None = None) -> tuple[dict[str, str], l
 
 
 def changed_keys(values: dict[str, str]) -> list[str]:
-    return [k for k in KEYS if values.get(k, "") != (os.environ.get(k) or "").strip()]
+    return [k for k in MANAGED if k in values
+            and values[k] != (os.environ.get(k) or "").strip()]
 
 
 # ── probes ─────────────────────────────────────────────────────────────────
@@ -208,6 +213,98 @@ def probe_mikrotik(values: dict[str, str], timeout: float = 15.0) -> dict[str, A
 def probe(values: dict[str, str]) -> dict[str, dict[str, Any]]:
     return {"lapi": probe_lapi(values["CROWDSEC_LAPI_URL"], values["CROWDSEC_BOUNCER_KEY"]),
             "mikrotik": probe_mikrotik(values)}
+
+
+# ── off-box backup bucket (Backblaze B2 / S3) ──────────────────────────────
+
+_B2_ENDPOINT_RE = re.compile(r"^https://s3\.([a-z0-9-]+)\.backblazeb2\.com/?$")
+_BUCKET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,61}[A-Za-z0-9]$")
+
+
+def b2_current() -> dict[str, Any]:
+    return {
+        "endpoint": _env("BACKUP_S3_ENDPOINT"),
+        "region": _env("BACKUP_S3_REGION"),
+        "bucket": _env("BACKUP_S3_BUCKET"),
+        "key_id": _env("BACKUP_S3_KEY"),
+        "secret_set": bool(_env("BACKUP_S3_SECRET")),
+    }
+
+
+def validate_b2(form) -> tuple[dict[str, str], list[str]]:
+    """Form → BACKUP_S3_* values. A blank application key keeps the current
+    one. For a Backblaze endpoint the region is read from it when left blank."""
+    errors: list[str] = []
+    get = lambda k: (form.get(k) or "").strip()  # noqa: E731
+    endpoint = get("s3_endpoint").rstrip("/")
+    region = get("s3_region")
+    bucket = get("s3_bucket")
+    key_id = get("s3_key")
+    secret = form.get("s3_secret") or ""
+
+    if endpoint:
+        p = urlparse(endpoint)
+        if p.scheme != "https" or not p.netloc or _bad_chars(endpoint) or "#" in endpoint:
+            errors.append("Endpoint must be an https:// URL, e.g. https://s3.us-west-002.backblazeb2.com.")
+        m = _B2_ENDPOINT_RE.match(endpoint)
+        if m and not region:
+            region = m.group(1)
+    if region and not re.fullmatch(r"[a-z0-9-]{2,40}", region):
+        errors.append("Region should look like us-west-002 or eu-central-003.")
+    if not _BUCKET_RE.match(bucket):
+        errors.append("Bucket name: 3–63 letters, numbers, dots, dashes or underscores.")
+    if not key_id or _bad_chars(key_id) or " " in key_id or "#" in key_id:
+        errors.append("Key ID is required (Backblaze: the application key's keyID).")
+    if secret and (_bad_chars(secret) or " " in secret.strip()):
+        errors.append("The application key can't contain spaces, quotes, backslashes or control characters.")
+    secret = secret.strip() or os.environ.get("BACKUP_S3_SECRET", "")
+    if not secret:
+        errors.append("The application key is required.")
+    return {"BACKUP_S3_ENDPOINT": endpoint, "BACKUP_S3_REGION": region or "us-east-1",
+            "BACKUP_S3_BUCKET": bucket, "BACKUP_S3_KEY": key_id,
+            "BACKUP_S3_SECRET": secret}, errors
+
+
+def probe_b2(values: dict[str, str]) -> dict[str, Any]:
+    """Upload, read back and delete a tiny object — proves the key can write
+    to this bucket before anything is saved. Error text never includes the
+    key or secret."""
+    import time
+
+    try:
+        import boto3
+        from botocore.config import Config
+        from botocore.exceptions import BotoCoreError, ClientError
+    except ImportError:
+        return {"ok": False, "error": "boto3 isn't installed (pip install boto3)"}
+    s3 = boto3.client(
+        "s3", endpoint_url=values["BACKUP_S3_ENDPOINT"] or None,
+        region_name=values["BACKUP_S3_REGION"] or "us-east-1",
+        aws_access_key_id=values["BACKUP_S3_KEY"],
+        aws_secret_access_key=values["BACKUP_S3_SECRET"],
+        config=Config(connect_timeout=5, read_timeout=15, retries={"max_attempts": 1}))
+    key = f"protek-connection-test/{int(time.time())}.txt"
+    body = b"Protek connection test - safe to delete."
+    bucket = values["BACKUP_S3_BUCKET"]
+    try:
+        s3.put_object(Bucket=bucket, Key=key, Body=body)
+        head = s3.head_object(Bucket=bucket, Key=key)
+        if int(head.get("ContentLength", -1)) != len(body):
+            return {"ok": False, "error": "the test file didn't read back correctly"}
+        s3.delete_object(Bucket=bucket, Key=key)
+        return {"ok": True}
+    except ClientError as e:
+        code = (e.response.get("Error") or {}).get("Code", "")
+        friendly = {
+            "InvalidAccessKeyId": "the key ID isn't recognised",
+            "SignatureDoesNotMatch": "the application key doesn't match the key ID",
+            "NoSuchBucket": f"there's no bucket called {bucket} for this key",
+            "AccessDenied": "the key can't write to this bucket — it needs read and write access to it",
+            "InvalidBucketName": "that bucket name isn't valid",
+        }.get(code)
+        return {"ok": False, "error": friendly or f"the bucket refused the test upload ({code or 'error'})"}
+    except BotoCoreError as e:
+        return {"ok": False, "error": f"couldn't reach the endpoint ({type(e).__name__})"}
 
 
 # ── write + apply ──────────────────────────────────────────────────────────
@@ -267,7 +364,7 @@ def _saved_keys() -> list[str]:
     from db import get_setting
     try:
         keys = json.loads(get_setting(SAVED_KEYS_SETTING) or "[]")
-        return [k for k in keys if k in KEYS]
+        return [k for k in keys if k in MANAGED]
     except (TypeError, ValueError):
         return []
 

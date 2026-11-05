@@ -51,6 +51,19 @@
       {% endif %}
     </div>
     <div class="kpi">
+      <div class="k">Off-box copy</div>
+      {% set off = status.offsite %}
+      <div class="v" style="font-size:18px;color:{% if off.last_error %}var(--red){% elif off.configured and off.last_at %}var(--green){% else %}var(--muted){% endif %}">
+        {% if off.last_error %}FAILING{% elif off.configured and off.last_at %}OK{% elif off.configured %}WAITING{% else %}OFF{% endif %}
+      </div>
+      <div class="d">
+        {% if off.last_error %}since {{ (off.last_error_at or '')[:16].replace('T',' ') }}
+        {% elif off.last_at %}{{ off.last_at[:16].replace('T',' ') }} · {{ '{:,}'.format(off.last_size) }} bytes
+        {% elif off.configured %}uploads with the next backup
+        {% else %}set up below{% endif %}
+      </div>
+    </div>
+    <div class="kpi">
       <div class="k">Restore-test</div>
       <div class="v" style="font-size:18px;color:{% if status.last_test_ok %}var(--green){% elif status.last_test_at %}var(--red){% else %}var(--muted){% endif %}">
         {% if status.last_test_ok %}OK{% elif status.last_test_at %}FAIL{% else %}—{% endif %}
@@ -89,8 +102,8 @@ systemctl restart protek</pre>
       <div>
         <label>Backend</label>
         <select name="backend" style="width:100%">
-          <option value="local" {% if status.backend == 'local' %}selected{% endif %}>local (filesystem)</option>
-          <option value="s3"    {% if status.backend == 's3'    %}selected{% endif %}>s3 (Backblaze B2 / AWS / MinIO)</option>
+          <option value="local" {% if status.backend == 'local' %}selected{% endif %}>local (+ off-box copy when a bucket is set up below)</option>
+          <option value="s3"    {% if status.backend == 's3'    %}selected{% endif %}>s3 only (no local copy)</option>
         </select>
       </div>
       <div>
@@ -112,32 +125,76 @@ systemctl restart protek</pre>
   </form>
 </div>
 
-<div class="panel" style="margin-top:16px">
-  <h2>S3 / B2 credentials (read from .env)</h2>
-  <p class="muted" style="margin:0 0 10px;font-size:12px">
-    For Backblaze B2: set <span class="mono">BACKUP_S3_ENDPOINT</span> to your
-    bucket's S3 endpoint (e.g. <span class="mono">https://s3.us-west-002.backblazeb2.com</span>),
-    region to the matching value (e.g. <span class="mono">us-west-002</span>), and use
-    the bucket-scoped Application Key ID + Application Key as
-    <span class="mono">BACKUP_S3_KEY</span> / <span class="mono">BACKUP_S3_SECRET</span>.
-    For AWS S3: omit the endpoint, set the region, use IAM access keys.
+{% set can_edit = has_role('admin') and b2_writable %}
+<form method="post" action="{{ url_for('admin_backup_offsite') }}" id="offsite" class="panel" style="margin-top:16px" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <h2>Off-box copy (Backblaze B2)</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px;line-height:1.6">
+    After each backup is saved here and verified, Protek copies the same encrypted file to a
+    bucket off this server, so a lost or wiped server doesn't take its backups with it. Works
+    with Backblaze B2, AWS S3 or MinIO. Saved to <span class="mono">{{ env_path }}</span> and used
+    from the next backup — no restart.
+    {% if not b2_writable %}<span style="color:var(--warn)">{{ b2_why }}</span>{% endif %}
   </p>
-  <table>
-    <thead><tr><th>Variable</th><th>Status / value</th></tr></thead>
-    <tbody>
-      <tr><td class="mono">BACKUP_S3_BUCKET</td>
-          <td class="mono">{{ status.s3.bucket or '—' }}</td></tr>
-      <tr><td class="mono">BACKUP_S3_ENDPOINT</td>
-          <td class="mono">{{ status.s3.endpoint }}</td></tr>
-      <tr><td class="mono">BACKUP_S3_REGION</td>
-          <td class="mono">{{ status.s3.region }}</td></tr>
-      <tr><td class="mono">BACKUP_S3_KEY</td>
-          <td>{% if status.s3.key_set %}<span style="color:var(--green)">SET</span>{% else %}<span style="color:var(--red)">MISSING</span>{% endif %}</td></tr>
-      <tr><td class="mono">BACKUP_S3_SECRET</td>
-          <td>{% if status.s3.secret_set %}<span style="color:var(--green)">SET</span>{% else %}<span style="color:var(--red)">MISSING</span>{% endif %}</td></tr>
-    </tbody>
-  </table>
-</div>
+
+  {% for cat, msg in b2_msgs %}
+  <div class="flash {{ cat }}" role="{{ 'alert' if cat == 'error' else 'status' }}">{{ msg }}</div>
+  {% endfor %}
+  {% set off = status.offsite %}
+  {% if off.last_error %}
+  <div class="flash error" role="status">Last off-box copy failed: {{ off.last_error }}</div>
+  {% endif %}
+
+  <details style="margin:0 0 12px;font-size:12px" class="muted">
+    <summary style="cursor:pointer">Where to find these in Backblaze</summary>
+    <ol style="margin:8px 0 0;padding-left:18px;line-height:1.7">
+      <li>Buckets → your bucket: the <b>Endpoint</b> (e.g. <span class="mono">s3.us-west-002.backblazeb2.com</span>).</li>
+      <li>Application Keys → <b>Add a New Application Key</b>, allow access to that bucket only,
+          with <b>Read and Write</b>. Copy the <b>keyID</b> and the <b>applicationKey</b>
+          (it's shown once).</li>
+    </ol>
+  </details>
+
+  <div class="grid cols-2">
+    <div>
+      <label for="s3_endpoint">Endpoint</label>
+      <input type="text" id="s3_endpoint" name="s3_endpoint" value="{{ ('https://' if b2.endpoint and not b2.endpoint.startswith('http') else '') }}{{ b2.endpoint }}"
+             placeholder="https://s3.us-west-002.backblazeb2.com" {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="s3_region">Region</label>
+      <input type="text" id="s3_region" name="s3_region" value="{{ b2.region }}"
+             placeholder="filled in from a Backblaze endpoint" {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="s3_bucket">Bucket name</label>
+      <input type="text" id="s3_bucket" name="s3_bucket" value="{{ b2.bucket }}" required
+             placeholder="protek-backups" {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="s3_key">Key ID</label>
+      <input type="text" id="s3_key" name="s3_key" value="{{ b2.key_id }}" required
+             placeholder="keyID" {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="s3_secret">Application key</label>
+      <input type="password" id="s3_secret" name="s3_secret" autocomplete="new-password"
+             placeholder="{{ 'set — leave blank to keep it' if b2.secret_set else 'applicationKey' }}"
+             {% if not can_edit %}disabled{% endif %}>
+    </div>
+  </div>
+
+  {% if can_edit %}
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap">
+    {% if off.configured %}
+    <button class="btn ghost" type="submit" name="action" value="remove" formnovalidate
+            onclick="return confirm('Stop copying backups off-box? Local backups carry on, and nothing in the bucket is deleted.')">
+      Stop off-box copies</button>
+    {% else %}<span></span>{% endif %}
+    <button class="btn" type="submit" name="action" value="save">Test and save</button>
+  </div>
+  {% endif %}
+</form>
 
 <div class="panel" style="margin-top:16px">
   <h2>Litestream WAL replication
@@ -221,6 +278,15 @@ systemctl start litestream protek</pre>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn" type="submit">Run restore-test now</button>
     </form>
+    {% if status.offsite.configured %}
+    <form method="post" action="{{ url_for('admin_backup_automation_test') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="target" value="offsite">
+      <button class="btn ghost" type="submit"
+              onclick="return confirm('Download the newest off-box backup and check it restores? Takes about a minute.')">
+        Restore-test the off-box copy</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 
