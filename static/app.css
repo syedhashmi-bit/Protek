@@ -276,3 +276,13 @@ label{display:block;font-size:var(--fs-sm);color:var(--muted);margin-bottom:6px;
   .kpi-strip{grid-template-columns:1fr 1fr}
   .kpi .v{font-size:var(--fs-lg)}
 }
+
+/* Roadmap #3 — advanced-view toggle (sidebar footer) and "needs attention" dot. */
+.side-foot{margin:18px 8px 8px;padding-top:12px;border-top:1px solid var(--border)}
+.side-toggle{width:100%;text-align:left;background:none;border:1px solid var(--border);
+  border-radius:var(--radius-sm);color:var(--muted);font:inherit;font-size:var(--fs-xs);
+  padding:7px 10px;cursor:pointer}
+.side-toggle:hover{color:var(--text);border-color:var(--accent)}
+.side-toggle b{color:var(--text);font-weight:600}
+.nav-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);
+  margin-left:6px;vertical-align:middle}

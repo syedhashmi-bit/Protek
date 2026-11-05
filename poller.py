@@ -67,6 +67,9 @@ class Poller:
         self.cycles: int = 0
         # Separate from self.cycles on purpose — see _check_disk().
         self._maint_ticks: int = 0
+        # Set when the connection settings change so the blocking check
+        # re-reads the (possibly new) router on this tick, not up to 6 later.
+        self._force_blocking: bool = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -118,13 +121,32 @@ class Poller:
         interval) — the rules change rarely, and the /mikrotik page checks
         live when someone is looking. Tick 0 runs at once so the topbar has
         an answer right after a restart."""
-        if tick_no % 6 != 0:
+        if tick_no % 6 != 0 and not self._force_blocking:
             return
+        self._force_blocking = False
         try:
             import blocking
             blocking.refresh()
         except Exception as e:  # noqa: BLE001 — never break the cycle
             log.warning("blocking check failed: %s", e)
+
+    def _sync_connection(self) -> None:
+        """Connection settings saved from the browser (connection.py) may have
+        changed in any worker. If so, start the local LAPI over: a new URL or
+        key needs a full bootstrap pull (the stream cursor belongs to the old
+        one), a clean fail streak, and a fresh alerts client."""
+        try:
+            import connection
+            if not connection.sync_from_file("poller"):
+                return
+        except Exception as e:  # noqa: BLE001 — never break the cycle
+            log.warning("connection sync failed: %s", e)
+            return
+        for state in (self._bootstrap_done, self._fail_streak, self._prev_lapi_ok):
+            state.pop("local", None)
+        self._machine_client = None
+        self._force_blocking = True
+        log.info("connection settings changed — re-bootstrapping the local LAPI")
 
     def _check_disk(self, _gs, tick_no: int) -> None:
         """Disk watchdog. Runs at the TOP of tick(), before anything else.
@@ -180,6 +202,7 @@ class Poller:
         self._maint_ticks += 1
         self._check_disk(_gs, tick_no)
         self._run_retention(_gs, tick_no)
+        self._sync_connection()
         self._check_blocking(tick_no)
         v = _gs("settings.dry_run")
         if v in ("0", "1"):

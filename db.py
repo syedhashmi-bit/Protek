@@ -13,6 +13,7 @@ from __future__ import annotations
 import fcntl
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Phase 95 — Docker image mounts a volume at /data for state.
@@ -237,6 +238,9 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("decisions", "as_org", "TEXT DEFAULT ''"),
     ("geo_cache", "rdns", "TEXT DEFAULT ''"),
     # Arc 4 — Scenarios & Rules: whitelist, allowlist, approval queue
+    # Roadmap #3 — per-user simple/advanced navigation. NULL means "use the
+    # install default" (settings `ui.advanced_default`).
+    ("users", "ui_advanced", "INTEGER DEFAULT NULL"),
 ]
 
 
@@ -448,7 +452,8 @@ EXTRA_TABLES = [
         role            TEXT NOT NULL DEFAULT 'admin',
         created_at      TEXT NOT NULL,
         last_login_at   TEXT DEFAULT NULL,
-        disabled        INTEGER NOT NULL DEFAULT 0
+        disabled        INTEGER NOT NULL DEFAULT 0,
+        ui_advanced     INTEGER DEFAULT NULL    -- roadmap #3; NULL = install default
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users (username)",
@@ -533,6 +538,13 @@ def init_db() -> None:
 def _init_db_locked() -> None:
     conn = get_conn()
     try:
+        # Roadmap #3: an install that already had a users table before this
+        # boot is an upgrade — its admins have been using the full menu, so it
+        # defaults to the advanced view; a brand-new DB defaults to simple.
+        # Decided here, under the init lock and before anything seeds rows.
+        upgrading = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone() is not None
         for stmt in SCHEMA:
             conn.execute(stmt)
         for stmt in EXTRA_TABLES:
@@ -542,6 +554,11 @@ def _init_db_locked() -> None:
             existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if col not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("ui.advanced_default", "1" if upgrading else "0",
+             datetime.now(timezone.utc).isoformat()),
+        )
         # Append-only enforcement at the storage layer for the audit log:
         # UPDATE and DELETE on audit_log are rejected by the DB engine itself,
         # so even a renegade code path can't mutate history. RAISE(ABORT, ...)

@@ -104,6 +104,8 @@ git push                                            # auth via the `gh` credenti
 | `crowdsec.py` | LAPI HTTP client — `get_decisions()`, `get_alerts()`, `add_decision()`, `delete_decision()` |
 | `mikrotik.py` | RouterOS API wrapper — `connect`, `get_address_list`, `add_address`, `remove_address`, `bulk_sync` |
 | `blocking.py` | Is the router actually dropping the address-list? Read-only check of each MikroTik's firewall filter/raw rules → blocking / none / disabled / shadowed / unverified / unknown. Cached in `settings` (`blocking.status`), refreshed by the poller every 6 ticks and live on `/mikrotik`. Pure `analyze()` is what the tests hit. |
+| `connection.py` | Settings → Connection & sync: validates, tests (LAPI + MikroTik), and atomically writes the 7 connection keys into `.env` (`PROTEK_ENV_FILE`). Other workers and the poller pick a save up via `sync_from_file()` (one `stat()` per request/tick). Only keys saved from the browser (`connection.saved_keys`) are forced from the file — on Docker they then win over compose env. Values can't contain quotes, backslashes or control characters (systemd and python-dotenv would read them differently). Never logs/flashes/audits a value. |
+| `navsignals.py` | Which advanced pages are in use / failing, for the simple view (one connection, a few COUNTs, cached 15 s per process, no network). |
 | `reconcile.py` | The diff engine — given (lapi_decisions, mt_address_list) → (to_add, to_remove). Pure function, fully testable. |
 | `notifications.py` | Discord/Email/Telegram sender; no Flask dependency, safe to import from both routes and thread |
 | `federation.py` | (phase 2) — fan-in adapter pool, one per remote CrowdSec source |
@@ -257,7 +259,7 @@ SMTP_FROM=
 
 ## Coding Rules
 
-- **Never read `.env` or `protek.db`** — live credentials and the bouncer API key live there.
+- **Never read `.env` or `protek.db`** — live credentials and the bouncer API key live there. (The app itself now writes the connection keys into `.env` through `connection.py`; nothing else should write it.)
 - Always restart the service after editing `app.py`, `crowdsec.py`, `mikrotik.py`, `reconcile.py`, or `notifications.py`.
 - MikroTik returns IDs as `id` or `.id` depending on API version — always use a `get_entry_id()` helper (lift from pipsqueeze's `get_peer_id`).
 - **Idempotency is sacred.** Adding the same IP twice must not produce a duplicate address-list entry. Reconciliation is the diff, not the source of truth — never trust a stale local cache over MikroTik's actual state, refresh the snapshot on every cycle.
@@ -265,7 +267,7 @@ SMTP_FROM=
 - Use the LAPI **stream endpoint** (`/v1/decisions/stream`) for steady-state polling. Bootstrap from `/v1/decisions` once at start. See `SKILL.md`.
 - Geo lookups must be cached aggressively (TTL ≥ 7 days). Cold lookups should never block the reconcile loop — they live in a separate worker.
 - Keep the warm design language consistent — use the tokens in `static/app.css`, never hardcoded hex. Prefer the semantic names (`--accent`, `--ok`, `--warn`, `--danger`); the legacy `--cyan`/`--green`/`--red`/`--amber` names are aliases kept only because ~600 template references use them. Sentence case, and monospace only for identifiers and figures.
-- **Navigation lives in one place**: the `NAV` structure in `app.py` drives the sidebar, the per-page tab strips, the topbar crumb and the command palette. Add a page there, not in `base.html` — these four had previously drifted into separate vocabularies.
+- **Navigation lives in one place**: the `NAV` structure in `app.py` drives the sidebar, the per-page tab strips, the topbar crumb and the command palette. Add a page there, not in `base.html` — these four had previously drifted into separate vocabularies. Mark power-user pages `"advanced": True` (item or tab): the simple view (roadmap #3, per user in `users.ui_advanced`) hides them unless `navsignals.py` says they're in use or failing — add a signal there for any new advanced feature that can be configured. The command palette lists every page regardless of view.
 - `reconcile.py` must be a pure function `(decisions, current_list) -> (to_add, to_remove)`. No I/O. This is what we unit-test.
 - All new DB columns go in both `CREATE TABLE` and the `init_db()` migration block.
 - VSCode flags Jinja2 `{{ }}` inside `<script>` tags as JS errors — these are false positives, the code works fine.

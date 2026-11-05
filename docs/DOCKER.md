@@ -63,6 +63,11 @@ generated secrets and is written only by `setup_admin.py`. When a key
 is in both, `./.env` wins. After editing `./.env`, run
 `docker compose up -d` to recreate the container with the new values.
 
+**Exception: settings saved in the browser.** Settings → Connection &
+sync writes the CrowdSec and MikroTik keys you change to `/data/.env`,
+and from then on those keys win over `./.env` and `compose.yml`. Change
+them in the browser again; editing `./.env` won't override them.
+
 Caddy auto-issues a Let's Encrypt cert on the first HTTPS request.
 For local dev (`PROTEK_DOMAIN=localhost`), Caddy serves a self-signed
 internal cert instead — your browser will warn but the login flow

@@ -63,16 +63,26 @@
   <nav class="side" id="side-nav">
     {# Rendered from NAV in app.py — one source of truth shared with the tab
        strips and the command palette, so the three can no longer drift apart. #}
-    {% for grp in nav_groups %}
+    {% for grp in nav_groups_for(active) %}
     <div class="group" data-sec="{{ grp.group|lower }}"><span>{{ grp.group }}</span><span class="chev">▾</span></div>
     <div class="section" data-sec="{{ grp.group|lower }}">
       {% for it in grp['items'] %}
       <a href="{{ url_for(it.ep) }}" class="{% if nav_active == it.key %}active{% endif %}"
          {% if it.tabs %}title="{{ it.tabs|map(attribute='label')|join(' · ') }}"{% endif %}>
-        {{ it.label }}</a>
+        {{ it.label }}{% if it.failing %}<span class="nav-dot" title="Needs attention" aria-label="needs attention"></span>{% endif %}</a>
       {% endfor %}
     </div>
     {% endfor %}
+    {# Roadmap #3 — simple view hides advanced pages unless they're in use. #}
+    <form method="POST" action="{{ url_for('ui_view') }}" class="side-foot">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ nav_return_to() }}">
+      <input type="hidden" name="advanced" value="{{ '0' if nav_advanced_on() else '1' }}">
+      <button type="submit" class="side-toggle" aria-pressed="{{ 'true' if nav_advanced_on() else 'false' }}"
+              title="{{ 'Show only the everyday pages' if nav_advanced_on() else 'Show every page, including advanced tools' }}">
+        Advanced view: <b>{{ 'on' if nav_advanced_on() else 'off' }}</b>
+      </button>
+    </form>
   </nav>
   <main class="main">
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -80,10 +90,10 @@
         <div class="flash {{ cat }}">{{ msg }}</div>
       {% endfor %}
     {% endwith %}
-    {% if nav_tabs %}
+    {% if nav_tabs|length > 1 %}
     <div class="tabs">
       {% for t in nav_tabs %}
-      <a href="{{ url_for(t.ep) }}" class="{% if active == t.key %}active{% endif %}">{{ t.label }}</a>
+      <a href="{{ url_for(t.ep) }}" class="{% if active == t.key %}active{% endif %}">{{ t.label }}{% if t.failing %}<span class="nav-dot" title="Needs attention" aria-label="needs attention"></span>{% endif %}</a>
       {% endfor %}
     </div>
     {% endif %}
@@ -207,10 +217,12 @@ setInterval(refreshPills, 5000);
   // Peers, ASN escalations, Synthetic, Publish feed, Backup, DR, HA, Honeypot
   // and SSO entirely. Role filtering is applied server-side by _nav_visible().
   var ITEMS = [
-    {% for grp in nav_groups %}{% for it in grp['items'] %}
-    {kind:'{{ grp.group|lower }}', label:'{{ it.label }}', hint:'{{ (it.tabs|map(attribute="label")|join(" · ")) if it.tabs else grp.group }}', href:'{{ url_for(it.ep) }}'},
+    {# The palette lists every page the role can open, whatever the view —
+       advanced ones are labelled so they're findable by typing "advanced". #}
+    {% for grp in nav_palette() %}{% for it in grp['items'] %}
+    {kind:'{{ 'advanced' if it.advanced else grp.group|lower }}', label:'{{ it.label }}', hint:'{{ (it.tabs|map(attribute="label")|join(" · ")) if it.tabs else grp.group }}', href:'{{ url_for(it.ep) }}'},
     {% for t in it.tabs %}{% if t.key != it.key %}
-    {kind:'{{ it.label|lower }}', label:'{{ t.label }}', hint:'{{ it.label }}', href:'{{ url_for(t.ep) }}'},
+    {kind:'{{ 'advanced' if t.advanced else it.label|lower }}', label:'{{ t.label }}', hint:'{{ it.label }}', href:'{{ url_for(t.ep) }}'},
     {% endif %}{% endfor %}
     {% endfor %}{% endfor %}
     {kind:'act',  label:'Force sync now', hint:'trigger an immediate reconcile cycle', href:'__act:sync'},
