@@ -45,6 +45,24 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-05 — Backup page: status first, inline .env comments, Schedule tile
+
+- **Off-box panel:** now leads with a status summary: on and working, last
+  copy failed, or waiting for the first copy. It shows the bucket, the last
+  copy and the B2 restore test. The form sits behind Change settings, and is
+  open when the bucket isn't set up or after a failed save.
+- **Inline .env comments:** systemd's EnvironmentFile= keeps
+  `KEY=value  # note` whole. The live `.env` has notes on the B2 endpoint and
+  region lines, so the form showed them, and Test and save would have
+  refused (`#`). `connection._env` now drops a whitespace-preceded `# ...`
+  for displayed non-secret values. `changed_keys` compares those values the
+  same way, so a commented line doesn't count as changed.
+- **Schedule tile:** the Automation tile became Schedule: NIGHTLY (recent
+  backups with the built-in schedule off, i.e. the systemd timer), BUILT-IN,
+  or OFF (nothing in 36 h). Configuration explains the built-in schedule and
+  warns that enabling it alongside the timer backs up twice. Monthly copies
+  come only from the built-in schedule; the timer script makes dailies.
+
 ## 2026-11-05 — Backups were failing for 2 weeks; off-box B2 copy, set up from the UI
 
 **What was wrong:** every nightly backup failed from 2026-10-23 with

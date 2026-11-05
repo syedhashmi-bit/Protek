@@ -319,3 +319,67 @@ def test_page_shows_the_form_and_never_the_key(make_client, monkeypatch, envfile
     page = make_client().get("/admin/backup-automation").get_data(as_text=True)
     assert 'id="offsite"' in page and "Off-box copy" in page
     assert "set — leave blank to keep it" in page and SECRET not in page
+
+
+# ── status-first panel, inline .env comments, schedule ─────────────────────
+
+def test_inline_env_comments_are_not_shown_or_counted_as_changes(envfile, monkeypatch):
+    # systemd's EnvironmentFile= keeps "value  # note" whole.
+    monkeypatch.setenv("BACKUP_S3_ENDPOINT", "https://s3.us-east-005.backblazeb2.com  # your B2 endpoint")
+    monkeypatch.setenv("BACKUP_S3_REGION", "us-east-005                    # match endpoint")
+    b2 = connection.b2_current()
+    assert b2["endpoint"] == "https://s3.us-east-005.backblazeb2.com"
+    assert b2["region"] == "us-east-005"
+    values = {"BACKUP_S3_ENDPOINT": "https://s3.us-east-005.backblazeb2.com",
+              "BACKUP_S3_REGION": "us-east-005"}
+    assert connection.changed_keys(values) == []
+
+
+def test_working_setup_shows_status_not_the_form(make_client, monkeypatch, envfile):
+    from db import set_setting
+    for k, v in {"BACKUP_S3_BUCKET": "protek-backups", "BACKUP_S3_KEY": "005abc",
+                 "BACKUP_S3_SECRET": SECRET, "BACKUP_S3_REGION": "us-east-005"}.items():
+        monkeypatch.setenv(k, v)
+    set_setting("backup.offsite.last_at", "2026-11-05T05:00:18+00:00")
+    set_setting("backup.offsite.last_size", "128846986")
+    set_setting("backup.offsite.last_test_at", "2026-11-05T05:01:00+00:00")
+    set_setting("backup.offsite.last_test_ok", "1")
+    page = make_client().get("/admin/backup-automation").get_data(as_text=True)
+    panel = page[page.index('id="offsite"'):]
+    assert "Off-box backups are on and working" in panel
+    assert "128,846,986" in panel and "Passed" in panel
+    assert '<details  class="offsite-edit">' in panel or '<details class="offsite-edit">' in panel  # closed
+    assert "Change settings" in panel
+
+
+def test_failed_copy_says_so(make_client, monkeypatch, envfile):
+    from db import set_setting
+    for k, v in {"BACKUP_S3_BUCKET": "protek-backups", "BACKUP_S3_KEY": "005abc",
+                 "BACKUP_S3_SECRET": SECRET}.items():
+        monkeypatch.setenv(k, v)
+    set_setting("backup.offsite.last_error", "EndpointConnectionError: couldn't reach it")
+    page = make_client().get("/admin/backup-automation").get_data(as_text=True)
+    assert "the last copy failed" in page and "local backups are fine" in page
+
+
+def test_not_set_up_shows_the_form_open(make_client, envfile):
+    page = make_client().get("/admin/backup-automation").get_data(as_text=True)
+    panel = page[page.index('id="offsite"'):]
+    assert '<details open class="offsite-edit">' in panel
+    assert "Change settings" not in panel
+
+
+@pytest.mark.parametrize("enabled, last_daily_hours_ago, expect", [
+    ("1", None, "builtin"),
+    ("0", 2, "timer"),
+    ("0", 48, "off"),
+    ("0", None, "off"),
+])
+def test_schedule_says_what_runs_the_backups(envfile, enabled, last_daily_hours_ago, expect):
+    from datetime import timedelta
+    from db import set_setting
+    set_setting("backup.enabled", enabled)
+    ld = "" if last_daily_hours_ago is None else \
+        (datetime.now(timezone.utc) - timedelta(hours=last_daily_hours_ago)).isoformat()
+    set_setting("backup.last_daily_at", ld)
+    assert backup.status()["schedule"] == expect
