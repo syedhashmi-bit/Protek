@@ -383,3 +383,32 @@ def test_schedule_says_what_runs_the_backups(envfile, enabled, last_daily_hours_
         (datetime.now(timezone.utc) - timedelta(hours=last_daily_hours_ago)).isoformat()
     set_setting("backup.last_daily_at", ld)
     assert backup.status()["schedule"] == expect
+
+
+# ── Litestream panel: optional, so advanced-only (unless installed) ────────
+
+def test_litestream_panel_hidden_in_simple_view(make_client, envfile):
+    c = make_client()
+    c.post("/ui/view", data={"advanced": "0"})
+    page = c.get("/admin/backup-automation").get_data(as_text=True)
+    assert "<h2>Litestream WAL replication" not in page
+
+
+def test_litestream_panel_in_advanced_view_with_working_instructions(make_client, monkeypatch, envfile):
+    import litestream
+    monkeypatch.setattr(litestream, "status", lambda: {
+        "health": "not-installed", "installed": False, "binary": "", "config_path": "/etc/litestream.yml",
+        "config_exists": False, "unit_path": "/etc/systemd/system/litestream.service",
+        "unit_exists": False, "unit_active": False, "unit_status": "", "last_snapshot": None,
+        "snapshot_age_s": None, "sample_config": "docs/litestream/litestream.yml.example",
+        "sample_unit": "docs/litestream/protek-litestream.service.example"})
+    c = make_client()
+    c.post("/ui/view", data={"advanced": "1"})
+    page = c.get("/admin/backup-automation").get_data(as_text=True)
+    assert "<h2>Litestream WAL replication" in page and "most installs don" in page
+    assert "latest/download" not in page                    # that URL 404s
+    assert "releases/download/v0.5.17/litestream-0.5.17-linux-x86_64.tar.gz" in page
+    assert "curl -fsSL" in page
+    # Enabling comes after installing and editing the config.
+    assert page.index("litestream version") < page.index("nano /etc/litestream.yml") \
+        < page.index("systemctl enable --now litestream")
