@@ -1,0 +1,755 @@
+{
+ "pages": {
+  "dashboard": {
+   "templates": [
+    "dashboard.html"
+   ],
+   "intro": "The overview is the first page you see after signing in. It shows how many IPs CrowdSec wants banned, whether Protek is keeping your MikroTik router's address list (the named list of IPs your firewall rules drop) in step with that, and where the attacks come from. The live feed, the LAPI Active figure and the map refresh every 5 seconds and the sync chart every minute; the other figures update when you reload the page.",
+   "sections": {
+    "Recent blocks": "The 20 most recently added active bans, refreshed every 5 seconds (the thin bar under the heading counts down to the next refresh). Each row shows how long ago Protek first saw the ban, the IP or range, its country, the scenario (the CrowdSec detection rule that caught it), the origin (for example crowdsec for a local detection or CAPI for CrowdSec's community blocklist) and the ban length CrowdSec gave it. Click an IP to open its attacker page.",
+    "Attack origins": "A world map of up to the 1,000 newest active single-IP bans whose location is known, grouped into clusters that you can click to zoom into. Click a point to see the IP, city, scenario and network owner. Ranges are not plotted, and a new ban appears only after the background geo lookup has handled its IP. New points are added while the page is open, but expired ones stay until you reload.",
+    "Top detections": "The 10 scenarios with the most active bans right now, with the count beside each one. One scenario far ahead of the rest usually means a single kind of attack, such as SSH brute force, or a large blocklist makes up most of what you are blocking.",
+    "Sync activity": "Address-list adds (green) and removes (red) from Protek's sync cycles over the last 24 hours, grouped into buckets of about 48 minutes and refreshed every minute. In dry-run mode (where Protek only logs what it would change) the bars show what would have been pushed. Only periods with sync activity get a bar, so quiet stretches don't show as gaps. A tall spike means a large batch of bans arrived or expired. If the chart is empty, nothing changed, or syncing has stopped, so check Sync Lag."
+   },
+   "kpis": {
+    "LAPI Active": "The number of active ban records Protek holds, pulled from CrowdSec's local API (the LAPI) and any other sources you have added. It updates every 5 seconds, and the small line underneath tracks it while the page is open. If Protek loses contact with CrowdSec, this number stays frozen rather than dropping, so a figure that never moves is worth checking against Sync Lag.",
+    "MT List Size": "The number of entries Protek owns in the router's address list (the list name is shown underneath), added up across all your MikroTik routers. It is usually somewhat below LAPI Active, because one IP banned by several scenarios or sources is a single entry, and whitelisted or held-back IPs are not pushed. A dash means Protek has not yet read a router successfully. A large and growing gap can mean syncing is failing.",
+    "Sync Lag": "How long ago Protek last finished a cycle, meaning a pull from CrowdSec plus a sync to your routers. Underneath are the cycles completed since the service last started and how long the last router sync took in milliseconds. A value close to the sync interval (10 seconds by default) is healthy. Minutes or more means the background loop has stalled, so check the MikroTik page and the service logs. This figure updates only when you reload the page.",
+    "Scenarios 24h": "How many different scenarios (CrowdSec detection rules) had a ban created or renewed in the last 24 hours. This tells you how varied the attacks are, not how severe they are. A sudden jump is worth a look on the Detections page.",
+    "Attackers 24h": "How many different IPs or ranges were banned or re-banned in the last 24 hours. Compare it with your usual level: a sharp rise points to a scan or campaign aimed at you.",
+    "Top Scenario": "The scenario with the most bans that are active right now (not only from the last 24 hours), with its ban count. It shows what your blocking mostly protects against."
+   },
+   "fields": {}
+  },
+  "decisions": {
+   "templates": [
+    "decisions.html"
+   ],
+   "intro": "Every IP or range Protek currently treats as banned. In CrowdSec a ban is called a decision, and Protek pushes decisions to your bouncers (the devices that enforce them, such as a MikroTik address list). Use this page to find a specific IP, see why and from which source it was banned, or clean up several entries at once.",
+   "sections": {
+    "Active Decisions": "One row per active ban record, newest first, 50 to a page, with the total in the heading. Columns show when Protek first saw the ban, the IP or range (click it for the attacker page), its scope (a single IP or a range), the scenario that caught it, the origin (for example crowdsec for a local detection or CAPI for CrowdSec's community blocklist), which source Protek pulled it from, and when it expires. The same IP can appear more than once if several scenarios or sources banned it. Operators also get a checkbox on each row for bulk actions."
+   },
+   "kpis": {},
+   "fields": {
+    "q": "Narrows the table to rows whose IP, scenario or origin contains the text you type, for example an IP prefix like 203.0.113 or a word like ssh. It does not search the source column. Leave it blank to see everything, or use clear to reset it.",
+    "action": "The bulk action applied to the rows you ticked. It appears only for operators, once at least one row is selected, and it affects every active record for the selected IPs, across all scenarios and sources. delete marks the bans as removed in Protek so they leave your bouncers on the next sync. It does not delete them in CrowdSec, so a ban comes back at Protek's next full pull (for example after a restart) if CrowdSec still has it. whitelist + delete does the same and also adds each single IP to Protek's whitelist so it is not pushed again; ranges are removed but not whitelisted. extend changes the expiry Protek shows to now plus the hours you enter.",
+    "extend_hours": "The number of hours used by the extend action. It defaults to 24 and accepts 1 to 720 (30 days); delete and whitelist ignore it. It changes only the expiry that Protek records and displays. The ban still ends when CrowdSec expires the decision, and the next update from CrowdSec overwrites the expiry."
+   }
+  },
+  "attackers": {
+   "templates": [
+    "attacker.html"
+   ],
+   "intro": "Everything Protek knows about one IP: where it is, who owns the network, how CrowdSec rates it, and every rule it has triggered. Open it by clicking an IP in the overview feed or the blocked IPs table. It shows cached information so it loads quickly; operators can use the refresh button at the bottom to fetch fresh lookups.",
+   "sections": {
+    "Geo / Network": "Location and network details for the IP: reverse DNS name, country, city, approximate coordinates, ASN (the number that identifies the network operator) and the operator's name. A dash means that lookup hasn't run yet or found nothing.",
+    "WHOIS / Abuse": "Registration details from WHOIS: the network name, owning organisation, country and abuse contact. The abuse email link opens a pre-filled report in your mail program that lists up to 10 scenarios this IP triggered. Buttons open the IP on AbuseIPDB and VirusTotal, plus your atom or othoni tools if their URLs are configured.",
+    "Tags": "Labels from threat-intel feeds attached to this IP, such as a Tor exit node or a Spamhaus or AbuseIPDB listing. Tags mentioning Tor, Spamhaus or AbuseIPDB are shown in red, all others in amber. Hover over a tag to see where it came from and when it was added. The section only appears when the IP has tags.",
+    "Reputation score": "Protek's own 0 to 100 risk score for the IP. It is built from the CrowdSec threat-intel score (up to 20 points), how serious the triggered scenarios are (up to 30), how many sources agree (up to 20), how recent the activity is (up to 15) and the behaviours seen (up to 15), and the table lists what each factor added. The badge shows the tier: AUTO-BAN at 80 or more, QUEUE at 50 or more and MONITOR below that (default thresholds). Tiers are informational only. The score affects blocking only if a bouncer has a minimum reputation filter set in its configuration.",
+    "CrowdSec CTI": "What CrowdSec's threat-intelligence service (CTI) knows about this IP from its worldwide network: a reputation label, a score out of 10, classifications, observed behaviours and when the data was cached. It appears only after a CTI lookup has succeeded, and lookups need a CrowdSec CTI API key.",
+    "Raw response": "The full CTI answer as JSON, cut off at 6,000 characters. Use it when you need a detail that the summary next to it leaves out.",
+    "Scenario History": "Every ban record for this IP (up to the newest 50), one per scenario and source: the scenario, when it was last seen, its origin, the source Protek pulled it from and the ban length. Records marked expired are no longer active.",
+    "Sources That Have Seen This IP": "Each CrowdSec source that has reported this IP, with when it last did so. An IP seen by several of your machines is more likely to be a real attacker than one flagged by a single box.",
+    "Live Enrichment": "Refresh All runs the CTI, ASN, reverse DNS and WHOIS lookups again immediately, without using the cache. Use it when the cached details look stale or empty. Only operators can run it, it works for single IPs but not ranges, and it can take a few seconds."
+   },
+   "kpis": {
+    "Reputation": "CrowdSec's CTI verdict for this IP (malicious, suspicious, known or safe), with the 0 to 10 score below it. Red (malicious) and amber (suspicious) mean the wider CrowdSec community has seen it attacking too. Unknown or \"no CTI lookup yet\" just means there is no data, not that the IP is safe.",
+    "Country": "The country code of the IP's location, with the city underneath when known. This is a geo-IP estimate and can be wrong for VPNs and hosting providers.",
+    "ASN": "The network the IP belongs to (its autonomous system number), with the operator's name underneath. If the ASN is unknown, the WHOIS network name is shown instead. Many attackers sharing one hosting provider's ASN is a common pattern.",
+    "Hits": "How many separate ban records Protek holds for this IP, one per scenario and source (counted from the newest 50), with when it was first seen. A repeat ban for the same scenario from the same source renews the existing record instead of adding one, so a higher number means more distinct rules or sources caught it.",
+    "Sources Seen By": "How many of your CrowdSec sources have reported this IP, with their names. More than one means independent confirmation.",
+    "Status": "ACTIVE BAN if at least one ban record for this IP is still active in Protek, otherwise EXPIRED, with when it was last seen. EXPIRED means the ban has ended or was removed, so Protek no longer pushes this IP to your bouncers."
+   },
+   "fields": {}
+  },
+  "alerts": {
+   "templates": [
+    "alerts.html"
+   ],
+   "intro": "The most recent CrowdSec alerts, meaning the detection events behind each ban, with the source IP, its network and how many log events triggered it. Use it to see what an attacker actually did, not just that it was banned. Reading alerts needs a CrowdSec machine login, which is separate from the bouncer key Protek uses to read bans.",
+   "sections": {
+    "Recent Alerts": "The 100 newest alerts Protek has copied, newest first: when the alert fired, the attacking IP, its country and ASN (the network operator's number), the scenario (the detection rule) and the number of log events that triggered it. A high events count means a heavy burst of activity. If the table is empty and an amber warning shows above it, Protek has no machine login yet. Create one with cscli machines add and put the login and password in Protek's .env file (CROWDSEC_MACHINE_LOGIN and CROWDSEC_MACHINE_PASSWORD). Once that is set, Protek copies the last hour of alerts about once a minute."
+   },
+   "kpis": {},
+   "fields": {}
+  },
+  "alerts_rules": {
+   "templates": [
+    "alerts_rules.html"
+   ],
+   "intro": "The health checks Protek runs on itself and whether each one is firing now. The checks are: CrowdSec down, router unreachable, sync stalled, repeated sync errors and a large approval backlog. Use this page to see why you got a notification, to choose which channels a rule notifies, or to silence rules during planned maintenance.",
+   "sections": {
+    "Active rules": "One row per rule with its severity (crit, warn or info), its state (ok, FIRING or silenced), the latest message and when it started firing. Rules are checked every cycle and again when you open this page. A rule fires only after its condition has matched the number of checks in a row shown under Debounce. Consecutive shows how many in a row it has matched so far, and an amber number there means it is building toward firing. You get one notification when a rule starts firing and one when it clears; there are no repeats while it stays on.",
+    "Silences": "Mutes rules whose key matches a pattern for a set time, for example mt_* for every MikroTik rule. While silenced, a rule still gets checked but shows as silenced instead of firing and sends no notifications. If its condition is still true when the silence ends, it fires then. Active silences are listed below the form, and remove ends one early. Adding or removing a silence needs the operator role."
+   },
+   "kpis": {},
+   "fields": {
+    "channels": "Which channels this rule notifies, as a comma-separated list of discord, telegram and email. It is blank by default, which uses the severity default: crit rules go to all three channels and the rest to Discord only. Set it if a rule is too noisy or too important for its default, or clear it to go back to the default. Only operators can change it.",
+    "pattern": "The rule key or wildcard pattern to silence, such as sync_stale_5m for one rule or mt_* for every rule starting with mt_. It is required, matched case-sensitively against the small grey key under each rule's title.",
+    "duration_min": "How long the silence lasts, in whole minutes. It defaults to 60 and is limited to between 1 minute and 30 days (43,200 minutes). Set it a little longer than the maintenance you are planning.",
+    "reason": "An optional note explaining the silence, such as planned maintenance. It is shown in the silences list and recorded in the audit log, so others know why alerts are muted."
+   }
+  },
+  "scenarios": {
+   "templates": [
+    "scenarios.html"
+   ],
+   "intro": "Which detections are producing bans. A scenario is a CrowdSec detection rule, such as SSH brute force or HTTP probing. Use this page to see what is attacking you and at what hours of the day.",
+   "sections": {
+    "Top Scenarios (24h)": "Up to 20 scenarios with bans created or renewed in the last 24 hours, busiest first. Fires counts ban records, Unique IPs counts distinct attackers, and the bar compares each scenario's volume with the busiest one. Protek keeps one record per IP, scenario and source, so Fires is higher than Unique IPs only when several of your sources reported the same IPs.",
+    "Heatmap — Scenario × Hour-of-Day (last 7d, UTC)": "For up to 25 of the busiest scenarios over the last 7 days, each cell shows how many of that scenario's ban records were last seen in that hour of the day (UTC). Colours run from faint blue through green and amber to red and are scaled against the busiest cell in the grid. Hover over a cell for the exact count. Hot columns point to times of day when attacks cluster, often automated scans."
+   },
+   "kpis": {
+    "Window": "The time window that the table and figures on this page cover, which is the last 24 hours. It is fixed; only the heatmap uses 7 days.",
+    "Unique Scenarios": "How many different scenarios produced bans in the last 24 hours, counting at most the 20 listed. It tells you how varied the attacks are, not how severe they are.",
+    "Total Fires": "The total number of ban records across the listed scenarios in the last 24 hours. Compare it with your usual level; a jump means a busy attack day.",
+    "Top Family": "The broad group with the most fires among the listed scenarios: http, ssh, list (blocklists), cs (other official CrowdSec scenarios) or cust (custom ones). It shows which service or source accounts for most of your bans."
+   },
+   "fields": {}
+  },
+  "catalog": {
+   "templates": [
+    "scenarios_catalog.html"
+   ],
+   "intro": "The detection content installed in CrowdSec on this machine, as reported by cscli: scenarios (detection rules), parsers (which read log formats), collections (bundles of both) and the other hub categories. Use it to remove or reinstall hub items and to manage your own custom scenarios. Changing an item reloads the CrowdSec agent, and only operators can do it.",
+   "sections": {
+    "": "The heading is the category you picked with the buttons above (scenarios, parsers, collections, postoverflows or contexts) and its number of items. Each row shows the item's name, description, installed version and status. Enabled items have a remove button and items with any other status have an install button. After either action succeeds, Protek reloads CrowdSec, or restarts it if a reload isn't possible, so the change takes effect.",
+    "Custom Scenarios": "Your own scenario files in /etc/crowdsec/scenarios/, with their size and when they were last changed. Click edit to open one in the editor, or + new to start from an example template."
+   },
+   "kpis": {
+    "Scenarios": "The number of scenarios (detection rules) CrowdSec reports as installed on this machine. More scenarios means more kinds of attack can be caught.",
+    "Parsers": "The number of installed parsers, which turn raw log lines into events that scenarios can read. A scenario needs a matching parser for its logs, or it can never fire.",
+    "Collections": "The number of installed collections, which are bundles of related parsers and scenarios for one service, such as nginx or sshd. Installing a collection is the usual way to protect a new service.",
+    "Noisy (FP proxy)": "Scenarios with at least 100 ban records in the last 24 hours and at least five records per distinct IP, meant as a rough sign of false positives (bans of traffic that is not really an attack). Protek keeps one record per IP and source, so in practice this flags only scenarios where many sources report the same IPs. Zero is normal. If a scenario appears here, check whether it is banning legitimate traffic.",
+    "Sleeping (30d)": "Installed, enabled scenarios that haven't produced a ban Protek has seen in 30 days. That can simply mean nobody has tried that attack. It can also mean the logs it needs are not being read, or that the scenario raises alerts without bans, so check its parser and log setup."
+   },
+   "fields": {}
+  },
+  "scenarios_editor": {
+   "templates": [
+    "scenarios_editor.html"
+   ],
+   "intro": "A text editor for writing your own CrowdSec scenario (a detection rule) as a YAML file on this machine. Use it when the hub has no rule for something you want to catch. Only operators can open it. A new file starts from an example template, and edit on the catalog page opens an existing file.",
+   "sections": {
+    "Reload Result": "Appears after Save & Reload Agent and shows whether CrowdSec took the change. Green means the reload succeeded (there may be no further detail). Red shows the error. If the reload fails, Protek falls back to a full restart, so a red result can mean CrowdSec failed to start with your file. Fix the YAML and reload again promptly."
+   },
+   "kpis": {},
+   "fields": {
+    "filename": "The file name to save under in /etc/crowdsec/scenarios/. It must be a plain name ending in .yaml, using only letters, numbers, dots, dashes and underscores, with no folders or \"..\". Saving under an existing name overwrites that file without asking.",
+    "content": "The scenario itself in CrowdSec's YAML format, up to 200,000 characters. A new file starts with an example that counts POST requests per source IP (capacity 5, leaking one every 10 seconds); replace its name, filter and limits with your own. The example has no remediation: true label, so with CrowdSec's default profile it raises alerts but does not ban; add that label if you want bans. Save alone does not activate the rule, so use Save & Reload Agent to apply it."
+   }
+  },
+  "intel": {
+   "templates": [
+    "intel.html"
+   ],
+   "intro": "Threat intel shows where the attackers Protek has banned come from: which networks (ASNs, the blocks of addresses run by one ISP or hosting company) and which countries. Use it to spot a single hosting provider or region behind a lot of your bans, and to check that the optional outside reputation providers are reachable.",
+   "sections": {
+    "Top Attacking ASNs (24h)": "The 15 networks with the most ban records seen in the last 24 hours, including bans that have since been lifted. Bans counts ban records and Unique IPs counts distinct addresses. Many unique IPs from one ASN points to a provider worth looking at on the ASN escalations tab. If the table is empty, the background intel worker hasn't looked up network details for recent IPs yet.",
+    "Top Attacking Countries (24h)": "The 15 countries with the most ban records seen in the last 24 hours, based on the cached geo lookup for each banned IP. An empty table means geo lookups haven't caught up yet.",
+    "Heatmap — Country × Hour-of-Day (last 7d, UTC)": "For the 18 busiest countries over the past week, each cell counts the bans last seen in that hour of the day (UTC). Shading is relative to the busiest cell on the map, so it shows whether attacks from a region follow a daily pattern, not absolute volume.",
+    "Heatmap — ASN × Scenario (top 12 each, 7d)": "The 12 busiest networks against the 12 most common scenarios over the past week. A scenario is the CrowdSec detection rule that caused the ban, such as SSH brute force. A hot cell shows that one network keeps triggering one kind of attack.",
+    "Intel providers": "One card per outside reputation source: AbuseIPDB, AlienVault OTX, ProxyCheck.io, Spamhaus DROP and the Tor exit list. Each card shows the .env variable that holds its key (OTX needs none, and Spamhaus and Tor are plain downloads) and its free-tier quota. Keys can only be set in .env, not on this page. Test (operator role or higher) looks up the harmless address 1.1.1.1 for the keyed providers, or just checks that the download URL answers for Spamhaus and Tor, then shows ok or the error."
+   },
+   "kpis": {
+    "Countries (24h)": "How many different countries the bans seen in the last 24 hours came from. It is counted from the top-15 table, so it never goes above 15. Read 15 as \"15 or more\".",
+    "ASNs (24h)": "How many different networks (ASNs) the bans seen in the last 24 hours came from. It is also capped at 15. A low number alongside lots of bans means a few providers are doing most of the attacking.",
+    "Top Country": "The two-letter code of the country with the most ban records in the last 24 hours. A dash means geo data isn't available yet.",
+    "Top ASN": "The AS number with the most ban records in the last 24 hours, with its organisation name underneath. If it's a hosting provider you never expect real visitors from, look for it on the ASN escalations tab."
+   },
+   "fields": {}
+  },
+  "asn_escalations": {
+   "templates": [
+    "asn_escalations.html"
+   ],
+   "intro": "Protek watches for networks (ASNs, the address blocks run by one ISP or host) with many banned IPs at once and lists them here as suggestions to ban the whole network. Nothing happens to a suggestion until someone with the operator role approves or rejects it.",
+   "sections": {
+    "Pending (": "Suggestions waiting for a decision. Each row shows the AS number, its organisation, how many distinct banned IPs it had, the time window checked, the first few sample IPs (click one for detail) and when it was flagged. By default a network is suggested when 10 or more distinct IPs from it were first banned in the last 24 hours and are still active. The check runs about once a minute. Approve records a 30-day ban on the AS number itself. Protek doesn't turn an AS number into IP ranges, so this does not reliably block the network on your routers, and you may need to block its ranges yourself. Reject keeps the network out of new suggestions for 48 hours.",
+    "Recently decided (": "Up to 50 recent suggestions that were approved or rejected, with who decided and when. An approved or rejected network isn't suggested again for 48 hours after the decision. Use this list to review earlier network-level decisions."
+   },
+   "kpis": {},
+   "fields": {}
+  },
+  "intel_publish": {
+   "templates": [
+    "intel_publish.html"
+   ],
+   "intro": "This page lets you share your own ban list as a public feed that other Protek installs can subscribe to. Each copy is signed with an Ed25519 key, so subscribers can check that it came from you and wasn't altered. Publishing is off by default, and only admins can open this page.",
+   "sections": {
+    "Filter": "Controls what goes into the feed: the name subscribers see, an optional list of scenarios to include and the origins to leave out. Protek takes the 10,000 newest active bans that match the scenario list and then removes the excluded origins. If most of your newest bans come from community blocklists, the feed can end up much smaller than 10,000, or even empty.",
+    "Public key": "The Ed25519 public key subscribers use to verify the feed, with its fingerprint (the first 16 hex characters of its SHA-256 hash). Subscribers can save the fingerprint and check it on every fetch. It appears once publishing has been turned on at least once, because that is when the key pair is created.",
+    "Subscriber example": "A short Python script showing how a subscriber fetches the feed and checks its signature, with your current public key already filled in. Swap protek.example.com for your own domain before sending it to whoever is subscribing.",
+    "Publish Protek's intel as a signed feed": "Shows whether the feed is on, with a button to turn publishing on or off. When on, the feed is served publicly with no login at /feed/banned-ips.signed.json, rate-limited per subscriber name, and the public key is at /feed/pubkey. Turning it on for the first time creates the key pair. Rotate signing key (shown only while publishing is on) makes a new key pair, and every subscriber then has to fetch the new public key."
+   },
+   "kpis": {
+    "Publishing": "ON means the signed feed is being served publicly. OFF means the feed URL returns 404. The public-key URL still answers if a key was created earlier.",
+    "Issuer": "The name your feed carries so subscribers can tell it apart from others. It defaults to \"protek\" and you can change it in the Filter section.",
+    "Sequence": "A counter that goes up by one each time the feed is served (rate-limited requests don't count). Subscribers use it to spot a replayed old copy. A number that climbs fast means the feed is being fetched often.",
+    "Key fingerprint": "A short ID for the current signing key. If it changes when you haven't rotated the key, find out why. After a deliberate rotation, send your subscribers the new value."
+   },
+   "fields": {
+    "issuer": "The name subscribers see on your feed, cut to 80 characters. Left blank, it is saved as \"protek\". Change it if you run more than one install and want to tell their feeds apart.",
+    "scenarios": "A comma-separated list of scenario names to publish. Empty, the default, publishes all of them. Names must match exactly as stored, usually with the author prefix such as crowdsecurity/ssh-bf, so the short names in the placeholder won't match anything.",
+    "exclude_origins": "A comma-separated list of origins to leave out. An entry ending in \":\" matches every origin that starts with it, so \"lists:\" drops all community blocklists. Any other entry must match an origin exactly, so \"lists:*\" doesn't work as a wildcard. The default is \"lists:\", and saving the box blank puts that default back, so you publish your own detections rather than repeating someone else's list."
+   }
+  },
+  "bouncers": {
+   "templates": [
+    "bouncers.html"
+   ],
+   "intro": "Targets lists every firewall Protek pushes bans to. A bouncer is anything that enforces CrowdSec's bans. Here each target is one router or firewall list that Protek keeps filled with the current ban list. Use this page to check that each target is reachable, switch one from dry-run to live, edit or remove it, or add a new one.",
+   "sections": {
+    "Active Targets": "One row per target, health-checked live each time the page loads. The columns are kind, status (online, or the error from the check), number of entries on the target's list, mode and last sync. DRY means dry-run: Protek works out the changes but doesn't write them. LIVE means it writes them, unless dry-run is turned on globally in Settings, which overrides every target. Operators can use Promote to switch a dry-run target to live, plus Edit and Remove. The router configured in .env is marked env-managed, can only be changed in .env, and its mode follows the global dry-run setting. Last sync currently always shows a dash because nothing records it yet.",
+    "Add Target": "The starting point for adding a firewall. The guided wizard is the recommended route. The MT bootstrap button makes a RouterOS script that creates a least-privilege API user. The inline form below is the quick raw-JSON method for people who already know the adapter's config, and it needs the operator role. Protek only manages the list contents. You still need a firewall rule on the target that drops traffic from that list.",
+    "Config shapes": "Example JSON configs for each adapter, for use with the raw form, plus the optional per-target filters every adapter accepts. origins is an allow-list of sources, exclude_origins is a block-list of sources, and max_entries caps the list at the newest N bans.",
+    "Third-party plugin adapters": "Adapter plugins loaded from the plugin folder shown. Plugins let you add new target kinds without changing Protek. The table lists each plugin's kind, author, version, required config keys and file path. If there are none, only the built-in adapters are available."
+   },
+   "kpis": {
+    "Targets": "How many targets are configured in total, including the router set in .env.",
+    "Online": "Targets that passed their health check just now. Ideally this equals Targets.",
+    "Errors": "Targets whose health check just failed, for example because they are unreachable, have wrong credentials or aren't fully configured. Anything above 0 needs attention, and the error is shown under that target's row.",
+    "Total Entries (across all targets)": "The combined number of list entries across every target that reported a size. A live target should hold roughly your active ban count. Dry-run targets stay near empty, and a live target well below the count is still catching up or capped by max_entries."
+   },
+   "fields": {
+    "kind": "Which adapter the raw-JSON form uses: an extra MikroTik router (binary API), local iptables/ipset, a Cloudflare WAF list, pfSense or OPNsense. MikroTik is the default. The MikroTik REST variant isn't in this list, so use the wizard for it.",
+    "name": "A unique label for the target, using only letters, digits, underscores and hyphens, for example cf-main. It is used for display and logs.",
+    "config_json": "The adapter's settings as one line of JSON. The shapes are listed under Config shapes. A health check runs before saving, and a target that fails it or isn't fully configured is not added.",
+    "dry_run": "Whether the new target starts in dry-run, where it works out changes without writing them. The default is yes. Keep it until you've checked the target, then use Promote."
+   }
+  },
+  "mikrotik": {
+   "templates": [
+    "mikrotik.html"
+   ],
+   "intro": "This page covers the main MikroTik router, the one set in .env. It shows whether Protek can reach it, the state of its address list and recent sync cycles. An address list is a named set of IPs on the router that a firewall rule can match. Protek fills the list, and a drop rule on the router does the blocking. Use this page to check that the router is really blocking and to force a sync.",
+   "sections": {
+    "Not Configured": "Shown when MT_HOST, MT_USERNAME or MT_PASSWORD is missing from .env. Set them and restart the service. Until then, sync cycles only work out what would change.",
+    "Connection Error": "Shown when the router is configured but Protek couldn't connect or couldn't read the address list, with the router's error message. Common causes are a wrong host or port, wrong credentials, or the router's API service not allowing this server's IP.",
+    "Is the router blocking?": "A read-only check of each MikroTik target's firewall rules that answers whether anything actually drops traffic from the list. The possible results are blocking, partial (it blocks but leaves a gap, such as IPv6), none, disabled, shadowed (an earlier accept-all rule catches the traffic first), unverified (the drop rule is in a custom chain) and unknown (the firewall couldn't be read). When it isn't fully blocking, a ready-to-paste drop-rule script is shown. The check reruns when the page loads and the result is older than 30 seconds, or when you press Check now.",
+    "Initial Sync In Progress": "Meant to appear while the router's list is still well behind the ban list (more than 500 active bans and under 95% pushed). Protek adds a capped batch each cycle, and the bar shows progress with an estimated time. The owned count it uses stops at 200, so on any install with more than 500 active bans this banner stays up and understates progress. Check the Address List tile's total instead.",
+    "Sync History": "The last 20 sync cycles across all targets, not just this router. Each cycle compares the ban list with each target and pushes the difference. Added and Removed are the differences found that cycle, summed over all targets. A live target only pushes up to the per-cycle cap, and dry-run targets push nothing. The table also shows source (automatic or a manual Force Sync Now, which needs the operator role), errors, duration, mode and notes. Errors above 0 or a long run of DRY rows are worth looking into.",
+    "Address-List": "Entries on the router's list that Protek owns, meaning their comment starts with \"protek:\", up to the first 200. Entries added by hand or by other tools are only counted at the bottom, and Protek never changes or removes them."
+   },
+   "kpis": {
+    "Status": "ONLINE if Protek could connect to the router and read its address list just now, otherwise OFFLINE. The router's identity name is shown underneath.",
+    "Host": "The router address and API port from .env (MT_PORT, default 8728), with \"ssl\" when the encrypted API is used.",
+    "RouterOS": "The RouterOS version the router reports. It matters for features such as the REST API, which needs v7 or later.",
+    "Address List": "The name of the list Protek manages, with the total entries on it and how many Protek owns. The owned figure stops at 200 because only the first 200 owned entries are loaded, so use the total as the real size.",
+    "LAPI Active": "How many active ban records Protek holds from all sources. LAPI is CrowdSec's local API, where bans come from, but despite the label bans from other sources are counted too. The router can end up with fewer entries, because the same IP from several sources counts more than once here and whitelisted IPs are never pushed.",
+    "Diff Preview": "How many entries the last sync cycle found to add (+) and remove (−), summed across all targets. Before any cycle has run, it is a rough estimate. Small or zero numbers in steady state are good. A large + that doesn't shrink means a target is in dry-run, capped, falling behind or failing to push."
+   },
+   "fields": {}
+  },
+  "fleet": {
+   "templates": [
+    "fleet.html"
+   ],
+   "intro": "Fleet is a one-screen overview of every target Protek pushes to, useful once you run several routers or firewalls. It shows which targets are healthy, how much sync work happened in the last day and which targets are slow. You make changes on the All targets tab.",
+   "sections": {
+    "Throughput · last 24h": "One bar per hour for the last 24 hours. Bar height is the adds plus removes found by sync cycles in that hour, summed across all targets and including dry-run targets. The whole bar turns red if at least one cycle in that hour reported errors, otherwise it is green. Hover over a bar for the exact counts.",
+    "Targets (": "A sortable table of all targets with status, list size, mode (DRY or LIVE), lag, RouterOS version where the adapter reports it, and recent error. Click a header to sort, and click a name to edit that target. Lag is meant to show time since the last sync, but nothing records that yet, so it shows a dash. Recent error only shows the slow-cycle marker that makes a target degraded. For live health-check errors, see the All targets tab. The router set in .env always shows DRY here even when it runs live, because it follows the global dry-run setting instead."
+   },
+   "kpis": {
+    "Targets": "How many targets are configured, including the router set in .env.",
+    "Online": "Targets that passed their health check just now and aren't marked degraded. Ideally this equals Targets.",
+    "Degraded": "Targets whose last slow cycle took longer than the per-target limit (60 seconds by default) to read and update their list. The work still finishes. The mark clears after a fast cycle with no errors. If it stays, the list is very large or the target is slow.",
+    "Offline": "Targets that failed their health check just now and aren't already counted as degraded. Anything above 0 needs attention.",
+    "Entries (all)": "The combined list size across every target that reports one.",
+    "Cycles 24h": "How many sync cycles ran in the last 24 hours. A steady count is normal. A sudden drop means the sync loop stalled.",
+    "Adds 24h": "The adds found by every cycle in the last 24 hours, summed across targets. An IP still waiting to be pushed, for example on a dry-run or capped target, is counted again every cycle, so this can be far higher than the number of new bans.",
+    "Cycles w/ errors 24h": "Sync cycles in the last 24 hours that reported at least one error from any target or source. 0 is the goal. To find the cause, read the notes on the MikroTik page's Sync History and the errors on the All targets tab."
+   },
+   "fields": {}
+  },
+  "bouncers_add": {
+   "templates": [
+    "bouncers_add.html",
+    "_wizard.html"
+   ],
+   "intro": "A three-step wizard for adding a firewall that Protek pushes bans to. A bouncer target is a router or firewall list that Protek keeps filled with the current ban list. You pick the firewall type and a name, fill in its settings, and can run a test without saving. Protek checks the connection again before saving, and saves nothing if that check fails. This page needs the operator role.",
+   "sections": {},
+   "kpis": {},
+   "fields": {
+    "kind": "The type of firewall: MikroTik over the binary API (RouterOS v6 and v7), MikroTik over REST (v7 and later, faster on large lists), Cloudflare WAF, pfSense, OPNsense or local iptables/ipset. The first card, MikroTik binary API, is selected by default, and step 2 shows only the fields for the type you pick.",
+    "name": "A unique label for this target, using only letters, digits, underscores and hyphens, for example cf-main or mt-office. It is used for display and logs.",
+    "cfg__*__*": "The settings for the chosen type, such as host, username, password, port, address-list or alias name, API keys, TLS options, and optional caps or filters. Fields marked * are required. Some fields come pre-filled, for example port 8728 and list name \"crowdsec\" for MikroTik, and an optional field left blank falls back to the adapter's default. Password and secret fields are masked.",
+    "dry_run": "Meant to choose whether the target starts in dry-run, where it works out changes without writing them. It is ticked by default. Currently the target is saved in dry-run even if you untick it, so use Promote on the All targets tab to make it live."
+   }
+  },
+  "bouncers_edit": {
+   "templates": [
+    "bouncers_edit.html"
+   ],
+   "intro": "Use this page to change an existing target's name, mode or settings. It needs the operator role. Before saving, Protek runs a health check with the new settings if they are complete, and nothing is saved if that check fails. Changes take effect on the next sync cycle, and sync history is kept.",
+   "sections": {
+    "Edit target —": "The edit form for one target, with its type shown next to the name. Any setting whose name contains token, secret, password, passwd, key, hmac or credential is blanked in the JSON on purpose. Leave it blank to keep the current value, or type a new one to replace it. You can't clear a stored secret from here.",
+    "Currently-set secrets (won't change unless retyped)": "Lists each secret already stored for this target with only its last 4 characters shown, so you can confirm which credential is in use without exposing it."
+   },
+   "kpis": {},
+   "fields": {
+    "name": "The target's label, using only letters, digits, underscores and hyphens. It must stay unique. Rename it if you like, since it is only used for display and logs.",
+    "dry_run": "yes means dry-run, where Protek works out changes but doesn't write them to this target. no means live. It starts at the target's current mode, and choosing no does the same as Promote. Dry-run turned on globally in Settings still overrides this.",
+    "config_json": "The target's full settings as JSON, with secrets blanked. Edit values such as host, port or list name here. A blank or removed secret keeps the stored one, and an empty box keeps the whole current config. Invalid JSON or a failed health check rejects the save with an error."
+   }
+  },
+  "mt_bootstrap": {
+   "templates": [
+    "mt_bootstrap.html"
+   ],
+   "intro": "This page generates a RouterOS script that creates a dedicated, least-privilege user for Protek on a MikroTik router. You paste it into the router's terminal, it prints a random password, and you enter that password in the add-target wizard. It's the quickest safe way to prepare a router.",
+   "sections": {
+    "MikroTik bouncer bootstrap script": "The script, with buttons to copy it or download it as a .rsc file. It creates a user group allowed only api, read, write and test (plus rest-api on RouterOS v7), and a user in that group with a random 24-character password. It doesn't touch your firewall rules or the address list. Running it again deletes and recreates the group and user with a new password, which drops that user's open sessions."
+   },
+   "kpis": {},
+   "fields": {
+    "username": "The RouterOS user the script creates. The default is \"protek\". Change it if that name is taken or you prefer another, using 1–32 letters, digits, underscores or hyphens, then press Regenerate. Any existing user with this name is deleted by the script.",
+    "group": "The RouterOS user group that holds the limited permissions. The default is \"protek-bouncer\". If a group with this name exists, the script deletes and recreates it, so choose a name you don't use for anything else.",
+    "list_name": "The address-list name to use with this user. The default is MT_ADDRESS_LIST from .env, or \"crowdsec\" if that isn't set. It only appears in the group comment and the printout and doesn't limit the user, so enter the same name in the wizard and in the router's drop rule."
+   }
+  },
+  "federation": {
+   "templates": [
+    "federation.html"
+   ],
+   "intro": "Federation lets Protek pull bans from more than one CrowdSec LAPI (CrowdSec's local API, the service a bouncer asks for its list of bans), for example your other VPSs or a home box. Protek merges them and pushes one combined list to your routers. Use this page to check that each source is healthy, pause or remove a source, and decide how many sources must agree before an IP gets blocked.",
+   "sections": {
+    "Topology": "A simple picture of the flow: each source on the left, Protek in the middle merging decisions, and the MikroTik address list (the named firewall list the router drops traffic from) on the right. A source's border is green when healthy, amber when paused or backing off, and red when its last pull failed. The number on each source is how many active decisions it currently contributes. It's a current count, not a per-hour rate, despite the \"/h\" label.",
+    "Sources": "One row per CrowdSec LAPI that Protek pulls from. Status reads ok, paused, down (the last pull failed, and the error appears on a red line under the row) or backoff. After a failed pull Protek waits before trying that source again: 1 minute at first, doubling on each further failure up to 30 minutes. Latency is how long the last pull took (amber above 2 s), Contributed is how many active decisions came from that source, and Confidence is the weight you gave it, which is display-only for now. Pause stops pulling but keeps the URL and key. Remove deletes the source, and the built-in local source has no remove button.",
+    "Add Remote Source": "Opens a 4-step wizard for connecting another CrowdSec LAPI: source info, commands to run on the remote machine, pasting the key, then test and save. The connection is tested before the source is saved, and the source's bouncer key stays on this server.",
+    "Confidence Threshold (paranoid mode)": "Sets how many different sources must have reported an IP in the last 7 days before Protek pushes it to the router. 1 (the default) means any single source is enough. 2 or more means sources must agree, which cuts false positives but also blocks less. With only one source, any value above 1 means nothing qualifies.",
+    "Cross-Source Overlap Matrix": "Only shown when two or more sources are not paused. Each cell is the number of IPs that both the row source and the column source reported in the last 7 days. Brighter cells mean more overlap. The diagonal is each source's own total.",
+    "Source Scorecards (last 7 days)": "A per-source summary for the last 7 days. Total is how many IPs it reported, Unique is how many no other source reported, Shared is how many another source also reported, and Redundancy is the shared percentage (amber above 80%). A note appears when a source with 500 or more IPs is at least 90% redundant (consider pausing it) or when one with 100 or more is at least 60% unique. The uptime figure is rough: 100% unless the last pull failed, in which case it's 50%."
+   },
+   "kpis": {
+    "Sources": "How many CrowdSec LAPIs are configured, including the local one. The line under it splits them into healthy, paused and failing. Ideally every source is healthy. Any failing source needs a look in the Sources table.",
+    "Active Decisions (union)": "The number of distinct IPs or ranges with an active decision across all sources combined, with duplicates counted once. This is the pool Protek pushes from before the confidence threshold, the whitelist and approval mode filter it.",
+    "Multi-Source Agreement": "How many IPs at least two different sources reported in the last 7 days. A higher number means your sources confirm each other. With only one source this stays at 0.",
+    "Confidence Threshold": "The current minimum number of sources that must report an IP before it's pushed. 1 is the default and blocks anything any source reports. 2 or more (shown as paranoid mode) only blocks IPs that several sources agree on."
+   },
+   "fields": {
+    "threshold": "The minimum number of distinct sources (1-10) that must have reported an IP in the last 7 days before it's pushed to the router. The default is 1 (any source), and invalid input falls back to 1. Raise it only if you have several sources and want them to agree before anything is blocked. With one source, any value above 1 means nothing qualifies, so Protek pushes nothing and takes its existing entries off the routers."
+   }
+  },
+  "federation_add": {
+   "templates": [
+    "federation_add.html",
+    "federation_add_advanced.html"
+   ],
+   "intro": "This wizard connects Protek to another CrowdSec LAPI (CrowdSec's local API on a remote machine) so that machine's bans are merged into the list your routers enforce. In four steps it takes you through the source details, registering Protek as a bouncer (a client allowed to read bans) on the remote side, pasting the key that prints, and testing the connection. If you already have the URL and key, the 'Skip the wizard' link opens a one-page form with the same fields.",
+   "sections": {},
+   "kpis": {},
+   "fields": {
+    "name": "A short label for the source. It's shown on the Federation page and stored as the origin of its decisions. Use only letters, digits, underscores and hyphens (for example vps-frankfurt). It must be unique, or the save fails.",
+    "url": "The remote LAPI's base URL, such as http://10.0.0.2:8080, with no trailing slash. Use a private address (WireGuard, Tailscale) or a public HTTPS endpoint. The remote LAPI must listen on that interface, and its firewall must allow this Protek host. Protek tests the connection on save, refuses the source if the test fails, and names the step that failed.",
+    "confidence": "A trust weight from 1 to 10. The form defaults to 5, and the server falls back to 1 if the value is blank or invalid. For now it's only stored and shown on the Federation page and isn't used for blocking: the Confidence Threshold there counts how many sources reported an IP, whatever their weight. Leave the default unless you want the number as a note to yourself.",
+    "api_key": "The bouncer key printed by 'cscli bouncers add' on the remote machine. It's stored on this server and never shown again in the UI. Sources can't be edited, so to rotate the key, create a new bouncer on the remote side, then remove and re-add the source here. In the wizard, the 'Run diagnostic probe' button checks the URL and key step by step (URL, DNS, TCP, TLS, auth, API) without saving."
+   }
+  },
+  "peers": {
+   "templates": [
+    "peers.html"
+   ],
+   "intro": "Peers gives one read-only view of several separate Protek installs, for example one per site or VPS. Each peer reports its ban count, sync lag and dry-run state. You can't change a peer from here: click its name to open its own dashboard. Use this page when you run more than one Protek and want a single health view.",
+   "sections": {
+    "Multi-instance aggregation": "Totals across this instance and every enabled peer, plus a Refresh now button that polls all peers immediately. Protek also polls them by itself about once a minute while any peer is enabled.",
+    "Instances": "One row for this instance plus one per enabled peer. Status is ok or the last error. Active bans and Sync lag come from the peer's last report, and this instance's own row always shows 0.0 s lag. Dry-run shows whether that install is only simulating pushes (dry) or really changing its routers (live). Admins can disable or remove a peer. A disabled peer drops out of this table, so you have to re-add it to bring it back.",
+    "Add peer": "Admin only. Register another Protek by name, URL and a read-only API token created on that peer. Test connection runs a step-by-step check (DNS, TCP, TLS, auth, API) without saving."
+   },
+   "kpis": {
+    "Aggregated bans": "Active bans on this instance plus the last-reported count from every peer that answered its last poll. Peers whose last poll failed aren't counted, so a sudden drop can mean a peer is unreachable rather than that there are fewer attacks.",
+    "Healthy peers": "How many enabled peers answered their last poll, out of how many are enabled. This instance isn't counted. Green when all respond (or there are no peers), amber when any are failing.",
+    "Max sync lag": "The largest sync lag reported by a peer that answered, meaning how many seconds had passed since that peer finished its last sync cycle when it was polled. Up to about its sync interval (10 s by default) is normal. A large or growing value means that peer's sync loop has stalled, and a huge number means it has never completed a cycle.",
+    "Cycles (sum)": "The total number of reconcile cycles (sync rounds) reported by peers that answered, not counting this instance. Each peer counts from its own last restart, so the total drops when a peer restarts. Otherwise it should keep climbing, and a flat value means peers have stopped syncing.",
+    "Last refresh": "The time (UTC) Protek last polled the peers. While any peer is enabled it should be no more than about a minute old."
+   },
+   "fields": {
+    "name": "A display name for the peer, for example protek-eu. It's only a label.",
+    "url": "The peer's base web address, for example https://protek-eu.example.com. Protek calls its /api/v1/tile/summary endpoint, and clicking the peer's name opens this URL.",
+    "token": "An API token with read scope, created on the peer's own /admin/tokens page. It lets this install read the peer's summary."
+   }
+  },
+  "whitelist": {
+   "templates": [
+    "whitelist.html"
+   ],
+   "intro": "The whitelist lists addresses Protek must never block, even when CrowdSec bans them. On each sync, any decision matching a rule here is left out of what goes to the router, and a ban Protek already pushed is taken back off. This page also has the switch for approval mode, where new bans wait for a person to approve them.",
+   "sections": {
+    "Add Rule": "Create a rule that protects an IP, a CIDR range, an ASN (a network operator's number, like AS15169) or a country (2-letter code). You can add a note and an optional expiry. The rule takes effect on the next sync cycle.",
+    "Active Rules": "Every rule currently in force, newest first. Expired rules aren't shown and stop matching. Remove deletes a rule, so matching IPs can be blocked again from the next cycle.",
+    "Recent Hits (last 50)": "The last 50 times a rule stopped a ban: the IP, which rule saved it, and the CrowdSec scenario (the detection rule that fired). The same IP shows up again on every sync cycle while its ban is still active."
+   },
+   "kpis": {
+    "Active Rules": "How many unexpired whitelist rules exist. Keep the list short and specific, because each country or ASN rule exempts a very large number of addresses.",
+    "Hits (24h)": "How many times a rule stopped a ban in the last 24 hours. A hit is counted on every sync cycle, not once per IP, so one IP with a long ban can produce a large number. A sudden jump means something you trust is being flagged and is worth checking.",
+    "Hits (7d)": "The same count over the last 7 days, useful for spotting a rule that keeps saving the same IPs.",
+    "Approval Queue Mode": "AUTO (the default) pushes bans straight to the router. SEMI-AUTO only pushes IPs someone has approved on the Approvals page, and that includes bans already on the router: on the next cycle, unapproved IPs are queued and taken off the routers until someone approves them. The button switches between the two modes."
+   },
+   "fields": {
+    "kind": "What the value is: IP (a single address), CIDR (a range like 10.0.0.0/24), ASN (a network operator, for example AS15169) or Country (2-letter code like US). The default is IP. ASN and country rules only match IPs whose location has already been looked up and cached.",
+    "value": "The address, range, ASN or country to protect. It's checked against the chosen kind: IPs and ranges must be valid, ASNs must look like AS12345, and countries must be two letters. Adding the same kind and value again replaces the existing rule.",
+    "note": "An optional reminder of why this is whitelisted, for example 'office uplink' or 'uptime monitor'. It's shown in the rules table and recorded in the audit log.",
+    "expires_at": "An optional expiry, in the form shown (for example 2026-12-31T00:00:00Z). Leave it blank for a permanent rule. The format isn't checked, and with this form the rule effectively stays active until the end of that UTC date. Set one for temporary exceptions so they clean themselves up."
+   }
+  },
+  "approvals": {
+   "templates": [
+    "approvals.html"
+   ],
+   "intro": "In SEMI-AUTO mode, an IP that CrowdSec wants banned waits here and isn't pushed to the router until someone approves it. This includes bans that were already on the router when you switched modes. Use it to review bans by hand while you build trust in your detections. When the mode is AUTO, the default, nothing queues.",
+   "sections": {
+    "Pending Decisions (": "IPs waiting for review, newest first (up to 200), with the CrowdSec scenario (detection rule), origin and source LAPI. Approve lets the IP be pushed to the router on the next cycle, and that IP stays approved for any later ban too. Reject keeps it off and also adds a permanent IP whitelist rule, so it stays unblocked even in AUTO mode.",
+    "Recently Decided": "The last 20 approve or reject actions, with who made them and when. There's no undo button. To undo a reject, remove its auto-created whitelist rule (note 'auto: rejected from approval queue') on the Whitelist page. That lets the IP be blocked again in AUTO mode, but in SEMI-AUTO it won't come back to the queue."
+   },
+   "kpis": {
+    "Pending": "How many IPs are waiting for review (the count stops at 200). A growing pile means real attackers aren't being blocked yet, so clear it regularly or switch back to AUTO.",
+    "Approved (24h)": "How many queued IPs were approved in the last 24 hours.",
+    "Rejected (24h)": "How many queued IPs were rejected in the last 24 hours. Each one also became a whitelist rule. Many rejections point to a noisy scenario that's worth tuning.",
+    "Queue Mode": "Whether bans are queueing for approval (SEMI-AUTO) or going straight to the router (AUTO). Change it on the Whitelist page."
+   },
+   "fields": {}
+  },
+  "audit": {
+   "templates": [
+    "audit.html"
+   ],
+   "intro": "The audit log records actions taken in Protek, such as settings changes, whitelist edits, source and bouncer changes, approvals and manual test runs. It shows who did it, from which IP, and what changed. Use it to answer 'who changed this, and when?'. Entries can't be edited or deleted, because the database itself refuses it.",
+   "sections": {
+    "Operator actions · last 300": "The 300 most recent entries (or the 300 most recent that match the filter), newest first, with times in UTC. Action is a dotted name like whitelist.add or federation.threshold, and Target is what it touched. Before → After shows the old and new values, cut short (hover for the full text). Note carries extra detail such as an error. Entries Protek writes by itself have no actor."
+   },
+   "kpis": {},
+   "fields": {
+    "q": "Shows only entries whose action name contains this text, for example 'whitelist', 'settings' or 'peer'. It doesn't search targets or notes. Leave it empty (the default) to see everything, and use clear to reset it."
+   }
+  },
+  "perf": {
+   "templates": [
+    "perf.html"
+   ],
+   "intro": "This page shows how fast and how reliably Protek's sync loop runs. Each reconcile cycle (one round of reading bans, comparing them with the router's address list and pushing the differences) is timed and logged. Come here when syncs feel slow, the dashboard shows lag, or errors appear.",
+   "sections": {
+    "SLO compliance (last 24h)": "Targets Protek holds itself to over the last 24 hours: cycle success rate (99.9%), p95 cycle duration (5 s or less) and poll freshness (the p95 gap between cycles, 30 s or less). Each shows compliant or breach. For success rate, burn rate is the observed error rate divided by the allowed one, and fast-burn appears at 14.4 or more. For the two time targets, burn rate is the p95 divided by the target (1.0 = exactly at target), and fast-burn appears above 2. Anything above 1 is amber.",
+    "Disk pressure": "How full the disk holding Protek's database is, with the warn line (70% by default), the critical line (90% by default), the free space and the 24-hour peak. A full disk makes the database read-only, so act on warn. Protek sends one notification when a line is crossed and one on recovery. The lines come from the disk.warn_pct and disk.critical_pct settings, which have no form on the Settings page.",
+    "Stage breakdown (last 24h ·": "Where an average cycle spends its time. lapi_fetch reads Protek's local copy of the bans and applies the whitelist. snapshot reads each router's current address list, diff works out the changes, and apply pushes them. snapshot and apply are added up across all bouncers (the routers Protek pushes to), and a high share there usually points at a router or the link to it.",
+    "Health-by-outcome (last 24h)": "In the last 24 hours, how many cycles finished with no errors and how many had errors, and the average duration of each group. Errored cycles that take much longer usually mean timeouts reaching a router or LAPI (CrowdSec's local API).",
+    "Slowest cycles ever (top 20)": "The 20 longest cycles on record, with what each added and removed, error counts, and whether it was dry-run (simulated, no router changes) or live. Durations are amber above 5 s and red above 10 s. Big one-off spikes are usually a first full sync or a large blocklist landing.",
+    "Token buckets — upstream backpressure": "Rate limits Protek applies to its own calls to each upstream (LAPI, peers, some bouncer types, lookup services). The fill bar shows tokens left (amber below 50%, red below 20%). Denied / min is calls refused in the last minute, and that work is put off to a later cycle. A 429 cooling badge means the upstream said 'too many requests', so Protek halved that bucket's rate for 5 minutes.",
+    "Recent cycles (60)": "The last 60 cycles with start time (UTC), duration, adds, removes, errors and notes. Use it to see whether a problem is happening right now."
+   },
+   "kpis": {
+    "Cycles (24h)": "How many sync cycles ran in the last 24 hours, and how many of them had at least one error. A steady count means the loop is alive. The errors figure should be zero or close to it.",
+    "p50 latency": "The median cycle time: half of all cycles were this fast or faster. It depends on how many bans you have and how quickly your routers respond, so watch for changes rather than a fixed number.",
+    "p95 latency": "95% of cycles finished within this time. It turns amber above 5 s, which is also the SLO target.",
+    "p99 latency": "The near-worst-case cycle time. It's amber above 5 s and red above 10 s. Occasional spikes are fine, but if it stays red, look at the stage breakdown.",
+    "Max (24h)": "The single slowest cycle in the last 24 hours, with the average underneath. A max far above the average is usually a one-off big sync."
+   },
+   "fields": {}
+  },
+  "synthetic": {
+   "templates": [
+    "synthetic.html"
+   ],
+   "intro": "Synthetic checks prove that a ban really reaches your routers. The test pushes a fake ban for a reserved documentation IP (192.0.2.250, never real traffic) directly to every live bouncer (each router Protek pushes to that isn't disabled or in dry-run) and reads the router's list to confirm it's there. It then removes the entry and confirms it's gone. Use it after setup changes, or schedule it to catch pushes that report success while nothing changes on the router.",
+   "sections": {
+    "Synthetic ban end-to-end test": "The schedule state, the last result and the test IP. Admins can turn the 6-hourly schedule on or off (it's off by default). Operators can run a test right away even when the schedule is off, and a manual run restarts the 6-hour clock. If every bouncer is disabled or in dry-run mode (simulating pushes without changing the router), a warning appears and tests are skipped, because there's nothing real to check. A failed or partial run sends a notification.",
+    "Recent runs": "The last 30 runs. Each shows its status (OK, PARTIAL when only some bouncers passed, FAILED when none did or the test crashed, or SKIPPED), how many bouncers were tested and passed, and how long it took. Each bouncer badge is green if the add and the removal both checked out, amber if only one did, and red if neither did. A failed add usually shows amber, because there was nothing to remove."
+   },
+   "kpis": {
+    "Schedule": "Whether the automatic test runs every 6 hours. It's off by default. It turns amber when enabled with no live bouncers, because those runs will just be skipped.",
+    "Live bouncers": "How many bouncers are enabled and not in dry-run mode, which are the only ones the test can check. 0 means the test gives you no coverage.",
+    "Last run": "When the most recent test ran, in UTC.",
+    "Last status": "The result of the most recent test: ok (green), failed or partial (red, meaning at least one router didn't take or remove the entry), or skipped (amber, meaning there were no live bouncers).",
+    "Test IP": "The fake address used for the test, 192.0.2.250. It's from a range reserved for documentation, so blocking it briefly can't affect real traffic."
+   },
+   "fields": {}
+  },
+  "webhooks": {
+   "templates": [
+    "webhooks.html"
+   ],
+   "intro": "Webhooks let Protek push its events (bans created or deleted, logins, sync errors, source outages and more) to your own HTTP endpoints as signed JSON POSTs. Use this page to add a receiver, check that each one is still accepting deliveries, and resend anything that failed. Anyone signed in can view it; adding, enabling or disabling, deleting and replaying need the operator role.",
+   "sections": {
+    "New webhook — capture HMAC secret NOW": "Appears once, right after you add a subscriber, showing its name, URL, event mask and the HMAC secret Protek generated for it. Copy the secret now because it is never shown again. Your receiver needs it to check the X-Protek-Signature header, which is \"sha256=\" followed by an HMAC-SHA256 of \"timestamp.body\" (the timestamp comes in X-Protek-Timestamp).",
+    "Add subscriber": "The form for registering a new receiver: a short name, the URL Protek will POST to, and an event mask that picks which events it gets. It's only shown to operators and admins.",
+    "Subscribers": "Every registered receiver with its event mask, whether it's active or disabled, when it last accepted a delivery (\"never\" if it hasn't yet), how many deliveries in a row have failed (red above 3) and the last error. A climbing failure count or an old Last OK means the receiver is down or rejecting Protek. Disable pauses it, and delete removes it together with its failed deliveries.",
+    "Dead-letter queue": "The 50 most recent deliveries that failed all 3 attempts (Protek waits 2 seconds, then 4 seconds, between attempts), with the last error the receiver returned. Replay sends one again straight away and removes it from the queue if it succeeds. An empty queue means every delivery got through."
+   },
+   "kpis": {},
+   "fields": {
+    "name": "A label for the receiver, such as splunk-prod. Only letters, digits, underscore and hyphen are allowed. It's how the subscriber appears in the tables and the audit log.",
+    "url": "The address Protek POSTs each event to. It must start with http:// or https://. Use https for anything that leaves your network.",
+    "event_mask": "Which events this receiver gets, as comma-separated patterns where * matches anything. The default * sends everything. decision.* sends only ban created/deleted events, and auth.failure,sync.error sends just those two."
+   }
+  },
+  "siem": {
+   "templates": [
+    "siem.html"
+   ],
+   "intro": "SIEM export forwards Protek's security events (bans added and removed, logins, sync errors, source outages and so on) to a log platform such as a syslog server or Splunk. Every event is written to a local journal first, so you can see what was sent, what failed, and replay recent events after fixing a destination. The forwarders themselves are set in .env, not on this page.",
+   "sections": {
+    "Forwarder configuration": "Shows the two possible destinations and whether each is set: syslog (RFC 5424 over UDP or TCP, from SYSLOG_HOST, SYSLOG_PORT and SYSLOG_PROTO, with port 514 and UDP as defaults) and an HTTP JSON webhook (SIEM_WEBHOOK_URL, Splunk HEC compatible, with an optional bearer token in SIEM_WEBHOOK_TOKEN). Armed means events are sent there and idle means it isn't configured. Change these in .env and restart Protek.",
+    "Replay": "Re-queues the most recent N journal entries for sending, whether or not they were sent before. This is handy after pointing syslog at a new host, or to give a fresh log a slice of recent history. It needs the operator role.",
+    "Recent journal · 200": "The last 200 events Protek recorded, newest first, with their type, syslog severity (0 is most severe, 7 least), when they were shipped and any error. \"pending\" means the event hasn't been sent yet, which is normal when no forwarder is configured. A red error means the destination refused the event or couldn't be reached."
+   },
+   "kpis": {
+    "Journal rows": "How many events are stored in the local journal. It keeps roughly the last 10,000 and trims older ones automatically, so a number near 10,000 is normal on a busy box.",
+    "Shipped OK": "How many journal rows Protek has tried to send to a forwarder, and what share of the journal that is. Rows that hit an error count here too, so check the Error column in the journal below. 0% with no forwarder configured is expected.",
+    "In-memory queue": "Events waiting to be sent right now, out of a maximum of 10,000, plus how many were dropped because the queue was full. It should stay near zero. A rising number or any drops means the destination is slow or down. Dropped events are still in the journal and can be replayed.",
+    "Forwarders": "ARMED when at least one destination (syslog or webhook) is configured, NONE when neither is. With NONE, events are journaled locally but sent nowhere."
+   },
+   "fields": {
+    "n": "How many of the most recent journal events to send again. The default is 200 and the allowed range is 1 to 10,000. Pick a larger number if you need more history in the new destination."
+   }
+  },
+  "settings": {
+   "templates": [
+    "settings.html"
+   ],
+   "intro": "Settings controls how Protek syncs CrowdSec bans to your router and where it connects. CrowdSec's LAPI (its local API) is where Protek reads active bans. The MikroTik router keeps them in an address list, a named set of IPs that a firewall rule can drop. Come here to change the sync timing, turn dry-run (simulate only) on or off, or edit the CrowdSec and router connection. The page needs the operator role.",
+   "sections": {
+    "Reconcile Loop": "Settings for the sync cycle, which compares CrowdSec's bans with the router's address list and adds or removes the difference. Saved values override .env and take effect on the next cycle, with no restart.",
+    "Suite integrations": "Optional links to sibling apps. When set, attacker pages show \"Investigate in atom\" and \"Search in othoni\" buttons.",
+    "Connection": "Where Protek reads bans from (the CrowdSec LAPI and its bouncer key; a bouncer is a client that enforces CrowdSec's bans) and the MikroTik router it pushes them to. Test and save checks both connections first, then writes the changed values to .env and uses them from the next sync cycle with no restart. Only admins can change these, and the form is read-only if Protek can't write its .env file.",
+    "Sources": "The CrowdSec LAPIs Protek pulls bans from, read-only here. It shows the local LAPI's URL, how long ago it was last polled, and the total number of active decisions (bans) Protek currently holds."
+   },
+   "kpis": {},
+   "fields": {
+    "sync_interval_sec": "Seconds between sync cycles. The default is 10 (from SYNC_INTERVAL_SEC) and the allowed range is 2 to 3600. Raise it to put less load on a slow router or LAPI, or lower it if you want bans to reach the router faster.",
+    "batch_cap": "The most address-list adds and removes Protek sends to a router in one cycle. Anything over the cap waits for the next cycle. The default is 200 (BATCH_CAP) and the allowed range is 1 to 10,000. Keep it modest so a large blocklist import doesn't flood the router's API.",
+    "mt_address_list": "The name of the MikroTik address list Protek manages, crowdsec by default (from MT_ADDRESS_LIST). The sync still reads MT_ADDRESS_LIST from .env, so changing the name here records it but doesn't move the bans to a different list.",
+    "dry_run": "true makes Protek work out and log what it would add or remove without touching the router. false pushes real changes. It starts as true (DRY_RUN in .env) and only covers the router set on this page, because routers added under Targets have their own dry-run switch. Switch to false once the planned changes look right and the router has a firewall rule that drops the list. Protek warns you if it can't see that rule.",
+    "atom_url": "Base URL of your Atom instance, for example https://atom.example.com (it falls back to ATOM_URL in .env). Leave it blank if you don't run Atom. When it's set, attacker pages get an \"Investigate in atom\" button.",
+    "othoni_url": "Base URL of your Othoni dashboard (it falls back to OTHONI_URL in .env). Leave it blank if you don't use Othoni. When it's set, attacker pages get a \"Search in othoni\" button.",
+    "lapi_url": "Address of the CrowdSec LAPI, http://127.0.0.1:8080 by default (CrowdSec on the same machine). It must start with http:// or https://. Change it if CrowdSec runs on another host or port. When you switch to a different LAPI, bans that aren't on the new one are removed from the router over the next few cycles.",
+    "lapi_key": "The bouncer API key Protek uses to read bans. Create one on the CrowdSec host with cscli bouncers add protek. The key is never shown: leave the box blank to keep the current key, or paste a new one to replace it. A key is required.",
+    "mt_host": "IP address or hostname of the MikroTik router. Leave this and the username empty to run without a router in .env (the saved password is cleared too). Routers added under Targets keep working.",
+    "mt_port": "RouterOS API port, 8728 (the plain API) by default. The box comes pre-filled, so when you tick TLS change it to 8729 yourself, or clear it and Protek uses 8729. Otherwise change it only if you moved the API service to another port on the router.",
+    "mt_use_ssl": "Connect over the encrypted API-SSL service instead of the plain API. It's off by default. Turn it on when the router is reached over an untrusted network and has API-SSL enabled (usually port 8729).",
+    "mt_username": "The RouterOS user Protek logs in as. Use a dedicated user with only the rights it needs, and make sure the router allows API logins from Protek's IP for that user.",
+    "mt_password": "Password for the RouterOS API user. It's never shown: leave the box blank to keep the current one. It can't contain a single quote or a backslash.",
+    "save_anyway": "Off by default, so nothing is saved if the CrowdSec or router test fails. Tick it to save anyway, for example when the router is temporarily offline but you know the details are right. If nothing changed, Protek doesn't run the test or save anything."
+   }
+  },
+  "notifications": {
+   "templates": [
+    "notifications.html"
+   ],
+   "intro": "Notifications sends alerts about Protek's activity to Discord, Telegram or email. Use this page to enter each channel's credentials, send a test message, and choose which events go to which channel. It needs the operator role.",
+   "sections": {
+    "Discord credentials": "The Discord webhook URL Protek posts to. Create one in a Discord channel under Edit Channel, Integrations, Webhooks. Protek only sends to discord.com webhook URLs.",
+    "Telegram credentials": "The bot token and chat ID Protek uses to message you. Create a bot with @BotFather, message it once, then find your chat ID on the bot's getUpdates page. The channel only counts as configured once both are set.",
+    "Email credentials": "SMTP server details for email alerts. Host, username and From address are required. A transactional mail service is more reliable than a home mail server, and Protek refuses to send through private or internal SMTP hosts.",
+    "Per-Event Channel Toggles": "A grid of events against channels: tick a box to send that event to that channel. A channel that isn't configured sends nothing even when ticked. Saving records an entry in the audit log."
+   },
+   "kpis": {
+    "Discord": "CONFIGURED when a Discord webhook URL is set, NOT SET otherwise. When it's configured, use send test to check that messages arrive.",
+    "Telegram": "CONFIGURED when both a bot token and a chat ID are set. NOT SET means Telegram alerts can't be sent.",
+    "Email": "CONFIGURED when the SMTP host, username and From address are all set. NOT SET means email alerts can't be sent."
+   },
+   "fields": {
+    "cred_*_*": "A credential for one channel, such as the Discord webhook URL, Telegram bot token or SMTP host. Values saved here override the matching .env setting. Secret fields show only dots and the last 4 characters, so leave them blank to keep the current value. Clearing a non-secret field falls back to the .env value.",
+    "toggle_*_*": "Whether this event is sent to this channel. Out of the box sync_threshold, sync_error, lapi_down, mt_down, login_locked and daily_digest are on and the rest are off, and an unticked box is saved as off. mt_down and hourly_digest are listed but Protek doesn't currently send them.",
+    "threshold_*": "A number for the events that take one. For sync_threshold (default 50) it's how many adds in one sync cycle trigger an alert, so raise it if large blocklist updates make it noisy. The new_ban box (default 5) is saved but not used yet, because new_ban fires whenever the number of active bans goes up."
+   }
+  },
+  "security": {
+   "templates": [
+    "security.html"
+   ],
+   "intro": "Security shows who has tried to sign in to Protek, which IPs are locked out after too many failed attempts, and the login protections in force. Use it to spot password-guessing against the dashboard and to unlock an IP that was locked by mistake. The limits shown come from .env and are changed there.",
+   "sections": {
+    "Login Audit": "The last 50 sign-in attempts with time, source IP, username, OK or FAIL, and the reason (such as bad credentials, bad TOTP, or a Google or SSO result). Repeated failures from an IP you don't recognise mean someone is guessing. A trusted IP failing usually means a typo or clock drift on the authenticator app.",
+    "Locked IPs": "IPs currently locked out after too many failed logins, with their attempt count and when the lock expires. Unlock All (operator role) clears every lock and resets the counters at once."
+   },
+   "kpis": {
+    "Successful Logins (24h)": "Sign-ins that succeeded in the last 24 hours. It should roughly match how often you and your team log in. Anything beyond that is worth checking in the audit.",
+    "Failed Attempts (24h)": "Failed sign-ins in the last 24 hours. A few are normal typos, but a steady stream points to someone guessing passwords.",
+    "Locked Now": "IPs currently locked out of the login page. Zero is normal. Anything else means an IP hit the attempt limit recently.",
+    "Whitelist Active": "YES when IP_WHITELIST in .env is set, with the allowed addresses shown underneath. Anything outside that list gets a 403 before the login page loads. NO means any IP can reach the login page.",
+    "Session Timeout": "Minutes of inactivity before you're signed out automatically (SESSION_TIMEOUT_MIN, default 30). The figure underneath is how many failed attempts lock an IP (MAX_LOGIN_ATTEMPTS, default 5).",
+    "Lockout Duration": "How long an IP stays locked after reaching the failed-attempt limit (LOCKOUT_MINUTES, default 15)."
+   },
+   "fields": {}
+  },
+  "honeypot": {
+   "templates": [
+    "honeypot.html"
+   ],
+   "intro": "Protek doesn't run a honeypot itself. This page sets which high-risk attacker IPs Protek tags as honeypot-bound and publishes as a list, so your own proxy (a Cloudflare Worker, nginx and so on) can send them to a decoy site instead of just blocking them. Turn it on only if you run such a decoy and a proxy that reads the list.",
+   "sections": {
+    "Honeypot routing": "The on/off switch and the rules for which IPs get tagged. Protek scores each banned IP from 0 to 100 and tags those at or above the threshold, up to the cap, every 12 sync cycles (about 2 minutes at the default interval). Refresh targets now runs that step immediately. Each tag lasts 6 hours and is added again at the next refresh if the IP still qualifies.",
+    "Current targets": "The IPs currently tagged as honeypot-bound (up to the first 200), which is the list your proxy receives. The list is hidden while tagging is off. Empty with tagging on means no active ban has reached the reputation threshold yet.",
+    "Consumer wiring": "Example requests for your proxy and decoy. The proxy fetches the target list from /api/v1/honeypot/targets with an API token that has read scope. The decoy reports what an attacker did to /api/external/honeypot/callback, which needs a token with write scope. Create tokens on the API tokens page."
+   },
+   "kpis": {
+    "Status": "Enabled when honeypot tagging is switched on, Off when it isn't. When it's off, no new IPs are tagged. IPs already tagged stay on the published list until their tags expire, which takes up to 6 hours.",
+    "Current targets": "How many IPs are tagged as honeypot-bound right now. It can't exceed the cap. Zero with tagging on means no banned IP has reached the threshold.",
+    "Threshold": "The minimum reputation score, from 0 to 100, an IP needs before it's tagged. A higher threshold sends only the worst offenders to the honeypot.",
+    "Cap": "The most IPs the published list will hold. If it equals Current targets, more IPs may qualify than are listed."
+   },
+   "fields": {
+    "enabled": "Turns honeypot tagging on or off. It's off by default. When it's off, Protek skips the tagging step, and the list your proxy sees empties as existing tags expire.",
+    "url": "The address of your decoy site, stored for reference only, because Protek never redirects traffic itself. Fill it in so teammates know where honeypot traffic goes.",
+    "min_reputation": "The score from 0 to 100 an IP must reach to be tagged. The default is 80, the level at which Protek bans automatically. Lower it (to 50, say) to also send borderline attackers to the honeypot so you can watch them.",
+    "max_targets": "The most IPs the published list may contain. The default is 1000, and 0 publishes nothing. Keep it bounded so a large community blocklist doesn't push tens of thousands of IPs through your proxy."
+   }
+  },
+  "admin_sso": {
+   "templates": [
+    "admin_sso.html"
+   ],
+   "intro": "Single sign-on lets people sign in to Protek with Google or another identity provider instead of the built-in username, password and TOTP. This admin-only page is read-only. It shows what's configured in .env and the redirect URI to register with the provider, and it lets you run a test login. The built-in admin login always keeps working as a fallback, so a broken SSO setup can't lock you out.",
+   "sections": {
+    "Google sign-in": "Status of the Sign in with Google button: on, half-configured (with the missing pieces listed), or not configured. Access is controlled by the GOOGLE_ADMIN_EMAILS, GOOGLE_OPERATOR_EMAILS and GOOGLE_VIEWER_EMAILS lists in .env. An email in more than one list gets the highest role, and any account not listed is refused. Google users skip Protek's TOTP, so turn on 2-Step Verification on those Google accounts. After you remove an email and restart Protek, that person is signed out on their next click.",
+    "OpenID Connect SSO": "Status of the generic OIDC login (Authentik, Auth0, Keycloak, Google and others), set with the OIDC_* variables in .env. Roles come from the user's groups claim (OIDC_GROUPS_CLAIM, default groups) matched against OIDC_GROUPS_ADMIN, OIDC_GROUPS_OPERATOR and OIDC_GROUPS_VIEWER, optionally restricted to the email domains in OIDC_ALLOWED_DOMAINS. Users matching no group are refused unless OIDC_DEFAULT_ROLE is set. Test login runs a real sign-in and shows the claims and the role Protek would assign, without signing you in as that user."
+   },
+   "kpis": {},
+   "fields": {}
+  },
+  "onboarding": {
+   "templates": [
+    "onboarding.html"
+   ],
+   "intro": "The setup guide is a first-run checklist with five steps: confirm Protek can reach the CrowdSec LAPI (CrowdSec's local API, where bans come from), add a bouncer target (a firewall such as your MikroTik that enforces the bans), switch a target from dry-run (simulate only) to live, optionally add more CrowdSec sources, and set up a notification channel. Steps are marked done automatically from Protek's real state, and operators can skip the ones they don't need. Once nothing is pending, Dismiss banner hides the setup reminder, and the page stays reachable afterwards.",
+   "sections": {},
+   "kpis": {},
+   "fields": {}
+  },
+  "admin_users": {
+   "templates": [
+    "admin_users.html"
+   ],
+   "intro": "Manage the local accounts that sign in to Protek with a username, password and authenticator (TOTP) code. Use it to give someone read-only or operator access, change a role, or turn an account off without deleting it. Admin only.",
+   "sections": {
+    "New user created — capture TOTP NOW": "Appears once, right after you create a user. It shows the username, role, the TOTP secret (the seed an authenticator app uses to generate 6-digit codes) and the provisioning URI. Paste the secret or the URI into the user's authenticator app now: there is no QR code here, and the secret is never shown again and cannot be recovered.",
+    "Add user": "Creates a new local account with a password and an auto-generated TOTP secret. Every local user has to enter an authenticator code at login, so give the person the secret from the box above straight away.",
+    "Users": "Every local account, with its role, when it was created, its last login, and whether it is active or disabled. User #1 (tagged \"env\") is the admin set up from the .env file: it is always admin and cannot be demoted, disabled or deleted. For other rows you can change the role, disable or enable the account, or delete it. People who sign in with Google aren't listed here. Their access comes from the GOOGLE_*_EMAILS lists in .env."
+   },
+   "kpis": {},
+   "fields": {
+    "username": "Login name for the new account. Only letters, digits, underscores and hyphens are allowed; anything else is rejected.",
+    "password": "Initial password for the new account, at least 8 characters. Protek stores only a bcrypt hash of it, so give the password to the user through a separate channel.",
+    "role": "The account's permission level. In the Add user form it defaults to viewer. In the Users table, choosing a new value saves it straight away. viewer is read-only, operator can do everything except manage users and API tokens, and admin has full access."
+   }
+  },
+  "admin_tokens": {
+   "templates": [
+    "admin_tokens.html"
+   ],
+   "intro": "Create and manage API tokens for scripts and tools that call Protek's /api/v1 endpoints without a browser login. Use it to give a CLI, a monitoring job or a public stats page its own credential that you can revoke. Admin only.",
+   "sections": {
+    "New token — capture NOW": "Shown once, right after you create a token. Copy the full token (it starts with pk_) now: Protek stores only a SHA-256 hash of it and cannot show it again. Send it as an \"Authorization: Bearer <token>\" header (an X-Protek-Token header also works).",
+    "Create token": "Makes a new token with a name, one or more scopes and an optional expiry date. Scopes decide what the token may call: stats is the counts-only stats endpoint, read is all GET endpoints, write adds posting bans, sync and whitelist changes, and admin is everything.",
+    "Tokens": "Every token, with its first few characters (prefix) so you can identify it, its scopes, who created it, when it was last used and from which IP, its expiry, and its state. Revoke switches a token off but keeps the row for the record; delete removes it completely. \"never\" under Last used means the token has not been used yet. State only shows revoked or active, so an expired token still reads active even though Protek refuses it."
+   },
+   "kpis": {},
+   "fields": {
+    "name": "A label so you can tell which tool owns the token, such as protekctl-laptop. Only letters, digits, underscores and hyphens are allowed.",
+    "scopes": "Comma-separated permissions, default read. Valid values are stats, read, write and admin. Higher scopes include the lower ones (admin > write > read > stats), but stats grants nothing else. Give each tool the smallest scope it needs.",
+    "expires_at": "Optional expiry as an ISO date-time, for example 2027-01-01T00:00:00Z. Leave it blank for a token that never expires; after the date passes, the token is refused. The date isn't checked when you create the token, and Protek ignores a value it can't parse, so a typo leaves the token with no expiry."
+   }
+  },
+  "admin_backup": {
+   "templates": [
+    "admin_backup.html"
+   ],
+   "intro": "Export Protek's configuration as a single passphrase-encrypted file, or restore it from one. Use it before rebuilding a server, when moving Protek to a new host, or to merge one instance's settings into another. It covers configuration only, not ban or alert history. For automatic full-database backups, use Backup (off-box).",
+   "sections": {
+    "Export config bundle": "Downloads an encrypted .bin file containing users, federation sources, the whitelist, router (bouncer) targets, webhook subscribers, API token hashes, all settings including notification credentials, and alert silences. It leaves out decisions, alerts, sync history and the audit log, because Protek rebuilds that data from CrowdSec. Nobody can open the file without the passphrase.",
+    "Import config bundle": "Restores a bundle created by the export above. Additive mode (the default) keeps every existing row and adds only the rows that are missing. Overwrite mode empties each table in the bundle and replaces its contents from the bundle, which suits a fresh server.",
+    "Last import": "Appears once, after an import. For each table it shows how many rows were in the bundle and how many were inserted, replaced or skipped, so you can check that the restore did what you expected. In additive mode rows that already existed count as skipped; in overwrite mode restored rows count as replaced."
+   },
+   "kpis": {},
+   "fields": {
+    "passphrase": "On export, the passphrase that encrypts the bundle. It must be at least 12 characters, and if you lose it the bundle cannot be opened. On import, enter the passphrase that was used for the export. A wrong one fails with a decryption error and changes nothing.",
+    "file": "The .bin bundle file to restore, created by Export config bundle on this Protek instance or another one.",
+    "overwrite": "Unticked by default (additive: existing rows are kept). Tick it to wipe each table in the bundle and replace its contents, for example when restoring onto a fresh install. Any rows on this instance that aren't in the bundle are lost, including users and API tokens."
+   }
+  },
+  "admin_backup_auto": {
+   "templates": [
+    "admin_backup_automation.html"
+   ],
+   "intro": "Set up and monitor automatic encrypted backups of Protek's full database, its .env file and any custom CrowdSec scenarios, kept on local disk or in S3-compatible storage. Use it to make sure you could rebuild after losing the server, and to confirm the backups actually restore. This is separate from Backup (config), which is a manual export of configuration only.",
+   "sections": {
+    "Off-box backup status": "A summary of the automation: whether it is on, which storage backend it uses, whether the encryption passphrase is set, when the last good backup ran, and how the last restore-test went. When automation is on, Protek checks about once an hour. It takes a daily backup once 24 hours have passed since the last one, a monthly backup every 28 days (the first one on the 1st of a month), and a restore-test once a week after the first successful backup. Scheduled runs only happen on the host that is running the sync loop.",
+    "BACKUP_PASSPHRASE missing": "Appears only when BACKUP_PASSPHRASE is not set in .env. Every backup fails until you add a long random passphrase there and restart Protek. Keep a copy somewhere safe, because the backups can't be decrypted without it.",
+    "Configuration": "Turns the schedule on or off, chooses local disk or S3 storage, sets the local folder, and sets how many daily and monthly backups to keep. After each successful backup, daily and monthly backups beyond those counts are deleted, oldest first. Manual backups are never deleted automatically.",
+    "S3 / B2 credentials (read from .env)": "Shows the BACKUP_S3_* values Protek found in .env: the bucket, the endpoint (\"AWS default\" when empty), the region (us-east-1 when empty), and whether the key and secret are set. You can only change these in .env. Leave the endpoint empty for AWS. For Backblaze B2 or MinIO, set it to the provider's S3 URL.",
+    "Litestream WAL replication": "Status of Litestream, a separate service that continuously streams database changes to S3/B2, so losing the server costs at most about a minute of data. The badge reads ok, lagging (the newest snapshot is more than 10 minutes old), stopped (installed and configured, but the service isn't running), configured-pending (the binary is there but the config or service is missing), not-installed, or down. The rows show the binary, the config file, the systemd unit and the age of the last snapshot. If Litestream isn't installed, install and restore steps are shown.",
+    "Manual actions": "Run backup now takes a full backup immediately, outside the schedule. Run restore-test now downloads the newest backup, decrypts it in a temporary folder and runs a database integrity check without touching the live database.",
+    "Recent runs": "The last 30 backup and restore-test runs, with kind (manual, daily, monthly or test), status, size, backend and destination. For a failed run the destination column shows the error, and hovering over FAILED shows it as well."
+   },
+   "kpis": {
+    "Automation": "ENABLED means scheduled backups are running. OFF means backups only happen when you start them by hand, which can leave you without a recent copy.",
+    "Backend": "Where backups go: local (a folder on this server) or s3. If automation is on and the backend can't be set up, for example because S3 credentials are missing, it turns red and shows the error underneath. Local backups alone don't survive losing the whole server.",
+    "Passphrase": "Whether BACKUP_PASSPHRASE is set in .env. SET is what you need; MISSING means every backup fails.",
+    "Last successful": "Time, size and kind of the most recent good backup, counting manual ones. With automation on, it should be no more than about a day old. A dash means no backup has succeeded yet.",
+    "Restore-test": "Result of the last check that the newest backup decrypts and passes an integrity check. OK is what you want. FAIL means the backups may not be restorable and needs attention now. A dash means no test has succeeded yet; failures are only marked FAIL after at least one earlier test has passed. The time underneath is the last test that passed."
+   },
+   "fields": {
+    "enabled": "Turns the scheduled daily, monthly and weekly-test runs on or off. It is off by default; turn it on once the passphrase and backend are set up.",
+    "backend": "Where backups are stored. local (the default) writes to a folder on this server; s3 uploads to Backblaze B2, AWS S3 or MinIO using the BACKUP_S3_* values in .env. Choose s3 if you want copies that survive losing this server.",
+    "local_path": "Folder used when the backend is local, default /var/backups/protek. If you save with this field blank, the current folder is kept. Point it at a separate disk or mount if you have one.",
+    "daily_keep": "How many daily backups to keep before the oldest are deleted, default 30 (allowed range 1–365).",
+    "monthly_keep": "How many monthly backups to keep, default 12 (allowed range 1–120). Monthly backups give you older restore points after the daily ones have been deleted."
+   }
+  },
+  "dr_drill": {
+   "templates": [
+    "admin_dr_drill.html"
+   ],
+   "intro": "Record a disaster-recovery practice run: work through the recovery checklist, run the automated checks, and log what passed. Do it about once a quarter, so you find broken backups or notifications before you need them. Each recorded drill goes into the audit log, which can only be added to, never edited.",
+   "sections": {
+    "Quarterly disaster-recovery drill": "The checklist from docs/DR-RUNBOOK.md. Four checks have a Run button that tests the live system and ticks the box if the check passes (or unticks it if it fails): restore-test, synthetic ban test, Litestream restore, and notifications. Two checks are manual: restoring onto a scratch server, and re-pushing to a replacement MikroTik. Tick those yourself once you have done them. Record drill saves the ticks and your notes.",
+    "Drill history (tamper-evident audit log)": "The last 12 recorded drills, with the date, who ran each one, how many of the 6 checks passed, and the start of the saved details (which boxes were ticked, plus your notes). Use it to show that drills happen regularly and to spot checks that keep failing."
+   },
+   "kpis": {},
+   "fields": {
+    "restore_to_scratch": "Tick this after you have restored the latest backup onto a scratch server by hand, aiming for under 30 minutes (runbook sections 1 and 6). There is no Run button; this check is manual only.",
+    "restore_test_ok": "Run is meant to re-run the backup restore-test and tick the box on success, but in this build it always reports \"restore-test crashed\". Instead, use Run restore-test now on the Backup (off-box) page, and tick this box by hand if that passes.",
+    "synthetic_passed": "Run pushes a test ban for 192.0.2.250 (a documentation-only address) directly to each enabled, non-dry-run router, checks that it appears in the router's address list, then removes it and checks that it's gone. The box ticks only if every router passes. If every router is in dry-run (log-only) mode, the test is skipped and counts as a fail.",
+    "litestream_restore": "Run restores the Litestream replica into a temporary file in RAM (/dev/shm), checks the result, then deletes the file, without touching the live database. It fails if the restore script or Litestream isn't installed. It can take up to 10 minutes before timing out.",
+    "notifications_tested": "Run sends a test message to each configured channel (Discord, Telegram, email). It passes only if at least one channel is configured and none of them fail. Check that the messages actually arrived.",
+    "mt_replacement": "Tick this after you have checked by hand that a replacement or factory-reset MikroTik gets the full ban list pushed back to it from scratch. It is a physical, manual-only check.",
+    "note": "Optional free-text notes saved with the drill in the audit log, up to 500 characters (longer text is cut off), such as what surprised you or what to fix in the runbook."
+   }
+  },
+  "admin_ha": {
+   "templates": [
+    "admin_ha.html"
+   ],
+   "intro": "Shows whether this Protek host is the primary (the one actively pushing bans to MikroTik) or a standby copy, and lets you hand that role over manually. It only matters if you run two Protek servers with Litestream copying the database between them. On a single server it just reads PRIMARY and you can ignore it. Admin only.",
+   "sections": {
+    "Active-passive HA": "Shows this host's current role and its heartbeat, which is how many seconds have passed since the sync loop last finished a cycle. On the primary, the heartbeat should stay under the stale threshold (60 seconds by default, adjustable with the ha.heartbeat_stale_sec setting); above that it turns red and shows STALE. On a standby the heartbeat comes from the replicated database, so a growing number means the primary has stopped. The role comes from the ha.role setting first, then the HA_ROLE env var, and defaults to primary if neither is set. Underneath is the last role change, who made it and why.",
+    "Promote to primary": "Shown on a standby. Makes this host the primary. After you restart Protek it runs the sync loop and owns writes to MikroTik. Only do this when the old primary is really down, or both servers will push to the router.",
+    "Demote to standby": "Shown on the primary. Makes this host a standby, so after a restart it stops syncing to MikroTik. Promote the other host first, or nothing will be syncing bans.",
+    "Manual failover runbook": "Steps for a manual failover: confirm the primary is down, stop Litestream on the standby, promote the standby, restart Protek, update DNS if needed, then demote the old primary when it comes back. Failover is never automatic, because without a proper consensus system a network split could leave two primaries fighting over the router."
+   },
+   "kpis": {},
+   "fields": {
+    "confirm": "Type this server's exact hostname to confirm the promote or demote. If it doesn't match, nothing changes. This stops you from switching the wrong server by mistake.",
+    "reason": "Optional note saved in the audit log with the role change (up to 300 characters), such as \"primary outage; cut over to standby\". If you leave it blank, \"manual promote via /admin/ha\" or \"manual demote via /admin/ha\" is recorded instead."
+   }
+  },
+  "crowdsec": {
+   "templates": [
+    "crowdsec.html"
+   ],
+   "intro": "A read-only view of CrowdSec's local API (the LAPI), which hands out ban decisions to bouncers such as Protek. Use it to check that CrowdSec is reachable, and to see its raw data when a ban isn't showing up as expected. Protek adds its bouncer key on the server, so your browser never sees the key.",
+   "sections": {
+    "LAPI Endpoints (auth-proxied through Protek session)": "Links to common LAPI queries. Each one opens the raw JSON response in a new tab, through your Protek login. Endpoints marked bouncer work with Protek's key. Endpoints marked machine (alerts, bouncers, machines) need agent credentials and normally return 401, which is expected. Only read-only GET requests are allowed; make changes with cscli on the server.",
+    "Quick Peek — Active Decisions": "The first 10 active IP ban decisions as raw JSON, straight from the LAPI. Each entry shows the IP, scenario, duration and origin. An empty [] means no IP bans are active. If the LAPI can't be reached, a message appears here instead.",
+    "cscli commands (run on VPS shell)": "A reference list of CrowdSec command-line commands to run on the server. They cover listing and inspecting bans and alerts, listing bouncers and machines, viewing metrics, adding or removing a ban by hand, and managing the hub and console."
+   },
+   "kpis": {
+    "LAPI Endpoint": "The LAPI address Protek is set up to use, and whether it answered a check just now. It should read reachable. Unreachable means CrowdSec is down, the URL is wrong, or the bouncer key is missing or rejected; while it stays that way, no new bans reach the router.",
+    "Active Decisions": "How many active IP ban decisions the LAPI returns to Protek's bouncer key right now. Range (CIDR) bans aren't counted here. Zero is normal on a quiet system, but a sudden drop to zero while CrowdSec is running is worth checking.",
+    "Bouncers": "This doesn't query CrowdSec: it shows 1 (Protek itself), or 0 if no bouncer key is configured. Run \"cscli bouncers list\" for the real list. The note underneath always reads \"bouncer key only\".",
+    "Prometheus": "Where CrowdSec's own metrics are served on this server (127.0.0.1:6060/metrics). The address is fixed text, only reachable from the server itself, and no live value is shown."
+   },
+   "fields": {}
+  }
+ },
+ "fields": {}
+}

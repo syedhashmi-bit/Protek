@@ -297,7 +297,7 @@ def test_settings_page_never_shows_secrets(make_client, envfile):
 def test_operators_see_it_read_only(make_client, envfile):
     page = make_client("operator").get("/settings").get_data(as_text=True)
     assert "Only admins can change these." in page
-    assert "Test and save" not in page
+    assert 'type="submit">Test and save</button>' not in page
 
 
 def test_unwritable_env_is_refused(make_client, probes, envfile, monkeypatch):

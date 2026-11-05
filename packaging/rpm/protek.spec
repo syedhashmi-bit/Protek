@@ -67,7 +67,7 @@ rm -rf %{buildroot}
 
 # Code dir
 install -d -m 0755 %{buildroot}%{appshare}
-cp -a *.py bouncers templates static scripts docs requirements.txt \
+cp -a *.py bouncers templates static help scripts docs requirements.txt \
     %{buildroot}%{appshare}/
 cp -a .env.example %{buildroot}%{appshare}/env.example
 

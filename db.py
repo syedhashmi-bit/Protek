@@ -241,6 +241,8 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # Roadmap #3 — per-user simple/advanced navigation. NULL means "use the
     # install default" (settings `ui.advanced_default`).
     ("users", "ui_advanced", "INTEGER DEFAULT NULL"),
+    # Roadmap #4 — the guided tour is offered until finished or declined.
+    ("users", "ui_tour_done", "INTEGER DEFAULT NULL"),
 ]
 
 
@@ -453,7 +455,8 @@ EXTRA_TABLES = [
         created_at      TEXT NOT NULL,
         last_login_at   TEXT DEFAULT NULL,
         disabled        INTEGER NOT NULL DEFAULT 0,
-        ui_advanced     INTEGER DEFAULT NULL    -- roadmap #3; NULL = install default
+        ui_advanced     INTEGER DEFAULT NULL,   -- roadmap #3; NULL = install default
+        ui_tour_done    INTEGER DEFAULT NULL    -- roadmap #4; set once the tour is finished or declined
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users (username)",

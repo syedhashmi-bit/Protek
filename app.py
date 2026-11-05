@@ -417,6 +417,7 @@ def _inject_globals():
         "nav_palette": lambda: _nav_groups(apply_view=False),
         "nav_advanced_on": nav_advanced_on,
         "nav_return_to": nav_return_to,
+        "help_payload": help_payload,
         # base.html derives the sidebar highlight and the tab strip from the
         # view's own `active` kwarg via these, so no route signature or page
         # template had to change to gain tabs.
@@ -629,6 +630,66 @@ def nav_tabs_for(active_key: str):
                     out.append({**t, "advanced": adv, "failing": t["key"] in sig["failing"]})
             return out
     return []
+
+
+def _tour_done() -> bool:
+    if "tour_done" in g:
+        return g.tour_done
+    done = False
+    uid = session.get("user_id")
+    if uid:
+        try:
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT ui_tour_done FROM users WHERE id = ?", (uid,)).fetchone()
+            finally:
+                conn.close()
+            done = bool(row and row["ui_tour_done"])
+        except Exception as e:  # noqa: BLE001
+            log.debug("ui_tour_done lookup failed: %s", e)
+    g.tour_done = done
+    return done
+
+
+def help_payload(active: str | None) -> dict:
+    """Roadmap #4 — what the Help menu, the tour and help mode need for this
+    page (base.html embeds it as JSON). Text comes from help/catalog.json via
+    helpdocs; the cross-page tour lists only pages this role can open."""
+    import helpdocs
+    key = active or "dashboard"
+    if not helpdocs.has_page(key):
+        key = NAV_ALIASES.get(key, key)
+    page = helpdocs.for_page(key)
+    tour = []
+    for tkey in helpdocs.TOUR:
+        for grp in NAV:
+            for it in grp["items"]:
+                if it["key"] == tkey and _nav_visible(it):
+                    tour.append({"key": tkey, "label": it["label"], "url": url_for(it["ep"])})
+    done = _tour_done()
+    return {
+        "page": key,
+        "label": nav_label_for(key) or "This page",
+        **page,
+        "tour": tour,
+        "offer": (not done) and key == "dashboard",
+        "done_url": url_for("ui_tour"),
+    }
+
+
+@app.route("/ui/tour", methods=["POST"])
+@login_required
+def ui_tour():
+    """Remember that this user finished or declined the tour (roadmap #4)."""
+    done = request.form.get("done", "1") == "1"
+    uid = session.get("user_id")
+    if uid:
+        conn = get_conn()
+        try:
+            conn.execute("UPDATE users SET ui_tour_done = ? WHERE id = ?", (1 if done else None, uid))
+        finally:
+            conn.close()
+    return ("", 204)
 
 
 def nav_return_to() -> str:

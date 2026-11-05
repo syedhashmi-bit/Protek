@@ -45,6 +45,31 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-05 — Roadmap #4: Help menu, guided tour, help mode
+
+- **Engine:** `static/help.js`, hand-rolled with no library, and `textContent`
+  only (a test enforces that). It finds sections generically from markup every
+  page already uses: `.kpi` tiles (label in `.k`), `.panel` blocks with an
+  `<h2>`, and named controls. It matches them to `help/catalog.json`: headings
+  and KPIs by leading-text prefix, fields by `name` or a `*` wildcard.
+- **Features:**
+  - a Help menu (topbar button, or `?`) with "Tour this page", "Tour Protek"
+    and help mode;
+  - "Tour Protek" runs Overview → Blocked IPs → Alerts → Targets → Rules →
+    Settings, filtered by role, and carries over pages via sessionStorage;
+  - help mode puts a `?` on every section, KPI and field, and its on/off state
+    is kept in localStorage;
+  - a first-visit offer on Overview until finished or declined
+    (`users.ui_tour_done`, in both CREATE TABLE and MIGRATIONS;
+    `POST /ui/tour`).
+- **Content:** written by a workflow, five authors plus five adversarial
+  fact-checkers, one pair per page group: 40 pages covering every section,
+  KPI and editable field. `tests/test_help.py` parses each covered template
+  and fails on any gap. Page headings had developer labels such as
+  "(phase 78)", which were removed from six templates.
+- **Checked in a real browser:** `?` and the arrow keys, Esc, cross-page
+  resume, 18 help-mode markers on Settings, phone width, and no JS errors.
+
 ## 2026-11-05 — Roadmap #2 (connection settings in the app) + #3 (advanced view)
 
 Built in one branch, using an Ultracode workflow:
