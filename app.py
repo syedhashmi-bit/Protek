@@ -543,6 +543,19 @@ def nav_advanced_on() -> bool:
     return on
 
 
+def _nav_entry_label(entry: dict) -> str:
+    """The MikroTik page is the .env router's page; once that router has been
+    renamed (Targets → rename), its tab carries the router's name."""
+    if entry.get("key") == "mikrotik":
+        if "env_router_name" not in g:
+            import bouncers as _b
+            name = _b.env_target_name()
+            g.env_router_name = "" if name == _b.ENV_NAME_DEFAULT else name
+        if g.env_router_name:
+            return g.env_router_name
+    return entry["label"]
+
+
 def _nav_signals() -> dict:
     if "nav_signals" not in g:
         import navsignals
@@ -573,7 +586,8 @@ def _nav_groups(active: str | None = None, apply_view: bool = True):
                     continue
                 adv = item_adv or bool(t.get("advanced"))
                 if full or not adv or t["key"] in live or t["key"] == key:
-                    tabs.append({**t, "advanced": adv, "failing": t["key"] in sig["failing"]})
+                    tabs.append({**t, "label": _nav_entry_label(t), "advanced": adv,
+                                 "failing": t["key"] in sig["failing"]})
             if it.get("tabs"):
                 if not tabs:
                     continue
@@ -627,7 +641,8 @@ def nav_tabs_for(active_key: str):
                     continue
                 adv = bool(it.get("advanced") or t.get("advanced"))
                 if full or not adv or t["key"] in live or t["key"] == key:
-                    out.append({**t, "advanced": adv, "failing": t["key"] in sig["failing"]})
+                    out.append({**t, "label": _nav_entry_label(t), "advanced": adv,
+                                "failing": t["key"] in sig["failing"]})
             return out
     return []
 
@@ -720,7 +735,7 @@ def nav_label_for(active_key: str) -> str:
             for t in (it.get("tabs") or []):
                 if t["key"] == key:
                     # On a tab, show the destination then the tab.
-                    return f"{it['label']} · {t['label']}" if t["key"] != it["key"] else it["label"]
+                    return f"{it['label']} · {_nav_entry_label(t)}" if t["key"] != it["key"] else it["label"]
             if it["key"] == key:
                 return it["label"]
     return ""
@@ -3302,6 +3317,12 @@ def api_sync_events():
 def bouncers_page():
     import bouncers as bmod
     targets = bmod.load_all_targets()
+    # Size + last sync per target, recorded by the poller each cycle.
+    import json
+    try:
+        target_state = json.loads(get_setting("targets.last_sync") or "{}")
+    except (TypeError, ValueError):
+        target_state = {}
     # Pull DB rows too so we can show their id + dry_run / last_sync_at
     conn = get_conn()
     try:
@@ -3324,6 +3345,9 @@ def bouncers_page():
             errors_n += 1
         db_row = db_rows.get(t.name)
         size = h.get("size") if "size" in h else (h.get("v4_size", 0) + h.get("v6_size", 0) if "v4_size" in h else None)
+        synced = target_state.get(t.name) or {}
+        if size is None and synced.get("size") is not None:
+            size = synced["size"]          # the address-list size at its last sync
         if size is not None:
             total_entries += int(size)
         view.append({
@@ -3334,7 +3358,8 @@ def bouncers_page():
             "error": h.get("error", ""),
             "size": size,
             "dry_run": bool(db_row["dry_run"]) if db_row else DRY_RUN,
-            "last_sync_rel": rel_time(db_row["last_sync_at"]) if db_row and db_row["last_sync_at"] else "—",
+            "last_sync_rel": (rel_time(synced["synced_at"]) if synced.get("synced_at") else
+                              rel_time(db_row["last_sync_at"]) if db_row and db_row["last_sync_at"] else "—"),
             "removable": db_row is not None,
         })
     kpis = {"total": len(view), "online": online, "errors": errors_n, "total_entries": total_entries}
