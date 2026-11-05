@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from flask import (Flask, abort, flash, jsonify, redirect, render_template,
+from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 
@@ -167,6 +167,12 @@ PROTEK_VERSION = "2.0.0"
 init_db()
 seed_env_user()  # idempotent: mirror APP_USERNAME/APP_PASSWORD_HASH/TOTP_SECRET into users row #1
 
+# Roadmap #2 — connection settings edited in the browser live in .env too, but
+# only the keys saved from the browser are forced from the file here (see
+# connection.py). Must run before LAPI_URL/LAPI_KEY and seed_local_source().
+import connection as _connection  # noqa: E402
+_connection.sync_from_file("boot")
+
 # /api/v1/* (phase 47) — bearer-token-authed REST surface. CSRF-exempt because
 # token auth replaces CSRF for this surface.
 from api_v1 import bp as _api_v1_bp  # noqa: E402
@@ -300,6 +306,25 @@ federation.seed_local_source()
 # Legacy single-client handle — kept for the /crowdsec explorer and health checks.
 # The poller iterates federation.list_sources() instead.
 lapi_client = LAPIClient(LAPI_URL, LAPI_KEY, name="local") if LAPI_KEY else None
+
+
+def _refresh_lapi_globals() -> None:
+    """Re-read the LAPI URL/key after a connection change (connection.py)."""
+    global LAPI_URL, LAPI_KEY, lapi_client
+    LAPI_URL = _envstr("CROWDSEC_LAPI_URL", "http://127.0.0.1:8080")
+    LAPI_KEY = _envstr("CROWDSEC_BOUNCER_KEY", "")
+    lapi_client = LAPIClient(LAPI_URL, LAPI_KEY, name="local") if LAPI_KEY else None
+
+
+@app.before_request
+def _sync_connection_settings():
+    """Another worker may have saved new connection settings; one stat() of
+    .env per request tells. Cheap enough to run on every request."""
+    try:
+        if _connection.sync_from_file("web"):
+            _refresh_lapi_globals()
+    except Exception as e:  # noqa: BLE001 — never fail a request over this
+        log.warning("connection sync failed: %s", e)
 poller: Poller | None = None
 
 # Only one worker should run the background poller. We elect a single owner via
@@ -388,7 +413,10 @@ def _inject_globals():
         "active": "",
         "dry_run": DRY_RUN,
         "blocking": _blocking_view(),
-        "nav_groups": _nav_groups(),
+        "nav_groups_for": nav_groups_for,
+        "nav_palette": lambda: _nav_groups(apply_view=False),
+        "nav_advanced_on": nav_advanced_on,
+        "nav_return_to": nav_return_to,
         # base.html derives the sidebar highlight and the tab strip from the
         # view's own `active` kwarg via these, so no route signature or page
         # template had to change to gain tabs.
@@ -418,13 +446,13 @@ NAV: list[dict] = [
         {"key": "decisions",  "label": "Blocked IPs",  "ep": "decisions_page"},
         {"key": "alerts",     "label": "Alerts",       "ep": "alerts_page", "tabs": [
             {"key": "alerts",       "label": "Alerts",      "ep": "alerts_page"},
-            {"key": "alerts_rules", "label": "Alert rules", "ep": "alerts_rules_page"},
+            {"key": "alerts_rules", "label": "Alert rules", "ep": "alerts_rules_page", "advanced": True},
         ]},
         {"key": "scenarios",  "label": "Detections",   "ep": "scenarios_page", "tabs": [
             {"key": "scenarios", "label": "Firing now", "ep": "scenarios_page"},
-            {"key": "catalog",   "label": "Catalog",    "ep": "scenarios_catalog"},
+            {"key": "catalog",   "label": "Catalog",    "ep": "scenarios_catalog", "advanced": True},
         ]},
-        {"key": "intel",      "label": "Threat intel", "ep": "intel_page", "tabs": [
+        {"key": "intel",      "label": "Threat intel", "ep": "intel_page", "advanced": True, "tabs": [
             {"key": "intel",            "label": "Overview",        "ep": "intel_page"},
             {"key": "asn_escalations",  "label": "ASN escalations", "ep": "asn_escalations_page"},
             {"key": "intel_publish",    "label": "Publish feed",    "ep": "intel_publish_page", "role": "admin"},
@@ -434,26 +462,26 @@ NAV: list[dict] = [
         {"key": "bouncers", "label": "Targets", "ep": "bouncers_page", "tabs": [
             {"key": "bouncers", "label": "All targets", "ep": "bouncers_page"},
             {"key": "mikrotik", "label": "MikroTik",    "ep": "mikrotik_page"},
-            {"key": "fleet",    "label": "Fleet",       "ep": "fleet_page"},
+            {"key": "fleet",    "label": "Fleet",       "ep": "fleet_page", "advanced": True},
         ]},
-        {"key": "federation", "label": "Sources", "ep": "federation_page", "tabs": [
+        {"key": "federation", "label": "Sources", "ep": "federation_page", "advanced": True, "tabs": [
             {"key": "federation", "label": "Federation", "ep": "federation_page"},
             {"key": "peers",      "label": "Peers",      "ep": "peers_page"},
         ]},
         {"key": "whitelist", "label": "Rules", "ep": "whitelist_page", "tabs": [
             {"key": "whitelist", "label": "Whitelist", "ep": "whitelist_page"},
-            {"key": "approvals", "label": "Approvals", "ep": "approvals_page"},
+            {"key": "approvals", "label": "Approvals", "ep": "approvals_page", "advanced": True},
         ]},
     ]},
     {"group": "Operate", "items": [
         # Audit was buried in a collapsed "Advanced" drawer despite being a
         # daily-use page. Promoted.
-        {"key": "audit", "label": "Activity", "ep": "audit_page", "tabs": [
+        {"key": "audit", "label": "Activity", "ep": "audit_page", "advanced": True, "tabs": [
             {"key": "audit",     "label": "Audit log",   "ep": "audit_page"},
             {"key": "perf",      "label": "Performance", "ep": "perf_page"},
             {"key": "synthetic", "label": "Synthetic checks", "ep": "synthetic_page"},
         ]},
-        {"key": "webhooks", "label": "Integrations", "ep": "webhooks_page", "tabs": [
+        {"key": "webhooks", "label": "Integrations", "ep": "webhooks_page", "advanced": True, "tabs": [
             {"key": "webhooks", "label": "Webhooks",    "ep": "webhooks_page"},
             {"key": "siem",     "label": "SIEM export", "ep": "siem_page"},
         ]},
@@ -464,17 +492,17 @@ NAV: list[dict] = [
             {"key": "notifications", "label": "Notifications",     "ep": "notifications_page", "role": "operator"},
             {"key": "security",      "label": "Security",          "ep": "security_page"},
             # Honeypot and SSO had no inbound link anywhere in the UI before this.
-            {"key": "honeypot",      "label": "Honeypot",          "ep": "honeypot_page",      "role": "operator"},
+            {"key": "honeypot",      "label": "Honeypot",          "ep": "honeypot_page",      "role": "operator", "advanced": True},
             {"key": "admin_sso",     "label": "Single sign-on",    "ep": "admin_sso",     "role": "admin"},
             {"key": "onboarding",    "label": "Setup guide",       "ep": "onboarding"},
         ]},
         {"key": "admin_users", "label": "Access & backup", "ep": "admin_users_page", "role": "admin", "tabs": [
             {"key": "admin_users",       "label": "Users",           "ep": "admin_users_page"},
-            {"key": "admin_tokens",      "label": "API tokens",      "ep": "admin_tokens_page"},
-            {"key": "admin_backup",      "label": "Backup (config)", "ep": "admin_backup_page"},
-            {"key": "admin_backup_auto", "label": "Backup (off-box)","ep": "admin_backup_automation_page"},
-            {"key": "dr_drill",          "label": "DR drill",        "ep": "admin_dr_drill_page"},
-            {"key": "admin_ha",          "label": "High availability","ep": "admin_ha"},
+            {"key": "admin_tokens",      "label": "API tokens",      "ep": "admin_tokens_page", "advanced": True},
+            {"key": "admin_backup",      "label": "Backup (config)", "ep": "admin_backup_page", "advanced": True},
+            {"key": "admin_backup_auto", "label": "Backup (off-box)","ep": "admin_backup_automation_page", "advanced": True},
+            {"key": "dr_drill",          "label": "DR drill",        "ep": "admin_dr_drill_page", "advanced": True},
+            {"key": "admin_ha",          "label": "High availability","ep": "admin_ha", "advanced": True},
         ]},
     ]},
 ]
@@ -490,21 +518,79 @@ def _nav_visible(entry) -> bool:
     return True if not need else has_role(need)
 
 
-def _nav_groups():
-    """Sidebar structure, role-filtered. The tab strip is resolved separately in
-    base.html via nav_tabs_for(), because a context processor cannot see the
-    view's `active` kwarg."""
+def nav_advanced_on() -> bool:
+    """Roadmap #3 — is the advanced view on for this user? Per-user choice in
+    users.ui_advanced; NULL falls back to the install default
+    (ui.advanced_default: 1 on an upgraded install, 0 on a fresh one).
+    Cached on `g` so a render pays for it once."""
+    if "nav_advanced" in g:
+        return g.nav_advanced
+    on = (get_setting("ui.advanced_default") or "0") == "1"
+    uid = session.get("user_id")
+    if uid:
+        try:
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT ui_advanced FROM users WHERE id = ?", (uid,)).fetchone()
+            finally:
+                conn.close()
+            if row and row["ui_advanced"] is not None:
+                on = bool(row["ui_advanced"])
+        except Exception as e:  # noqa: BLE001 — fall back to the default
+            log.debug("ui_advanced lookup failed: %s", e)
+    g.nav_advanced = on
+    return on
+
+
+def _nav_signals() -> dict:
+    if "nav_signals" not in g:
+        import navsignals
+        g.nav_signals = navsignals.signals()
+    return g.nav_signals
+
+
+def _nav_groups(active: str | None = None, apply_view: bool = True):
+    """Sidebar structure: role-filtered, then — in the simple view — with
+    advanced pages hidden unless they're in use, failing, or the page you're
+    on. `apply_view=False` gives the full role-filtered list (the command
+    palette, which must still find everything). Entries carry `advanced` and
+    `failing` flags; a visible advanced item links to its first visible tab."""
+    full = not apply_view or nav_advanced_on()
+    sig = _nav_signals() if apply_view else {"configured": set(), "failing": set()}
+    live = sig["configured"] | sig["failing"]
+    key = NAV_ALIASES.get(active, active) if active else None
     out = []
     for grp in NAV:
         items = []
         for it in grp["items"]:
             if not _nav_visible(it):
                 continue
-            tabs = [t for t in it.get("tabs", []) if _nav_visible(t)]
-            items.append({**it, "tabs": tabs})
+            item_adv = bool(it.get("advanced"))
+            tabs = []
+            for t in it.get("tabs", []):
+                if not _nav_visible(t):
+                    continue
+                adv = item_adv or bool(t.get("advanced"))
+                if full or not adv or t["key"] in live or t["key"] == key:
+                    tabs.append({**t, "advanced": adv, "failing": t["key"] in sig["failing"]})
+            if it.get("tabs"):
+                if not tabs:
+                    continue
+            elif item_adv and not (full or it["key"] in live or it["key"] == key):
+                continue
+            entry = {**it, "tabs": tabs, "advanced": item_adv,
+                     "failing": it["key"] in sig["failing"] or any(t["failing"] for t in tabs)}
+            if tabs and not any(t["key"] == it["key"] for t in tabs):
+                entry["ep"] = tabs[0]["ep"]      # the item's own page is hidden
+            items.append(entry)
         if items:
             out.append({"group": grp["group"], "items": items})
     return out
+
+
+def nav_groups_for(active: str | None = None):
+    """Sidebar for the current page (base.html)."""
+    return _nav_groups(active)
 
 
 # Pages reached by drilling down rather than from the sidebar. Without this,
@@ -520,14 +606,42 @@ NAV_ALIASES = {
 
 
 def nav_tabs_for(active_key: str):
-    """The sibling tabs for whichever destination owns `active_key`, or []."""
-    active_key = NAV_ALIASES.get(active_key, active_key)
+    """The sibling tabs for whichever destination owns `active_key`, or [].
+    Each tab follows its own role (not its item's — viewers still get the
+    Security / Setup guide strip under the operator-only Settings item), and
+    the same view rule as the sidebar: in the simple view, advanced tabs show
+    only when in use, failing, or open."""
+    key = NAV_ALIASES.get(active_key, active_key)
     for grp in NAV:
         for it in grp["items"]:
             tabs = it.get("tabs") or []
-            if any(t["key"] == active_key for t in tabs):
-                return [t for t in tabs if _nav_visible(t)]
+            if not any(t["key"] == key for t in tabs):
+                continue
+            full = nav_advanced_on()
+            sig = _nav_signals()
+            live = sig["configured"] | sig["failing"]
+            out = []
+            for t in tabs:
+                if not _nav_visible(t):
+                    continue
+                adv = bool(it.get("advanced") or t.get("advanced"))
+                if full or not adv or t["key"] in live or t["key"] == key:
+                    out.append({**t, "advanced": adv, "failing": t["key"] in sig["failing"]})
+            return out
     return []
+
+
+def nav_return_to() -> str:
+    """Where the view toggle should come back to. A page rendered by a POST
+    (a failed save re-rendering the form) has no GET at its own path, so go
+    back to the page the browser came from, or the dashboard."""
+    if request.method == "GET":
+        return request.full_path if request.query_string else request.path
+    from urllib.parse import urlparse
+    ref = urlparse(request.referrer or "")
+    if ref.path and (not ref.netloc or ref.netloc == request.host):
+        return ref.path + (f"?{ref.query}" if ref.query else "")
+    return url_for("dashboard")
 
 
 def nav_label_for(active_key: str) -> str:
@@ -561,6 +675,21 @@ def nav_owner_of(active_key: str) -> str:
             if any(t["key"] == active_key for t in (it.get("tabs") or [])):
                 return it["key"]
     return active_key
+
+
+@app.route("/ui/view", methods=["POST"])
+@login_required
+def ui_view():
+    """Roadmap #3 — switch this user between the simple and advanced view."""
+    on = request.form.get("advanced") == "1"
+    uid = session.get("user_id")
+    if uid:
+        conn = get_conn()
+        try:
+            conn.execute("UPDATE users SET ui_advanced = ? WHERE id = ?", (1 if on else 0, uid))
+        finally:
+            conn.close()
+    return redirect(safe_next(request.form.get("next"), url_for("dashboard")))
 
 
 @app.after_request
@@ -4133,7 +4262,7 @@ def scenarios_editor():
             flash(f"save failed: {res.get('error')}", "error")
             return render_template("scenarios_editor.html",
                                    filename=fname, content=content,
-                                   test_result=None, active="scenarios")
+                                   test_result=None, active="scenarios_editor")
         flash(f"saved {fname}", "info")
         if request.form.get("reload"):
             test_result = sa.reload_agent()
@@ -4143,7 +4272,7 @@ def scenarios_editor():
                 flash(f"reload failed: {test_result.get('error')}", "error")
         return render_template("scenarios_editor.html",
                                filename=fname, content=content,
-                               test_result=test_result, active="scenarios")
+                               test_result=test_result, active="scenarios_editor")
 
     fname = (request.args.get("file") or "").strip()
     content = ""
@@ -4168,7 +4297,7 @@ def scenarios_editor():
         )
     return render_template("scenarios_editor.html",
                            filename=fname, content=content,
-                           test_result=None, active="scenarios")
+                           test_result=None, active="scenarios_editor")
 
 
 @app.route("/whitelist")
@@ -5094,24 +5223,103 @@ def settings_page():
         flash("Settings saved. Active on next reconcile cycle.", "info")
         return redirect(url_for("settings_page"))
 
+    return _render_settings()
+
+
+def _render_settings(conn_form: dict | None = None, status: int = 200,
+                     conn_msgs: list | None = None):
+    """Settings page. `conn_form` re-fills the connection form (non-secret
+    fields only) after a failed save, so nothing typed is lost; `conn_msgs`
+    are (category, text) shown inside the form, where the user is looking."""
     ps = poller_status()
-    lapi_key = LAPI_KEY or ""
+    conn = _connection.current()
+    if conn_form:
+        conn.update({k: v for k, v in conn_form.items() if k in conn and not k.endswith("_set")})
+    conn_ok, conn_why = _connection.writable()
     values = {
         "sync_interval_sec": _setting_int("settings.sync_interval_sec", SYNC_INTERVAL),
         "batch_cap": _setting_int("settings.batch_cap", BATCH_CAP),
         "mt_address_list": get_setting("settings.mt_address_list") or address_list_name(),
         "dry_run": (get_setting("settings.dry_run") or ("1" if DRY_RUN else "0")) == "1",
         "lapi_url": LAPI_URL,
-        "lapi_key_tail": lapi_key[-4:] if lapi_key else "",
-        "mt_host": _envstr("MT_HOST", ""),
-        "mt_port": _envint("MT_PORT", 8728),
-        "mt_use_ssl": _envstr("MT_USE_SSL", "false").lower() in ("1", "true", "yes"),
         "last_poll_rel": rel_time(ps["last_at"]),
         "active_total": ps["active_total"],
         "atom_url": get_setting("integrations.atom_url") or _envstr("ATOM_URL", ""),
         "othoni_url": get_setting("integrations.othoni_url") or _envstr("OTHONI_URL", ""),
     }
-    return render_template("settings.html", values=values, active="settings")
+    return render_template("settings.html", values=values, conn=conn,
+                           conn_writable=conn_ok, conn_why=conn_why,
+                           env_path=str(_connection.env_file()),
+                           conn_msgs=conn_msgs or [],
+                           active="settings"), status
+
+
+@app.route("/settings/connection", methods=["POST"])
+@login_required
+@role_required("admin")
+def settings_connection():
+    """Roadmap #2 — test, then save, the CrowdSec + MikroTik connection into
+    .env and apply it without a restart. Values are never echoed, flashed,
+    logged or audited — only the names of the fields that changed."""
+    ok, why = _connection.writable()
+    if not ok:
+        flash(why, "error")
+        return redirect(url_for("settings_page") + "#connection")
+
+    form_view = {
+        "lapi_url": (request.form.get("lapi_url") or "").strip(),
+        "mt_host": (request.form.get("mt_host") or "").strip(),
+        "mt_port": (request.form.get("mt_port") or "").strip(),
+        "mt_use_ssl": (request.form.get("mt_use_ssl") or "") in ("1", "on", "true"),
+        "mt_username": (request.form.get("mt_username") or "").strip(),
+    }
+    values, errors = _connection.validate(request.form)
+    if errors:
+        return _render_settings(conn_form=form_view, status=400,
+                                conn_msgs=[("error", e) for e in errors])
+
+    changed = _connection.changed_keys(values)
+    if not changed:
+        flash("Nothing changed — the connection settings are already these.", "info")
+        return redirect(url_for("settings_page") + "#connection")
+
+    results = _connection.probe(values)
+    lapi, mt = results["lapi"], results["mikrotik"]
+    msgs = [("info", "CrowdSec: connected.") if lapi["ok"]
+            else ("error", f"CrowdSec: {lapi['error']}.")]
+    if not mt.get("skipped"):
+        if mt["ok"]:
+            msgs.append(("info", f"MikroTik: connected to {mt.get('name') or 'the router'}"
+                                 f"{' (RouterOS ' + mt['version'] + ')' if mt.get('version') else ''}."))
+        else:
+            msgs.append(("error", f"MikroTik: {mt['error']}."))
+    failed = not lapi["ok"] or not mt["ok"]
+    if failed and request.form.get("save_anyway") != "1":
+        msgs.append(("error", "Not saved. Fix the problem above, or tick "
+                              "\"Save even if the test fails\"."))
+        return _render_settings(conn_form=form_view, status=400, conn_msgs=msgs)
+    for cat, text in msgs:
+        flash(text, cat)
+
+    try:
+        # Only the changed keys are saved, and so become browser-owned.
+        _connection.save({k: values[k] for k in changed})
+    except OSError as e:
+        return _render_settings(conn_form=form_view, status=500, conn_msgs=[
+            ("error", f"Couldn't write {_connection.env_file().name}: {e.strerror or e}")])
+    _refresh_lapi_globals()
+    if any(k.startswith("MT_") for k in changed):
+        # The cached router status describes the old router until the
+        # poller's next probe (≤ one cycle).
+        set_setting("mt.last_status", "")
+    _audit("settings.connection",
+           after={"fields_changed": changed, "tested_ok": not failed})
+    flash("Connection saved to .env. Protek uses it from the next sync cycle — no restart needed.",
+          "info")
+    if any(k in changed for k in _connection.LAPI_KEYS):
+        flash("Protek will re-sync from the new CrowdSec LAPI. Bans that aren't on it will be "
+              "removed from the router over the next few cycles.", "warn")
+    return redirect(url_for("settings_page") + "#connection")
 
 
 def _setting_int(key: str, default: int) -> int:

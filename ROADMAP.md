@@ -58,6 +58,10 @@ likely way a new install looks fine and protects nothing.
 
 ## 2. Edit connection settings in the app
 
+**Status (2026-11-05):** built — `connection.py` and Settings → Connection & sync.
+Decision taken: saved values go back into `.env` (secrets stay there), and
+workers pick the change up through a per-request `stat()` of the file.
+
 **Why:** Settings shows the LAPI URL, MikroTik host/port and bouncer key in
 input boxes that are actually read-only ("set in `.env`"). Changing any of them
 needs a shell, an editor and a restart. It's the most confusing part of the UI,
@@ -87,6 +91,9 @@ and it's why the installer has to ask for everything up front.
 ---
 
 ## 3. Advanced view toggle
+
+**Status (2026-11-05):** built — `advanced` flags in `NAV`, `navsignals.py`,
+the sidebar toggle, and `users.ui_advanced`.
 
 **Why:** the sidebar has ~40 entries across 132 routes, including DR drill, high
 availability, SIEM export, honeypot and threat-feed publishing. A homelab user

@@ -33,28 +33,6 @@
   </div>
 
   <div class="panel" style="margin-top:16px">
-    <h2>Connection (read-only — set in <code class="mono">.env</code>)</h2>
-    <div class="grid cols-2">
-      <div>
-        <label>LAPI URL</label>
-        <input type="text" value="{{ values.lapi_url }}" disabled>
-      </div>
-      <div>
-        <label>MikroTik Host</label>
-        <input type="text" value="{{ values.mt_host or '(not set)' }}" disabled>
-      </div>
-      <div>
-        <label>MikroTik Port</label>
-        <input type="text" value="{{ values.mt_port }}{{ ' (SSL)' if values.mt_use_ssl else '' }}" disabled>
-      </div>
-      <div>
-        <label>Bouncer Key</label>
-        <input type="text" value="{{ '••••••••' + values.lapi_key_tail if values.lapi_key_tail else '(not set)' }}" disabled>
-      </div>
-    </div>
-  </div>
-
-  <div class="panel" style="margin-top:16px">
     <h2>Suite integrations <span class="muted" style="text-transform:none;letter-spacing:0;font-size:11px">(phases 48 + 49)</span></h2>
     <p class="muted" style="margin:0 0 12px;font-size:12px">
       Base URLs for sibling apps. When set, attacker pages show "Open in atom" links and
@@ -77,6 +55,82 @@
   <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:10px">
     <button class="btn" type="submit">Save Settings</button>
   </div>
+</form>
+
+{% set can_edit = has_role('admin') and conn_writable %}
+<form method="POST" action="{{ url_for('settings_connection') }}" id="connection" class="panel" style="margin-top:16px" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <h2>Connection</h2>
+  <p class="muted" style="margin:0 0 12px;font-size:12px;line-height:1.6">
+    Where Protek reads bans from, and the router it pushes them to. Saved to
+    <span class="mono">{{ env_path }}</span> and used from the next sync cycle — no restart.
+    {% if not has_role('admin') %}Only admins can change these.{% elif not conn_writable %}<span style="color:var(--warn)">{{ conn_why }}</span>{% endif %}
+  </p>
+
+  {% for cat, msg in conn_msgs %}
+  <div class="flash {{ cat }}" role="{{ 'alert' if cat == 'error' else 'status' }}">{{ msg }}</div>
+  {% endfor %}
+
+  <h3 style="margin:4px 0 8px;font-size:13px">CrowdSec</h3>
+  <div class="grid cols-2">
+    <div>
+      <label for="lapi_url">LAPI URL</label>
+      <input type="text" id="lapi_url" name="lapi_url" value="{{ conn.lapi_url }}" required
+             placeholder="http://127.0.0.1:8080" {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="lapi_key">Bouncer key</label>
+      <input type="password" id="lapi_key" name="lapi_key" autocomplete="new-password"
+             placeholder="{{ 'set — leave blank to keep it' if conn.lapi_key_set else 'not set — cscli bouncers add protek' }}"
+             {% if not can_edit %}disabled{% endif %}>
+    </div>
+  </div>
+
+  <h3 style="margin:16px 0 8px;font-size:13px">MikroTik</h3>
+  <div class="grid cols-3">
+    <div>
+      <label for="mt_host">Router address</label>
+      <input type="text" id="mt_host" name="mt_host" value="{{ conn.mt_host }}"
+             placeholder="192.168.88.1" {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="mt_port">API port</label>
+      <input type="number" id="mt_port" name="mt_port" value="{{ conn.mt_port }}" min="1" max="65535"
+             {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="mt_use_ssl" style="display:flex;gap:8px;align-items:center;margin-top:22px">
+        <input type="checkbox" id="mt_use_ssl" name="mt_use_ssl" value="1" style="width:auto"
+               {% if conn.mt_use_ssl %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        Use TLS (API-SSL, usually port 8729)
+      </label>
+    </div>
+    <div>
+      <label for="mt_username">API username</label>
+      <input type="text" id="mt_username" name="mt_username" value="{{ conn.mt_username }}"
+             placeholder="protek-api" {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div>
+      <label for="mt_password">API password</label>
+      <input type="password" id="mt_password" name="mt_password" autocomplete="new-password"
+             placeholder="{{ 'set — leave blank to keep it' if conn.mt_password_set else 'not set' }}"
+             {% if not can_edit %}disabled{% endif %}>
+    </div>
+  </div>
+  <p class="muted" style="margin:8px 0 0;font-size:12px">
+    Leave the router address and username empty to run without the router in <span class="mono">.env</span>
+    (routers added under Targets keep working).
+  </p>
+
+  {% if can_edit %}
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap">
+    <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin:0">
+      <input type="checkbox" name="save_anyway" value="1" style="width:auto">
+      Save even if the test fails
+    </label>
+    <button class="btn" type="submit">Test and save</button>
+  </div>
+  {% endif %}
 </form>
 
 <div class="panel" style="margin-top:16px">

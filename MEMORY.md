@@ -45,6 +45,66 @@ own code), but it's the check the code claimed to make.
 
 ---
 
+## 2026-11-05 — Roadmap #2 (connection settings in the app) + #3 (advanced view)
+
+Built in one branch, using an Ultracode workflow:
+1. Four parallel mappers read the code each feature touches.
+2. I implemented both features.
+3. A second workflow ran four review lenses, each with an adversarial
+   verifier. It reported 14 findings and refuted 3. The 11 confirmed ones came
+   down to 9 distinct issues, all fixed with tests.
+
+**#2, `connection.py`, and Settings → Connection & sync (admin only):**
+- **What it does:** tests the LAPI with a direct GET (not `LAPIClient.health()`,
+  whose rate-limit bucket made repeated tests fail) and tests the MikroTik
+  (`health()` in a thread with a 15 s timeout, since routeros_api has none).
+  Then it writes the changed keys into `.env`, single-quoted and atomic, and
+  applies them without a restart.
+- **Decision:** the values stay in `.env`, where the project's secrets live.
+- **Cross-worker:** each consumer (`web` from `before_request`, `poller` from
+  `tick`) `stat()`s `.env` and reloads the browser-saved keys when the mtime
+  moves. It tracks what it last *acted on*, not whether env changed, because
+  the saving worker's poller already has the new env. The first look is a
+  baseline, and it is recorded even when no keys are saved. On a change, the
+  poller drops the local LAPI's bootstrap/fail-streak/alerts-client state
+  (a new LAPI needs a full pull) and runs the blocking check at once.
+  `app.LAPI_URL`, `LAPI_KEY` and `lapi_client` are refreshed via
+  `_refresh_lapi_globals()`. `save()` swaps the file in **last**, after
+  `saved_keys`, env and the `local` source row are final, so another worker
+  that sees the new mtime also sees the new state. That ordering race was
+  found in review.
+- **Ownership:** only the keys a save actually changed become browser-owned
+  (`connection.saved_keys`). On Docker those then win over compose env at boot;
+  `DOCKER.md` says so. The first version made all 7 browser-owned on any save.
+- **Rejected characters (found in review):** quotes, backslashes, and every
+  non-printable character. U+2028 split lines via `splitlines()`, NUL crashed
+  `os.environ`, and a backslash is literal to systemd but an escape to
+  python-dotenv, so a password would silently differ between the service and
+  the workers. `write_env` splits on `\n` only.
+- **Debian unit:** now sets `PROTEK_ENV_FILE=/etc/protek/.env`.
+- **Secrets:** shown only as set / not set, never echoed back, and audit
+  records field names only.
+
+**#3, advanced view:**
+- **Navigation:** items or tabs marked `"advanced": True` in `NAV`.
+  `_nav_groups(active, apply_view)` hides them in the simple view unless
+  `navsignals` says they're in use or failing (shown with a dot badge), or
+  they're the page you're on. The palette uses `apply_view=False` and labels
+  those entries `kind:'advanced'`.
+- **Per-user choice:** stored in `users.ui_advanced` (NULL = default). The
+  install default `ui.advanced_default` is set inside `_init_db_locked`:
+  1 if a users table already existed (an upgrade), 0 on a fresh DB.
+- **Toggle:** POST `/ui/view`; `nav_return_to()` avoids returning to a
+  POST-only path.
+- **Review fixes:**
+  - `nav_tabs_for` uses each tab's own role, so viewers keep Security and
+    Setup guide under the operator-only Settings item.
+  - The scenario editor passes `active="scenarios_editor"`, so its alias
+    works.
+- **Test gotcha:** importing `app` in tests starts the real poller, whose disk
+  watchdog writes `disk.*_alerted` into the current test DB and makes Activity
+  appear. The nav tests stop it.
+
 ## 2026-11-04 — Roadmap #1: "is the router actually blocking?"
 
 New `blocking.py`. A read-only look at each MikroTik target's
