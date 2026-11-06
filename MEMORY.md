@@ -4,6 +4,29 @@ Append-only journal of what was built, fixed, and what's pending. Update at the 
 
 ---
 
+## 2026-11-06 — Public feed: own detections only, plus a plain-text endpoint
+
+- **Bug, live since the operator enabled publishing:** the signed feed was
+  about 99.9% other people's blocklists. The default exclude `lists:`
+  never matched CrowdSec's bare `lists` origin, and `CAPI` and
+  `cscli-import` weren't excluded at all. Of 10,000 entries, 9,153 were
+  `cscli-import` and only 3 were `crowdsec`. `intel_publish.THIRD_PARTY_ORIGINS`
+  (`lists`, `CAPI`, `cscli-import`) is now always excluded, in SQL before
+  the 10,000 LIMIT so imports can't crowd local bans out. `lists:` also
+  matches the bare `lists` origin.
+- **Whitelisted values are filtered out of both feeds.** A whitelisted IP
+  can keep an active decision (reconcile skips it but it stays in the
+  table), and a public feed must never publish the operator's own IPs.
+- **New `GET /feed/banned-ips.txt`:** one address per line for ipset,
+  pfSense/OPNsense and aggregators. Same entries and per-subscriber rate
+  limit as the signed feed, and it doesn't bump the signed feed's sequence.
+  The README has a "Public threat feed" section, and the page text and help
+  catalog were updated. Tests are in `tests/test_intel_feed.py`.
+- Live after the fix: 4 entries (3 `crowdsec`, 1 `asn_detector`). Local bans
+  last hours, so expect a small feed.
+- Not done: the issuer is still the generic `protek`. Set the "Issuer ID"
+  on the Publish feed page.
+
 ## 2026-11-03 — README screenshots recaptured from a demo instance
 
 All 16 `docs/screenshots/*.png` were replaced under the same names. They

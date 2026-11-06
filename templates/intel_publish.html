@@ -12,8 +12,11 @@
     Other Protek operators can subscribe to it (add as a CrowdSec source on their
     end) and verify each fetch with the public key at
     <a href="{{ url_for('intel_feed_pubkey') }}" target="_blank"><span class="mono">/feed/pubkey</span></a>.
-    Community-blocklist passthroughs (origin <span class="mono">lists:*</span>) are excluded by default —
-    you republish your own intel, not other people's.
+    Only this instance's own detections are published: bans from blocklist subscriptions
+    (<span class="mono">lists</span>), the community blocklist (<span class="mono">CAPI</span>) and
+    <span class="mono">cscli decisions import</span> are always left out, and so is anything on your whitelist.
+    A plain-text copy, one address per line, is at
+    <a href="{{ url_for('intel_feed_plain') }}" target="_blank"><span class="mono">/feed/banned-ips.txt</span></a>.
   </p>
 
   <div class="grid kpi-strip">

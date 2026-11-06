@@ -27,7 +27,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, session, url_for)
+                   Response, request, session, url_for)
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 
 ROOT = Path(__file__).resolve().parent
@@ -1051,6 +1051,22 @@ def intel_feed_signed():
     except Exception:  # noqa: BLE001
         pass
     return jsonify(feed)
+
+
+@app.route("/feed/banned-ips.txt")
+@csrf.exempt
+def intel_feed_plain():
+    """Public plain-text feed: one address or range per line, for ipset,
+    pfSense/OPNsense URL tables and blocklist aggregators. Same entries and
+    filters as the signed feed; same per-subscriber rate limit."""
+    import intel_publish, ratelimit
+    if not intel_publish.is_enabled():
+        return Response("# intel publishing not enabled on this instance\n",
+                        status=404, mimetype="text/plain")
+    sub = (request.args.get("subscriber") or "anonymous")[:80]
+    if not ratelimit.acquire(f"feed.{sub}"):
+        return Response("# rate limited, retry in 60s\n", status=429, mimetype="text/plain")
+    return Response(intel_publish.plain_text_feed(), mimetype="text/plain")
 
 
 @app.route("/feed/pubkey")

@@ -127,26 +127,51 @@ def _filter_excluded_origins() -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+# Origins that are other people's intel passing through this instance:
+# CrowdSec blocklist subscriptions ("lists"), the community blocklist
+# ("CAPI") and bulk imports via `cscli decisions import`. Republishing them
+# would pass third-party lists off as this instance's detections (and some,
+# like Spamhaus DROP, don't allow redistribution), so they are never
+# published, whatever the operator's exclude setting says.
+THIRD_PARTY_ORIGINS = frozenset({"lists", "capi", "cscli-import"})
+
+
 def _excluded(origin: str, excludes: list[str]) -> bool:
     if not origin:
         return False
+    if origin.lower() in THIRD_PARTY_ORIGINS:
+        return True
     for pat in excludes:
         if pat.endswith(":") or pat == "*":
-            if origin.startswith(pat.rstrip("*")):
+            # "lists:" also matches the bare origin "lists" — CrowdSec puts
+            # the list name in the scenario, not the origin.
+            prefix = pat.rstrip("*")
+            if origin.startswith(prefix) or origin == prefix.rstrip(":"):
                 return True
         elif pat == origin:
             return True
     return False
 
 
-def build_feed() -> dict[str, Any]:
-    """Build the unsigned payload — list of {ip, scope, scenario, origin,
-    first_seen, until} entries."""
+def _feed_entries() -> list[dict[str, Any]]:
+    """Active decisions that pass the scenario/origin filters, newest first.
+
+    Whitelisted values are dropped: a decision can stay active in the DB for
+    an IP the operator whitelisted (reconcile skips it, it never leaves the
+    table), and a public feed must never publish the operator's own IPs.
+    """
+    import scenarios_admin as sa
+
     scenarios = _filter_scenarios()
     excludes = _filter_excluded_origins()
-    sql = ("SELECT value, scope, scenario, origin, first_seen_at, until "
-           "FROM decisions WHERE deleted_at IS NULL")
-    params: list[Any] = []
+    whitelist = sa.list_whitelist(include_expired=False)
+    # Third-party origins are dropped in SQL, before the LIMIT, so imported
+    # lists can't fill the 10,000 slots and crowd out local detections.
+    sql = ("SELECT value, scope, scenario, origin, first_seen_at, until, asn "
+           "FROM decisions WHERE deleted_at IS NULL "
+           "AND lower(coalesce(origin, '')) NOT IN ("
+           + ",".join("?" * len(THIRD_PARTY_ORIGINS)) + ")")
+    params: list[Any] = sorted(THIRD_PARTY_ORIGINS)
     if scenarios:
         placeholders = ",".join(["?"] * len(scenarios))
         sql += f" AND scenario IN ({placeholders})"
@@ -161,6 +186,8 @@ def build_feed() -> dict[str, Any]:
     for r in rows:
         if _excluded(r["origin"] or "", excludes):
             continue
+        if sa.matches_whitelist(r["value"], asn=r["asn"] or "", rules=whitelist):
+            continue
         entries.append({
             "ip":        r["value"],
             "scope":     r["scope"],
@@ -169,6 +196,13 @@ def build_feed() -> dict[str, Any]:
             "first_seen": r["first_seen_at"],
             "until":     r["until"],
         })
+    return entries
+
+
+def build_feed() -> dict[str, Any]:
+    """Build the unsigned payload — list of {ip, scope, scenario, origin,
+    first_seen, until} entries."""
+    entries = _feed_entries()
 
     seq = int(get_setting("intel.publish.seq") or "0") + 1
     set_setting("intel.publish.seq", str(seq))
@@ -181,6 +215,26 @@ def build_feed() -> dict[str, Any]:
         "count":       len(entries),
         "entries":     entries,
     }
+
+
+def plain_text_feed() -> str:
+    """The same entries as one address or range per line, for ipset,
+    pfSense/OPNsense URL tables and FireHOL-style consumers. Unsigned, and it
+    doesn't advance the signed feed's sequence number."""
+    issuer = get_setting("intel.publish.issuer") or "protek"
+    seen: set[str] = set()
+    lines = []
+    for e in _feed_entries():
+        if e["ip"] and e["ip"] not in seen:
+            seen.add(e["ip"])
+            lines.append(e["ip"])
+    header = [
+        f"# Protek banned IPs: {issuer}",
+        f"# Generated {datetime.now(timezone.utc).isoformat(timespec='seconds')} - {len(lines)} entries",
+        "# Active bans detected on this instance; entries expire when the ban does.",
+        "# Signed JSON with scenario and expiry: /feed/banned-ips.signed.json (key: /feed/pubkey)",
+    ]
+    return "\n".join(header + lines) + "\n"
 
 
 def signed_feed() -> dict[str, Any]:

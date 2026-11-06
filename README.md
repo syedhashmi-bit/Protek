@@ -390,6 +390,20 @@ Transport-agnostic — talks to remote LAPIs over private IP / WireGuard / Tails
 
 ---
 
+## Public threat feed
+
+With **Threat intel → Publish feed** turned on, an instance publishes only the bans it detected itself. Blocklist subscriptions (`lists`), the community blocklist (`CAPI`), `cscli decisions import` and whitelisted addresses are always left out, so the feed never republishes someone else's list. Each instance serves three URLs:
+
+| URL | For |
+|---|---|
+| `/feed/banned-ips.txt` | One address or range per line: ipset, pfSense/OPNsense URL tables, blocklist aggregators |
+| `/feed/banned-ips.signed.json` | The same entries with scenario and expiry, Ed25519-signed |
+| `/feed/pubkey` | The key to verify the signed feed |
+
+The maintainer's own instance publishes at [`https://protek.syedhashmi.trade/feed/banned-ips.txt`](https://protek.syedhashmi.trade/feed/banned-ips.txt). It lists bans from SSH, web-probing and exploit scenarios seen on one VPS, refreshed on every request. Local bans last hours, so it is small at any moment. Add `?subscriber=<name>` so the per-subscriber rate limit gives you your own bucket, and poll no more than every few minutes.
+
+---
+
 ## Resilience
 
 Production deploys are protected by three layered mechanisms:
