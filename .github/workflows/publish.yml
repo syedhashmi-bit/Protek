@@ -28,7 +28,7 @@ jobs:
     name: build + push
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # arm64 is built under emulation. The heavy wheels (numpy, scikit-learn,
       # cryptography) ship aarch64 builds, so pip doesn't compile them.
